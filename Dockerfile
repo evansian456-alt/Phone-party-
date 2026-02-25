@@ -1,6 +1,7 @@
 # Phone Party - Production Dockerfile
 # Multi-stage build for minimal production image
 
+
 # ============================================================================
 # Stage 1: Dependencies
 # ============================================================================
@@ -29,9 +30,8 @@ RUN apk add --no-cache dumb-init curl
 RUN addgroup -g 1001 -S phoneparty && \
     adduser -S -u 1001 -G phoneparty phoneparty
 
-WORKDIR /app
 
-# Copy production dependencies from previous stage
+	# Copy production dependencies from previous stage
 COPY --from=dependencies /app/node_modules ./node_modules
 
 # Copy application files
