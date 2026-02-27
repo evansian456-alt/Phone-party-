@@ -11559,9 +11559,13 @@ function handleOfficialAppSyncTrackSelected(msg) {
   });
 
   // Wire up "Open in App" buttons using current track state
-  ['youtube', 'spotify', 'soundcloud'].forEach(function (platform) {
-    const btnId = 'btnOpen' + platform.charAt(0).toUpperCase() + platform.slice(1);
-    const openBtn = el(btnId);
+  const OPEN_BTN_IDS = {
+    youtube: 'btnOpenYouTube',
+    spotify: 'btnOpenSpotify',
+    soundcloud: 'btnOpenSoundCloud'
+  };
+  Object.keys(OPEN_BTN_IDS).forEach(function (platform) {
+    const openBtn = el(OPEN_BTN_IDS[platform]);
     if (!openBtn) return;
     openBtn.addEventListener('click', function () {
       const trackRef = (el('syncTrackRefInput')?.value || '').trim();

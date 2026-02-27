@@ -355,7 +355,7 @@ describe('Tier-aware display – platform logo visibility', () => {
       .post('/api/create-party')
       .send({ djName: 'Logo Test DJ Free', isHost: true });
     const code = res.body.partyCode;
-    if (!code) return;
+    expect(code).toBeTruthy();
     const limitsRes = await request(app).get(`/api/party/${code}/limits`);
     expect(limitsRes.status).toBe(200);
     expect(limitsRes.body.isPaidForOfficialAppSync).toBe(false);
@@ -367,7 +367,7 @@ describe('Tier-aware display – platform logo visibility', () => {
       .post('/api/create-party')
       .send({ djName: 'Logo Test DJ Pass', isHost: true, prototypeMode: true, tier: 'PARTY_PASS' });
     const code = res.body.partyCode;
-    if (!code) return;
+    expect(code).toBeTruthy();
     const limitsRes = await request(app).get(`/api/party/${code}/limits`);
     expect(limitsRes.status).toBe(200);
     expect(limitsRes.body.isPaidForOfficialAppSync).toBe(true);
@@ -379,7 +379,7 @@ describe('Tier-aware display – platform logo visibility', () => {
       .post('/api/create-party')
       .send({ djName: 'Logo Test DJ Pro', isHost: true, prototypeMode: true, tier: 'PRO' });
     const code = res.body.partyCode;
-    if (!code) return;
+    expect(code).toBeTruthy();
     const limitsRes = await request(app).get(`/api/party/${code}/limits`);
     expect(limitsRes.status).toBe(200);
     expect(limitsRes.body.isPaidForOfficialAppSync).toBe(true);
