@@ -11489,17 +11489,44 @@ function handleOfficialAppSyncTrackSelected(msg) {
   const statusEl = el('syncTrackStatus');
   if (statusEl) statusEl.textContent = playing ? '✅ Syncing…' : '⏸ Track queued';
 
-  // Build deep link + web fallback (guests only)
-  if (!state.isHost) {
-    let links = null;
-    try {
-      links = buildOfficialAppLink(platform, trackRef);
-    } catch (err) {
-      toast(`🎵 Official App Sync: ${platform || 'unknown'} track — cannot open link`);
-      return;
-    }
+  // Build deep link + web fallback for all users (host + guest)
+  let links = null;
+  try {
+    links = buildOfficialAppLink(platform, trackRef);
+  } catch (err) {
+    toast(`🎵 Official App Sync: ${platform || 'unknown'} track — cannot open link`);
+    return;
+  }
 
-    // Persist in module-level state
+  // Update host-side "Open in App" branded buttons
+  if (state.isHost) {
+    const openInAppContainer = el('openInAppButtons');
+    if (openInAppContainer) {
+      // Map platform names to their button element IDs
+      const platformBtnIds = {
+        youtube: 'btnOpenInYouTube',
+        spotify: 'btnOpenInSpotify',
+        soundcloud: 'btnOpenInSoundCloud'
+      };
+      const activePlatform = (platform || '').toLowerCase();
+      Object.keys(platformBtnIds).forEach(function(p) {
+        const btn = el(platformBtnIds[p]);
+        if (btn) {
+          if (p === activePlatform) {
+            btn.style.display = 'flex';
+            btn.onclick = function () { openInApp(links.deepLink, links.webUrl); };
+          } else {
+            btn.style.display = 'none';
+          }
+        }
+      });
+      openInAppContainer.classList.remove('hidden');
+    }
+    return;
+  }
+
+  // Persist in module-level state (guests only)
+  if (!state.isHost) {
     officialAppSyncState.deepLink = links.deepLink;
     officialAppSyncState.webUrl   = links.webUrl;
     officialAppSyncState.platform = platform;

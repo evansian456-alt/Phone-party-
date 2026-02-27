@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 90 20" role="img" aria-labelledby="yt-title">
+  <title id="yt-title">YouTube</title>
+  <!-- YouTube logo: red play button + wordmark -->
+  <!-- Colors used per YouTube Brand Guidelines: #FF0000 red, #282828 dark -->
+  <rect x="0" y="2" width="28" height="16" rx="4" fill="#FF0000"/>
+  <polygon points="11,6 11,14 20,10" fill="#FFFFFF"/>
+  <text x="32" y="15" font-family="Arial,Helvetica,sans-serif" font-size="13" font-weight="bold" fill="#282828">YouTube</text>
+</svg>

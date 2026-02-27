@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 110 20" role="img" aria-labelledby="sc-title">
+  <title id="sc-title">SoundCloud</title>
+  <!-- SoundCloud logo: orange cloud waveform + wordmark -->
+  <!-- Colors used per SoundCloud Brand Guidelines: #FF5500 orange -->
+  <path d="M1 13 Q1 10 4 10 Q4 6 8 7 Q9 4 13 5 Q16 4 17 7 Q20 7 20 10 Q20 14 17 14 L4 14 Q1 14 1 13Z" fill="#FF5500"/>
+  <rect x="3" y="11" width="1" height="3" rx="0.5" fill="#FFFFFF"/>
+  <rect x="5.5" y="9.5" width="1" height="4.5" rx="0.5" fill="#FFFFFF"/>
+  <rect x="8" y="9" width="1" height="5" rx="0.5" fill="#FFFFFF"/>
+  <rect x="10.5" y="10" width="1" height="4" rx="0.5" fill="#FFFFFF"/>
+  <rect x="13" y="10.5" width="1" height="3.5" rx="0.5" fill="#FFFFFF"/>
+  <text x="25" y="15" font-family="Arial,Helvetica,sans-serif" font-size="12" font-weight="bold" fill="#FF5500">SoundCloud</text>
+</svg>
