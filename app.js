@@ -11557,4 +11557,30 @@ function handleOfficialAppSyncTrackSelected(msg) {
       playing: true
     });
   });
+
+  // Wire up "Open in App" buttons using current track state
+  const OPEN_BTN_IDS = {
+    youtube: 'btnOpenYouTube',
+    spotify: 'btnOpenSpotify',
+    soundcloud: 'btnOpenSoundCloud'
+  };
+  Object.keys(OPEN_BTN_IDS).forEach(function (platform) {
+    const openBtn = el(OPEN_BTN_IDS[platform]);
+    if (!openBtn) return;
+    openBtn.addEventListener('click', function () {
+      const trackRef = (el('syncTrackRefInput')?.value || '').trim();
+      if (!trackRef) {
+        toast('Please enter a track URL or ID first.');
+        return;
+      }
+      let links;
+      try {
+        links = buildOfficialAppLink(platform, trackRef);
+      } catch (err) {
+        toast('Invalid track reference for ' + platform + '.');
+        return;
+      }
+      openInApp(links.deepLink, links.webUrl);
+    });
+  });
 })();

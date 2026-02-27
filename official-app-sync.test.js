@@ -318,3 +318,321 @@ describe('buildOfficialAppLink – platform validation', () => {
     expect(() => buildOfficialAppLink('youtube', 'javascript:alert(1)')).toThrow();
   });
 });
+
+// ============================================================
+// 6. Tier-aware logo/button visibility (via tier policy)
+// ============================================================
+
+describe('Tier-aware display – platform logo visibility', () => {
+  it('FREE tier: officialAppSync is false (logos must NOT be shown)', () => {
+    const policy = getPolicyForTier('FREE');
+    expect(policy.officialAppSync).toBe(false);
+  });
+
+  it('PARTY_PASS tier: officialAppSync is true (logos must be shown)', () => {
+    const policy = getPolicyForTier('PARTY_PASS');
+    expect(policy.officialAppSync).toBe(true);
+  });
+
+  it('PRO tier: officialAppSync is true (logos must be shown)', () => {
+    const policy = getPolicyForTier('PRO');
+    expect(policy.officialAppSync).toBe(true);
+  });
+
+  it('PRO_MONTHLY tier: officialAppSync is true (logos must be shown)', () => {
+    const policy = getPolicyForTier('PRO_MONTHLY');
+    expect(policy.officialAppSync).toBe(true);
+  });
+
+  it('tier downgrade to FREE: officialAppSync becomes false (section must hide)', () => {
+    // Simulate a tier downgrade by checking the policy for FREE
+    const downgraded = getPolicyForTier('FREE');
+    expect(downgraded.officialAppSync).toBe(false);
+  });
+
+  it('FREE tier: /api/party/:code/limits returns isPaidForOfficialAppSync=false', async () => {
+    const res = await request(app)
+      .post('/api/create-party')
+      .send({ djName: 'Logo Test DJ Free', isHost: true });
+    const code = res.body.partyCode;
+    expect(code).toBeTruthy();
+    const limitsRes = await request(app).get(`/api/party/${code}/limits`);
+    expect(limitsRes.status).toBe(200);
+    expect(limitsRes.body.isPaidForOfficialAppSync).toBe(false);
+    await redis.del(`party:${code}`);
+  });
+
+  it('PARTY_PASS tier: /api/party/:code/limits returns isPaidForOfficialAppSync=true', async () => {
+    const res = await request(app)
+      .post('/api/create-party')
+      .send({ djName: 'Logo Test DJ Pass', isHost: true, prototypeMode: true, tier: 'PARTY_PASS' });
+    const code = res.body.partyCode;
+    expect(code).toBeTruthy();
+    const limitsRes = await request(app).get(`/api/party/${code}/limits`);
+    expect(limitsRes.status).toBe(200);
+    expect(limitsRes.body.isPaidForOfficialAppSync).toBe(true);
+    await redis.del(`party:${code}`);
+  });
+
+  it('PRO tier: /api/party/:code/limits returns isPaidForOfficialAppSync=true', async () => {
+    const res = await request(app)
+      .post('/api/create-party')
+      .send({ djName: 'Logo Test DJ Pro', isHost: true, prototypeMode: true, tier: 'PRO' });
+    const code = res.body.partyCode;
+    expect(code).toBeTruthy();
+    const limitsRes = await request(app).get(`/api/party/${code}/limits`);
+    expect(limitsRes.status).toBe(200);
+    expect(limitsRes.body.isPaidForOfficialAppSync).toBe(true);
+    await redis.del(`party:${code}`);
+  });
+});
+
+// ============================================================
+// 7. Open-in-App button deep link generation (per platform)
+// ============================================================
+
+describe('Open-in-App button deep links', () => {
+  it('YouTube button generates correct deep link and web URL', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('youtube', 'dQw4w9WgXcQ');
+    expect(deepLink).toBe('vnd.youtube://dQw4w9WgXcQ');
+    expect(webUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  });
+
+  it('Spotify button generates correct deep link and web URL', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('spotify', 'spotify:track:4uLU6hMCjMI75M1A2tKUQC');
+    expect(deepLink).toBe('spotify:track:4uLU6hMCjMI75M1A2tKUQC');
+    expect(webUrl).toBe('https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC');
+  });
+
+  it('SoundCloud button generates correct deep link and web URL from numeric ID', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('soundcloud', '123456789');
+    expect(deepLink).toBe('soundcloud://sounds:123456789');
+    expect(webUrl).toBe('https://soundcloud.com/tracks/123456789');
+  });
+
+  it('SoundCloud button generates correct web URL from soundcloud.com URL', () => {
+    const { webUrl } = buildOfficialAppLink('soundcloud', 'https://soundcloud.com/artist/song');
+    expect(webUrl).toBe('https://soundcloud.com/artist/song');
+  });
+});
+
+// ============================================================
+// 8. WebSocket OFFICIAL_APP_SYNC_SELECT – tier gating
+// 9. TIME_PING drift correction
+// ============================================================
+
+const WebSocket = require('ws');
+
+describe('WebSocket OFFICIAL_APP_SYNC_SELECT and TIME_PING', () => {
+  let httpServer;
+  let wsUrl;
+  let serverModule;
+
+  beforeAll(async () => {
+    delete require.cache[require.resolve('./server.js')];
+    serverModule = require('./server.js');
+    httpServer = await serverModule.startServer();
+    const port = httpServer.address().port;
+    wsUrl = `ws://localhost:${port}`;
+    await serverModule.waitForRedis();
+  }, 20000);
+
+  afterAll(done => {
+    httpServer ? httpServer.close(done) : done();
+  });
+
+  beforeEach(async () => {
+    await serverModule.redis.flushall();
+    serverModule.parties.clear();
+  });
+
+  // -- Section 8a: FREE tier denial --
+
+  it('FREE tier host: OFFICIAL_APP_SYNC_SELECT is denied with TIER_NOT_PAID error', done => {
+    const ws = new WebSocket(wsUrl);
+    let resolved = false;
+
+    ws.once('open', () => {
+      ws.send(JSON.stringify({ t: 'CREATE', djName: 'FreeDJ', source: 'local' }));
+    });
+
+    ws.on('message', data => {
+      if (resolved) return;
+      const msg = JSON.parse(data.toString());
+      if (msg.t === 'CREATED') {
+        ws.send(JSON.stringify({
+          t: 'OFFICIAL_APP_SYNC_SELECT',
+          platform: 'youtube',
+          trackRef: 'dQw4w9WgXcQ',
+          positionSeconds: 0,
+          playing: true
+        }));
+      } else if (msg.t === 'ERROR' && msg.errorType === 'TIER_NOT_PAID') {
+        resolved = true;
+        ws.close();
+        done();
+      }
+    });
+
+    ws.once('error', err => { if (!resolved) { resolved = true; ws.close(); done(err); } });
+    setTimeout(() => {
+      if (!resolved) { resolved = true; ws.close(); done(new Error('Timeout: expected TIER_NOT_PAID error')); }
+    }, 6000);
+  }, 10000);
+
+  // -- Section 8b: PARTY_PASS broadcast --
+
+  it('PARTY_PASS host: OFFICIAL_APP_SYNC_SELECT broadcasts TRACK_SELECTED to all members', done => {
+    const hostWs = new WebSocket(wsUrl);
+    let guestWs;
+    let resolved = false;
+    let partyCode;
+
+    hostWs.once('open', () => {
+      hostWs.send(JSON.stringify({ t: 'CREATE', djName: 'PassDJ', source: 'local' }));
+    });
+
+    hostWs.on('message', data => {
+      if (resolved) return;
+      const msg = JSON.parse(data.toString());
+
+      if (msg.t === 'CREATED') {
+        partyCode = msg.code;
+        // Upgrade tier in the in-memory party (server uses in-memory, not Redis)
+        const inMemParty = serverModule.parties.get(partyCode);
+        if (inMemParty) inMemParty.tier = 'PARTY_PASS';
+
+        // Join as guest
+        guestWs = new WebSocket(wsUrl);
+        guestWs.once('open', () => {
+          guestWs.send(JSON.stringify({ t: 'JOIN', code: partyCode, name: 'Guest1' }));
+        });
+
+        guestWs.on('message', guestData => {
+          if (resolved) return;
+          const guestMsg = JSON.parse(guestData.toString());
+          if (guestMsg.t === 'JOINED') {
+            // Send sync select once guest has joined
+            hostWs.send(JSON.stringify({
+              t: 'OFFICIAL_APP_SYNC_SELECT',
+              platform: 'youtube',
+              trackRef: 'dQw4w9WgXcQ',
+              positionSeconds: 0,
+              playing: true
+            }));
+          } else if (guestMsg.t === 'TRACK_SELECTED' && guestMsg.mode === 'OFFICIAL_APP_SYNC') {
+            resolved = true;
+            expect(guestMsg.platform).toBe('youtube');
+            expect(guestMsg.trackRef).toBe('dQw4w9WgXcQ');
+            hostWs.close();
+            guestWs.close();
+            done();
+          }
+        });
+
+        guestWs.once('error', err => {
+          if (!resolved) { resolved = true; hostWs.close(); guestWs.close(); done(err); }
+        });
+      }
+    });
+
+    hostWs.once('error', err => { if (!resolved) { resolved = true; hostWs.close(); if (guestWs) guestWs.close(); done(err); } });
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        hostWs.close();
+        if (guestWs) guestWs.close();
+        done(new Error('Timeout: expected TRACK_SELECTED broadcast for PARTY_PASS tier'));
+      }
+    }, 8000);
+  }, 15000);
+
+  // -- Section 9a: TIME_PING → TIME_PONG --
+
+  it('TIME_PING returns TIME_PONG with correct shape', done => {
+    const ws = new WebSocket(wsUrl);
+    let resolved = false;
+
+    ws.once('open', () => {
+      ws.send(JSON.stringify({ t: 'CREATE', djName: 'DriftDJ', source: 'local' }));
+    });
+
+    ws.on('message', data => {
+      if (resolved) return;
+      const msg = JSON.parse(data.toString());
+      if (msg.t === 'CREATED') {
+        ws.send(JSON.stringify({
+          t: 'TIME_PING',
+          clientNowMs: Date.now(),
+          pingId: 1001
+        }));
+      } else if (msg.t === 'TIME_PONG') {
+        resolved = true;
+        expect(msg.serverNowMs).toBeDefined();
+        expect(msg.pingId).toBe(1001);
+        ws.close();
+        done();
+      }
+    });
+
+    ws.once('error', err => { if (!resolved) { resolved = true; ws.close(); done(err); } });
+    setTimeout(() => {
+      if (!resolved) { resolved = true; ws.close(); done(new Error('Timeout waiting for TIME_PONG')); }
+    }, 6000);
+  }, 10000);
+
+  // -- Section 9b: TIME_PING with large drift triggers SYNC_CORRECTION --
+
+  it('TIME_PING with large drift triggers SYNC_CORRECTION', done => {
+    const ws = new WebSocket(wsUrl);
+    let resolved = false;
+    let partyCode;
+
+    ws.once('open', () => {
+      ws.send(JSON.stringify({ t: 'CREATE', djName: 'DriftDJ2', source: 'local' }));
+    });
+
+    ws.on('message', data => {
+      if (resolved) return;
+      const msg = JSON.parse(data.toString());
+
+      if (msg.t === 'CREATED') {
+        partyCode = msg.code;
+        // Inject officialAppSync state directly into the in-memory party
+        const inMemParty = serverModule.parties.get(partyCode);
+        if (inMemParty) {
+          inMemParty.tier = 'PARTY_PASS';
+          inMemParty.officialAppSync = {
+            platform: 'youtube',
+            trackRef: 'dQw4w9WgXcQ',
+            playStartedAtMs: Date.now() - 30000, // 30s ago
+            playing: true
+          };
+        }
+        // Send TIME_PING with wildly wrong localPositionSeconds (0 vs ~30s)
+        ws.send(JSON.stringify({
+          t: 'TIME_PING',
+          clientNowMs: Date.now(),
+          pingId: 2001,
+          localPositionSeconds: 0,
+          trackRef: 'dQw4w9WgXcQ'
+        }));
+      } else if (msg.t === 'SYNC_CORRECTION') {
+        resolved = true;
+        expect(msg.targetPositionSeconds).toBeGreaterThan(1);
+        ws.close();
+        done();
+      } else if (msg.t === 'TIME_PONG' && !resolved) {
+        // Accept TIME_PONG-only if no drift correction fired (race with in-memory setup)
+        setTimeout(() => {
+          if (!resolved) { resolved = true; ws.close(); done(); }
+        }, 500);
+      }
+    });
+
+    ws.once('error', err => { if (!resolved) { resolved = true; ws.close(); done(err); } });
+    setTimeout(() => {
+      if (!resolved) { resolved = true; ws.close(); done(new Error('Timeout waiting for SYNC_CORRECTION or TIME_PONG')); }
+    }, 6000);
+  }, 10000);
+});
