@@ -11292,12 +11292,189 @@ setInterval(() => {
 // ============================================================
 
 /**
+ * Build a platform deep link and web fallback URL for a track reference.
+ * Validates the platform strictly and never trusts raw URL input.
+ *
+ * NOTE: This logic is intentionally mirrored in official-app-link.js (Node.js
+ * module) so that it can be unit-tested independently of the browser environment.
+ * Keep both in sync when making changes.
+ *
+ * @param {string} platform - 'youtube' | 'spotify' | 'soundcloud' (case-insensitive)
+ * @param {string} trackRef - Platform-specific track reference (URL, URI, or bare ID)
+ * @returns {{ deepLink: string, webUrl: string }}
+ * @throws {Error} If the platform is unsupported or trackRef is invalid
+ */
+function buildOfficialAppLink(platform, trackRef) {
+  if (!platform || typeof platform !== 'string') {
+    throw new Error('platform must be a non-empty string');
+  }
+  if (!trackRef || typeof trackRef !== 'string') {
+    throw new Error('trackRef must be a non-empty string');
+  }
+
+  const YOUTUBE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
+  const SPOTIFY_URI_RE = /^spotify:track:([a-zA-Z0-9]+)$/;
+  const SOUNDCLOUD_NUMERIC_RE = /^\d+$/;
+
+  switch (platform.toLowerCase()) {
+    case 'youtube': {
+      let videoId = null;
+      try {
+        const url = new URL(trackRef);
+        if (url.hostname === 'youtu.be') {
+          const id = url.pathname.slice(1).split('?')[0].split('/')[0];
+          if (YOUTUBE_ID_RE.test(id)) videoId = id;
+        } else if (url.hostname === 'youtube.com' || url.hostname === 'www.youtube.com' ||
+                   url.hostname === 'm.youtube.com') {
+          const v = url.searchParams.get('v');
+          if (v && YOUTUBE_ID_RE.test(v)) videoId = v;
+          if (!videoId) {
+            const m = url.pathname.match(/\/(?:shorts|embed|v)\/([a-zA-Z0-9_-]{11})/);
+            if (m) videoId = m[1];
+          }
+        }
+      } catch (_) { /* not a URL */ }
+      if (!videoId && YOUTUBE_ID_RE.test(trackRef)) videoId = trackRef;
+      if (!videoId) throw new Error(`Invalid YouTube trackRef: "${trackRef}"`);
+      return {
+        deepLink: `vnd.youtube://${videoId}`,
+        webUrl: `https://www.youtube.com/watch?v=${videoId}`
+      };
+    }
+
+    case 'spotify': {
+      let uri = null;
+      if (SPOTIFY_URI_RE.test(trackRef)) {
+        uri = trackRef;
+      } else {
+        try {
+          const url = new URL(trackRef);
+          if (url.hostname === 'open.spotify.com' || url.hostname === 'spotify.com') {
+            const m = url.pathname.match(/\/track\/([a-zA-Z0-9]+)/);
+            if (m) uri = `spotify:track:${m[1]}`;
+          }
+        } catch (_) { /* not a URL */ }
+        if (!uri) {
+          const uriMatch = trackRef.match(/^spotify:track:([a-zA-Z0-9]+)$/);
+          if (uriMatch) uri = `spotify:track:${uriMatch[1]}`;
+        }
+        if (!uri && /^[a-zA-Z0-9]{10,}$/.test(trackRef)) {
+          uri = `spotify:track:${trackRef}`;
+        }
+      }
+      if (!uri) throw new Error(`Invalid Spotify trackRef: "${trackRef}"`);
+      const trackId = uri.split(':')[2];
+      return {
+        deepLink: uri,
+        webUrl: `https://open.spotify.com/track/${trackId}`
+      };
+    }
+
+    case 'soundcloud': {
+      const ref = trackRef.trim();
+      if (SOUNDCLOUD_NUMERIC_RE.test(ref)) {
+        return {
+          deepLink: `soundcloud://sounds:${ref}`,
+          webUrl: `https://soundcloud.com/tracks/${ref}`
+        };
+      }
+      const apiMatch = ref.match(/\/tracks\/(\d+)/);
+      if (apiMatch) {
+        return {
+          deepLink: `soundcloud://sounds:${apiMatch[1]}`,
+          webUrl: `https://soundcloud.com/tracks/${apiMatch[1]}`
+        };
+      }
+      try {
+        const url = new URL(ref);
+        if (url.hostname === 'soundcloud.com' || url.hostname === 'www.soundcloud.com') {
+          const canonicalUrl = `${url.origin}${url.pathname}`.replace(/\/$/, '');
+          return {
+            deepLink: `soundcloud://sounds:${encodeURIComponent(canonicalUrl)}`,
+            webUrl: canonicalUrl
+          };
+        }
+      } catch (_) { /* not a URL */ }
+      throw new Error(`Invalid SoundCloud trackRef: "${trackRef}"`);
+    }
+
+    default:
+      throw new Error(
+        `Unsupported platform: "${platform}". Must be youtube, spotify, or soundcloud.`
+      );
+  }
+}
+
+// Allowed URI schemes for deep links (whitelist to prevent javascript: injection)
+const ALLOWED_DEEP_LINK_SCHEMES = ['vnd.youtube:', 'spotify:', 'soundcloud:'];
+
+/**
+ * Safely navigate to a deep link, with a timed fallback to the web URL.
+ * Used by both the manual button and mobile auto-launch.
+ *
+ * @param {string} deepLink - Platform deep link URI
+ * @param {string} webUrl   - HTTPS web fallback URL
+ */
+function openInApp(deepLink, webUrl) {
+  // Reject any deep link whose scheme is not on the allowlist
+  const schemeOk = ALLOWED_DEEP_LINK_SCHEMES.some(function (s) {
+    return deepLink.startsWith(s);
+  });
+  if (!schemeOk) {
+    window.location = webUrl;
+    return;
+  }
+
+  window.location = deepLink;
+
+  const fallbackTimer = setTimeout(function () {
+    if (document.visibilityState !== 'hidden') {
+      window.location = webUrl;
+    }
+    document.removeEventListener('visibilitychange', onVisChange);
+  }, 1000);
+
+  function onVisChange() {
+    if (document.visibilityState === 'hidden') {
+      clearTimeout(fallbackTimer);
+      document.removeEventListener('visibilitychange', onVisChange);
+    }
+  }
+  document.addEventListener('visibilitychange', onVisChange);
+}
+
+// State for Official App Sync deep linking (guest side)
+const officialAppSyncState = {
+  deepLink: null,
+  webUrl: null,
+  platform: null,
+  autoLaunchAttempted: false
+};
+
+/**
+ * Attempt to auto-launch the deep link on mobile devices.
+ * Delegates to openInApp() to prevent duplicate launch attempts.
+ */
+function attemptMobileAutoLaunch(deepLink, webUrl) {
+  if (officialAppSyncState.autoLaunchAttempted) return;
+  officialAppSyncState.autoLaunchAttempted = true;
+  openInApp(deepLink, webUrl);
+}
+
+/**
+ * Return true when the user agent looks like a mobile browser.
+ */
+function isMobileDevice() {
+  return /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+/**
  * Handle TRACK_SELECTED with mode=OFFICIAL_APP_SYNC from server.
  * Shows the "Now Syncing" info box and – for guests – opens the track
  * in the platform's official player/deep-link.
  */
 function handleOfficialAppSyncTrackSelected(msg) {
-  const { platform, trackRef, serverTimestampMs, positionSeconds, playing } = msg;
+  const { platform, trackRef, playing } = msg;
 
   // Update the host-side "Now Playing" box
   const nowPlayingBox = el('syncNowPlayingBox');
@@ -11311,6 +11488,46 @@ function handleOfficialAppSyncTrackSelected(msg) {
   // Update status label
   const statusEl = el('syncTrackStatus');
   if (statusEl) statusEl.textContent = playing ? '✅ Syncing…' : '⏸ Track queued';
+
+  // Build deep link + web fallback (guests only)
+  if (!state.isHost) {
+    let links = null;
+    try {
+      links = buildOfficialAppLink(platform, trackRef);
+    } catch (err) {
+      toast(`🎵 Official App Sync: ${platform || 'unknown'} track — cannot open link`);
+      return;
+    }
+
+    // Persist in module-level state
+    officialAppSyncState.deepLink = links.deepLink;
+    officialAppSyncState.webUrl   = links.webUrl;
+    officialAppSyncState.platform = platform;
+    officialAppSyncState.autoLaunchAttempted = false;
+
+    const platformLabel = platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : 'App';
+
+    // Render "Open in App" panel in guest view
+    const guestSyncPanel = el('guestOfficialAppSyncPanel');
+    const guestSyncLabel = el('guestOfficialAppSyncLabel');
+    const openBtn        = el('btnGuestOpenInApp');
+
+    if (guestSyncLabel) {
+      guestSyncLabel.textContent = `Host selected a ${platformLabel} track`;
+    }
+    if (openBtn) {
+      openBtn.textContent = `Open in ${platformLabel}`;
+      openBtn.onclick = function () {
+        openInApp(links.deepLink, links.webUrl);
+      };
+    }
+    if (guestSyncPanel) guestSyncPanel.classList.remove('hidden');
+
+    // Mobile: attempt auto-launch
+    if (isMobileDevice()) {
+      attemptMobileAutoLaunch(links.deepLink, links.webUrl);
+    }
+  }
 
   toast(`🎵 Official App Sync: ${platform} track synced`);
 }

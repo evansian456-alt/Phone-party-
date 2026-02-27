@@ -69,8 +69,8 @@ function normalizeSpotifyRef(ref) {
   const uriMatch = ref.match(/^spotify:track:([a-zA-Z0-9]+)$/);
   if (uriMatch) return `spotify:track:${uriMatch[1]}`;
 
-  // Bare track ID (alphanumeric, 10-30 chars)
-  if (/^[a-zA-Z0-9]{10,30}$/.test(ref)) return `spotify:track:${ref}`;
+  // Bare track ID (alphanumeric, 10+ chars)
+  if (/^[a-zA-Z0-9]{10,}$/.test(ref)) return `spotify:track:${ref}`;
 
   throw new Error(`Invalid Spotify trackRef: "${ref}"`);
 }

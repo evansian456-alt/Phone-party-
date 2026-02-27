@@ -223,3 +223,98 @@ describe('GET /api/party/:code/limits', () => {
     expect(res.status).toBe(404);
   });
 });
+
+// ============================================================
+// 5. buildOfficialAppLink – deep link generation
+// ============================================================
+
+const { buildOfficialAppLink } = require('./official-app-link');
+
+describe('buildOfficialAppLink – YouTube', () => {
+  it('generates correct links from a bare videoId', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('youtube', 'dQw4w9WgXcQ');
+    expect(deepLink).toBe('vnd.youtube://dQw4w9WgXcQ');
+    expect(webUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  });
+
+  it('extracts videoId from watch URL', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('youtube', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    expect(deepLink).toBe('vnd.youtube://dQw4w9WgXcQ');
+    expect(webUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+  });
+
+  it('extracts videoId from youtu.be URL', () => {
+    const { deepLink } = buildOfficialAppLink('youtube', 'https://youtu.be/dQw4w9WgXcQ');
+    expect(deepLink).toBe('vnd.youtube://dQw4w9WgXcQ');
+  });
+
+  it('throws on invalid YouTube trackRef', () => {
+    expect(() => buildOfficialAppLink('youtube', 'not-valid')).toThrow();
+  });
+});
+
+describe('buildOfficialAppLink – Spotify', () => {
+  it('generates correct links from a canonical URI', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('spotify', 'spotify:track:4uLU6hMCjMI75M1A2tKUQC');
+    expect(deepLink).toBe('spotify:track:4uLU6hMCjMI75M1A2tKUQC');
+    expect(webUrl).toBe('https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC');
+  });
+
+  it('generates correct links from an open.spotify.com URL', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('spotify', 'https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC');
+    expect(deepLink).toBe('spotify:track:4uLU6hMCjMI75M1A2tKUQC');
+    expect(webUrl).toBe('https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC');
+  });
+
+  it('generates correct links from a bare track ID', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('spotify', '4uLU6hMCjMI75M1A2tKUQC');
+    expect(deepLink).toBe('spotify:track:4uLU6hMCjMI75M1A2tKUQC');
+    expect(webUrl).toBe('https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC');
+  });
+
+  it('throws on invalid Spotify trackRef', () => {
+    expect(() => buildOfficialAppLink('spotify', 'not-a-track')).toThrow();
+  });
+});
+
+describe('buildOfficialAppLink – SoundCloud', () => {
+  it('generates correct links from a numeric track ID', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('soundcloud', '123456789');
+    expect(deepLink).toBe('soundcloud://sounds:123456789');
+    expect(webUrl).toBe('https://soundcloud.com/tracks/123456789');
+  });
+
+  it('generates correct links from a soundcloud.com URL', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('soundcloud', 'https://soundcloud.com/artist/track-slug');
+    expect(webUrl).toBe('https://soundcloud.com/artist/track-slug');
+    expect(deepLink).toContain('soundcloud://sounds:');
+  });
+
+  it('throws on invalid SoundCloud trackRef', () => {
+    expect(() => buildOfficialAppLink('soundcloud', 'not-soundcloud-and-not-numeric-and-no-tracks')).toThrow();
+  });
+});
+
+describe('buildOfficialAppLink – platform validation', () => {
+  it('throws on unsupported platform', () => {
+    expect(() => buildOfficialAppLink('tidal', 'abc123')).toThrow(/Unsupported platform/);
+  });
+
+  it('throws on empty platform', () => {
+    expect(() => buildOfficialAppLink('', 'dQw4w9WgXcQ')).toThrow();
+  });
+
+  it('throws on empty trackRef', () => {
+    expect(() => buildOfficialAppLink('youtube', '')).toThrow();
+  });
+
+  it('is case-insensitive for platform name', () => {
+    const { deepLink } = buildOfficialAppLink('YouTube', 'dQw4w9WgXcQ');
+    expect(deepLink).toBe('vnd.youtube://dQw4w9WgXcQ');
+  });
+
+  it('never constructs javascript: URLs', () => {
+    // Attempting javascript: injection via trackRef should throw (no valid videoId)
+    expect(() => buildOfficialAppLink('youtube', 'javascript:alert(1)')).toThrow();
+  });
+});
