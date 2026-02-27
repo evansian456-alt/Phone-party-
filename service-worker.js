@@ -3,7 +3,7 @@
  * Provides offline capability and PWA installation support
  */
 
-const CACHE_NAME = 'phone-party-v1.0.0';
+const CACHE_NAME = 'phone-party-v1.0.1';
 const RUNTIME_CACHE = 'phone-party-runtime';
 
 // Assets to cache on install
