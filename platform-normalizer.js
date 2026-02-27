@@ -23,7 +23,9 @@ function normalizeYouTubeRef(ref) {
       const id = url.pathname.slice(1).split('?')[0].split('/')[0];
       if (id && /^[a-zA-Z0-9_-]{11}$/.test(id)) return id;
     }
-    if (url.hostname.includes('youtube.com') || url.hostname.includes('youtube-nocookie.com')) {
+    if (url.hostname === 'youtube.com' || url.hostname === 'www.youtube.com' ||
+        url.hostname === 'm.youtube.com' || url.hostname === 'youtube-nocookie.com' ||
+        url.hostname === 'www.youtube-nocookie.com') {
       // /watch?v=ID
       const v = url.searchParams.get('v');
       if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) return v;
@@ -55,7 +57,7 @@ function normalizeSpotifyRef(ref) {
   // open.spotify.com/track/ID
   try {
     const url = new URL(ref);
-    if (url.hostname.includes('spotify.com')) {
+    if (url.hostname === 'open.spotify.com' || url.hostname === 'spotify.com') {
       const m = url.pathname.match(/\/track\/([a-zA-Z0-9]+)/);
       if (m) return `spotify:track:${m[1]}`;
     }
@@ -91,7 +93,7 @@ function normalizeSoundCloudRef(ref) {
   // soundcloud.com URL – normalize to origin + pathname (drop query/hash)
   try {
     const url = new URL(ref);
-    if (url.hostname.includes('soundcloud.com')) {
+    if (url.hostname === 'soundcloud.com' || url.hostname === 'www.soundcloud.com') {
       // /artist/track-slug is the canonical form
       const normalized = `${url.origin}${url.pathname}`.replace(/\/$/, '');
       return normalized;
