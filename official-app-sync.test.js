@@ -35,6 +35,10 @@ describe('Platform normalizer – YouTube', () => {
     expect(normalizeYouTubeRef('https://www.youtube.com/embed/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
   });
 
+  it('extracts videoId from youtube-nocookie.com embed URL', () => {
+    expect(normalizeYouTubeRef('https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
+  });
+
   it('accepts a raw 11-char videoId', () => {
     expect(normalizeYouTubeRef('dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
   });
@@ -246,6 +250,12 @@ describe('buildOfficialAppLink – YouTube', () => {
   it('extracts videoId from youtu.be URL', () => {
     const { deepLink } = buildOfficialAppLink('youtube', 'https://youtu.be/dQw4w9WgXcQ');
     expect(deepLink).toBe('vnd.youtube://dQw4w9WgXcQ');
+  });
+
+  it('extracts videoId from youtube-nocookie.com embed URL', () => {
+    const { deepLink, webUrl } = buildOfficialAppLink('youtube', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ');
+    expect(deepLink).toBe('vnd.youtube://dQw4w9WgXcQ');
+    expect(webUrl).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
   });
 
   it('throws on invalid YouTube trackRef', () => {

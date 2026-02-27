@@ -24,6 +24,11 @@ const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before pro
 const MESSAGE_TTL_MS = 12000; // Messages auto-disappear after 12 seconds (unified feed)
 const AUDIO_UNLOCK_SUCCESS_DELAY_MS = 300; // Delay to show "Audio enabled" success message before playing
 
+// Changer version – bump this whenever platform detection / URL transformation logic changes.
+// Used to confirm the new changer build is running (visible in browser devtools console).
+const CHANGER_VERSION = '2026-02-27-a';
+console.log('[Changer] version:', CHANGER_VERSION);
+
 // Dev/Test Mode Configuration
 const DEV_MODE = window.location.search.includes('devmode=true') || window.location.hash.includes('devmode');
 const TEST_MODE = window.location.search.includes('testmode=true') || window.location.hash.includes('testmode');
@@ -11325,7 +11330,8 @@ function buildOfficialAppLink(platform, trackRef) {
           const id = url.pathname.slice(1).split('?')[0].split('/')[0];
           if (YOUTUBE_ID_RE.test(id)) videoId = id;
         } else if (url.hostname === 'youtube.com' || url.hostname === 'www.youtube.com' ||
-                   url.hostname === 'm.youtube.com') {
+                   url.hostname === 'm.youtube.com' || url.hostname === 'youtube-nocookie.com' ||
+                   url.hostname === 'www.youtube-nocookie.com') {
           const v = url.searchParams.get('v');
           if (v && YOUTUBE_ID_RE.test(v)) videoId = v;
           if (!videoId) {

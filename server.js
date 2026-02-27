@@ -63,6 +63,10 @@ const { isPaidForOfficialAppSync: tierPolicyIsPaidForOfficialAppSync, getPolicyF
 // Import platform normalizer for Official App Sync track references
 const { normalizePlatformTrackRef } = require('./platform-normalizer');
 
+// Changer version – bump whenever platform detection / URL transformation logic changes.
+// Logged at startup so production logs confirm the new changer build is running.
+const CHANGER_VERSION = '2026-02-27-a';
+
 // Import production services
 const { MetricsService } = require('./metrics-service');
 const { ReferralSystem } = require('./referral-system');
@@ -336,6 +340,7 @@ console.log('══════════════════════�
 console.log('  📊 STARTUP DIAGNOSTICS');
 console.log('═══════════════════════════════════════════════════════════');
 console.log(`  APP_VERSION:          ${APP_VERSION}`);
+console.log(`  CHANGER_VERSION:      ${CHANGER_VERSION}`);
 console.log(`  INSTANCE_ID:          ${INSTANCE_ID}`);
 console.log(`  NODE_ENV:             ${process.env.NODE_ENV || 'not set'}`);
 console.log(`  IS_PRODUCTION:        ${IS_PRODUCTION}`);
@@ -752,11 +757,19 @@ if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
 // Add version header to all responses
 app.use((req, res, next) => {
   res.setHeader("X-App-Version", APP_VERSION);
+  res.setHeader("X-Changer-Version", CHANGER_VERSION);
   next();
 });
 
-// Serve static files from the repo root
-app.use(express.static(__dirname));
+// Serve static files from the repo root.
+// HTML, JS, and CSS files use no-cache so browsers always revalidate after a deploy.
+app.use(express.static(__dirname, {
+  setHeaders(res, filePath) {
+    if (/\.(html|js|css)$/.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, must-revalidate');
+    }
+  }
+}));
 
 // Serve uploaded files from the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -7020,7 +7033,7 @@ function handleOfficialAppSyncSelect(ws, msg) {
     }
   });
 
-  console.log(`[OfficialAppSync] Track selected: platform=${platform} trackRef=${normalizedRef} party=${client.party}`);
+  console.log(`[OfficialAppSync] changerVersion=${CHANGER_VERSION} platform=${platform} trackRef=${normalizedRef} party=${client.party}`);
 }
 
 function handleHostNextTrackQueued(ws, msg) {
