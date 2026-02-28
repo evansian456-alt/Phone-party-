@@ -952,6 +952,16 @@ app.get("/manifest.json", staticLimiter, (req, res) => {
   res.sendFile(path.join(__dirname, "manifest.json"));
 });
 
+// Platform logo SVG assets — single parameterized route with allowlist validation
+// and no-cache headers so service-worker caches never serve a stale logo after
+// a brand-asset update.
+const ALLOWED_PLATFORM_LOGOS = new Set(['youtube', 'spotify', 'soundcloud']);
+app.get("/public/assets/platform-logos/:platform.svg", staticLimiter, (req, res) => {
+  if (!ALLOWED_PLATFORM_LOGOS.has(req.params.platform)) return res.status(404).end();
+  res.setHeader('Cache-Control', NO_CACHE);
+  res.sendFile(path.join(__dirname, "public/assets/platform-logos", `${req.params.platform}.svg`));
+});
+
 // Diagnostic endpoint — returns version info so you can confirm which build is
 // running from a mobile browser without any CLI access.
 // Does NOT expose secrets; only uses constants already logged at startup.
