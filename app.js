@@ -35,7 +35,7 @@ const SYNC_QUALITY_MEDIUM = "Medium";
 const SYNC_QUALITY_POOR = "Poor";
 
 // All views in the application
-const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
+const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewAuthHome', 'viewParty', 'viewPayment', 'viewGuest', 
                    'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
                    'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile',
                    'viewCompleteProfile'];
@@ -2153,6 +2153,7 @@ function showHome() {
   hide("viewPayment");
   hide("viewAccountCreation");
   show("viewHome"); 
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
@@ -2185,6 +2186,7 @@ function showHome() {
 function showLanding() {
   show("viewLanding"); 
   hide("viewHome"); 
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   hide("viewChooseTier");
@@ -2237,9 +2239,17 @@ function showLanding() {
 function showParty() {
   hide("viewLanding"); 
   hide("viewHome"); 
+  hide("viewAuthHome");
   hide("viewChooseTier");
   hide("viewPayment");
   show("viewParty");
+  // Update URL to /party/:code so back button and refresh work
+  if (state.code && typeof history !== 'undefined') {
+    var partyPath = '/party/' + state.code;
+    if (window.location.pathname !== partyPath) {
+      history.pushState({ path: partyPath }, '', partyPath);
+    }
+  }
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   
   // Display offline/local mode message
@@ -2315,6 +2325,7 @@ function showParty() {
 function showChooseTier() {
   hide("viewLanding");
   hide("viewHome");
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   hide("viewPayment");
@@ -2327,6 +2338,7 @@ function showChooseTier() {
 function showAccountCreation() {
   hide("viewLanding");
   hide("viewHome");
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   hide("viewPayment");
@@ -2360,6 +2372,7 @@ function updateSelectedTierDisplay() {
 function showPayment() {
   hide("viewLanding");
   hide("viewHome");
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   hide("viewChooseTier");
@@ -2858,8 +2871,16 @@ function updatePartyTimeRemaining(timeRemainingMs) {
 function showGuest() {
   hide("viewLanding"); 
   hide("viewHome"); 
+  hide("viewAuthHome");
   hide("viewParty"); 
   show("viewGuest");
+  // Update URL so refresh stays in guest view
+  if (state.code && typeof history !== 'undefined') {
+    var guestPath = '/party/' + state.code;
+    if (window.location.pathname !== guestPath) {
+      history.pushState({ path: guestPath }, '', guestPath);
+    }
+  }
   
   // Update guest meta with DJ name if available
   if (state.djName) {
@@ -6655,7 +6676,12 @@ async function initAuthFlow() {
     if (!response.ok) {
       // Not authenticated - show landing page without header icons
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-      showLanding();
+      // Use router if available, otherwise fallback
+      if (typeof navigate === 'function') {
+        navigate('/', { replace: true });
+      } else {
+        showLanding();
+      }
       return;
     }
     const data = await response.json();
@@ -6671,13 +6697,22 @@ async function initAuthFlow() {
       showView('viewCompleteProfile');
       initCompleteProfileView();
     } else {
-      showView('viewParty');
-      initPartyHomeView();
+      // After login always land on authenticated home hub (/home)
+      if (typeof navigate === 'function') {
+        navigate('/home', { replace: true });
+      } else {
+        showView('viewAuthHome');
+        initPartyHomeView();
+      }
     }
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-    showLanding();
+    if (typeof navigate === 'function') {
+      navigate('/', { replace: true });
+    } else {
+      showLanding();
+    }
   }
 }
 
@@ -6710,8 +6745,12 @@ function initCompleteProfileView() {
         return;
       }
       toast('✅ Profile complete! Welcome to Phone Party!');
-      showView('viewParty');
-      initPartyHomeView();
+      if (typeof navigate === 'function') {
+        navigate('/home', { replace: true });
+      } else {
+        showView('viewAuthHome');
+        initPartyHomeView();
+      }
     } catch (err) {
       if (errorEl) { errorEl.textContent = 'Network error. Please try again.'; errorEl.classList.remove('hidden'); }
     }
@@ -9011,7 +9050,7 @@ async function autoCreateDevParty(user) {
       state.isHost = true;
       state.djName = djName;
       
-      showView('viewParty');
+      showParty();
       connectWebSocket();
     } else {
       console.error('[DEV MODE] Failed to create party:', response.status);
@@ -9422,7 +9461,11 @@ async function handleLogout() {
   // Hide header icons
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-  showView('viewLanding');
+  if (typeof navigate === 'function') {
+    navigate('/', { replace: true });
+  } else {
+    showView('viewLanding');
+  }
   showToast('👋 Logged out');
 }
 
@@ -11558,6 +11601,34 @@ function handleOfficialAppSyncTrackSelected(msg) {
   const btn = el('btnSyncTrack');
   if (!btn) return;
 
+  // Auto-detect platform when user pastes a URL into the track ref input
+  const trackRefInput = el('syncTrackRefInput');
+  const platformSelect = el('syncPlatformSelect');
+  if (trackRefInput && platformSelect) {
+    // Known hostnames per platform (exact match to prevent host-spoofing false positives)
+    const PLATFORM_HOSTS = {
+      youtube:    ['www.youtube.com', 'youtube.com', 'youtu.be', 'm.youtube.com'],
+      spotify:    ['open.spotify.com', 'spotify.com'],
+      soundcloud: ['soundcloud.com', 'www.soundcloud.com', 'm.soundcloud.com'],
+    };
+    function _detectPlatform() {
+      const raw = trackRefInput.value.trim();
+      let hostname = '';
+      try { hostname = new URL(raw).hostname.toLowerCase(); } catch (_) { /* not a full URL */ }
+      const spotifyUri = raw.toLowerCase().startsWith('spotify:');
+      if (PLATFORM_HOSTS.youtube.indexOf(hostname) !== -1) {
+        platformSelect.value = 'youtube';
+      } else if (PLATFORM_HOSTS.spotify.indexOf(hostname) !== -1 || spotifyUri) {
+        platformSelect.value = 'spotify';
+      } else if (PLATFORM_HOSTS.soundcloud.indexOf(hostname) !== -1) {
+        platformSelect.value = 'soundcloud';
+      }
+    }
+    // 'paste' fires after clipboard content is inserted; 'change' covers manual edits
+    trackRefInput.addEventListener('paste', function () { setTimeout(_detectPlatform, 0); });
+    trackRefInput.addEventListener('change', _detectPlatform);
+  }
+
   btn.addEventListener('click', function () {
     const platform = (el('syncPlatformSelect')?.value || '').toLowerCase();
     const trackRef  = (el('syncTrackRefInput')?.value || '').trim();
@@ -11605,3 +11676,19 @@ function handleOfficialAppSyncTrackSelected(msg) {
     });
   });
 })();
+
+// ---- Module exports (for testing in Node/Jest environment) ----
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    ALL_VIEWS,
+    showView,
+    showHome,
+    showLanding,
+    showParty,
+    showGuest,
+    initAuthFlow,
+    handleLogout,
+    state,
+    USER_TIER,
+  };
+}
