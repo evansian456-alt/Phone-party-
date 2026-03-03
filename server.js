@@ -1408,39 +1408,14 @@ app.post("/api/auth/logout", apiLimiter, (req, res) => {
 /**
  * GET /api/me
  * Get current user info with tier and entitlements
- * TEMPORARY HOTFIX: Returns anonymous user when auth is disabled
  */
 app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // TEMPORARY: When auth is disabled, return anonymous user data
-    if (userId && userId.startsWith('anonymous-')) {
-      return res.json({
-        user: {
-          id: userId,
-          email: 'anonymous@guest.local',
-          djName: 'Guest DJ',
-          createdAt: new Date().toISOString()
-        },
-        tier: 'FREE',
-        profile: {
-          djScore: 0,
-          djRank: 'Guest DJ',
-          activeVisualPack: null,
-          activeTitle: null,
-          verifiedBadge: false,
-          crownEffect: false,
-          animatedName: false,
-          reactionTrail: false
-        },
-        entitlements: []
-      });
-    }
-
     // Get user basic info
     const userResult = await db.query(
-      'SELECT id, email, dj_name, created_at FROM users WHERE id = $1',
+      'SELECT id, email, dj_name, created_at, profile_completed FROM users WHERE id = $1',
       [userId]
     );
 
@@ -1510,7 +1485,8 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
         id: user.id,
         email: user.email,
         djName: user.dj_name,
-        createdAt: user.created_at
+        createdAt: user.created_at,
+        profileCompleted: user.profile_completed || false
       },
       tier,
       upgrades: {
@@ -1551,6 +1527,34 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
 // ============================================================================
 // STORE ENDPOINTS
 // ============================================================================
+
+/**
+ * POST /api/complete-profile
+ * Mark user profile as completed after onboarding, optionally updating DJ name
+ */
+app.post("/api/complete-profile", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { djName } = req.body;
+
+    if (djName && djName.trim()) {
+      await db.query(
+        'UPDATE users SET profile_completed = TRUE, dj_name = $2 WHERE id = $1',
+        [userId, djName.trim().substring(0, 50)]
+      );
+    } else {
+      await db.query(
+        'UPDATE users SET profile_completed = TRUE WHERE id = $1',
+        [userId]
+      );
+    }
+
+    res.json({ success: true, profileCompleted: true });
+  } catch (error) {
+    console.error('[Auth] Complete profile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
 
 /**
  * GET /api/store
@@ -2838,9 +2842,9 @@ function normalizePartyData(partyData) {
     guests: partyData.guests || [],
     status: partyData.status || "active",
     expiresAt: partyData.expiresAt || (Date.now() + PARTY_TTL_MS),
-    // Tier field from prototype mode
+    // Tier field from backend entitlement validation
     tier: partyData.tier || null,
-    // Optional fields from purchases or prototype mode
+    // Optional fields from purchases
     partyPassExpiresAt: partyData.partyPassExpiresAt || null,
     maxPhones: partyData.maxPhones || null,
     // Reaction and playback history for late joiners
@@ -3120,7 +3124,7 @@ async function savePartyState(code, partyData) {
 
 // Shared party creation function used by both HTTP and WS paths
 // This ensures consistent party data structure across all creation methods
-async function createPartyCommon({ djName, source, hostId, hostConnected, tier, prototypeMode }) {
+async function createPartyCommon({ djName, source, hostId, hostConnected }) {
   // Check if we should use Redis or fallback
   const useRedis = redis && redisReady;
   
@@ -3147,25 +3151,6 @@ async function createPartyCommon({ djName, source, hostId, hostConnected, tier, 
   
   const createdAt = Date.now();
   
-  // Calculate tier-specific settings for prototype mode
-  let partyPassExpiresAt = null;
-  let maxPhones = null;
-  
-  if (prototypeMode && tier) {
-    console.log(`[Party] Creating party in prototype mode with tier: ${tier}`);
-    if (tier === 'PARTY_PASS') {
-      // Party Pass: 2 hours duration, 4 phones
-      partyPassExpiresAt = createdAt + (2 * 60 * 60 * 1000);
-      maxPhones = 4;
-    } else if (tier === 'PRO' || tier === 'PRO_MONTHLY') {
-      // Pro Monthly: simulated long duration for testing (30 days), 10 phones
-      // Note: Both 'PRO' (client constant) and 'PRO_MONTHLY' (server label) are accepted
-      partyPassExpiresAt = createdAt + (30 * 24 * 60 * 60 * 1000); // 30 days
-      maxPhones = 10;
-    }
-    // FREE tier: null values (default 2 phones, unlimited time)
-  }
-  
   // Create full party data with all required fields
   const partyData = {
     partyCode: code,
@@ -3181,10 +3166,10 @@ async function createPartyCommon({ djName, source, hostId, hostConnected, tier, 
     guests: [],
     status: "active",
     expiresAt: createdAt + PARTY_TTL_MS,
-    // Tier-based fields (set by prototype mode or purchases)
-    tier: tier || null,
-    partyPassExpiresAt,
-    maxPhones,
+    // Tier-based fields (set by backend entitlement validation only)
+    tier: null,
+    partyPassExpiresAt: null,
+    maxPhones: null,
     // History fields for late joiners
     reactionHistory: [],
     currentTrack: null,
@@ -3205,7 +3190,7 @@ async function createPartyCommon({ djName, source, hostId, hostConnected, tier, 
   
   // Track session creation in metrics
   if (metricsService) {
-    await metricsService.trackSessionCreated(code, hostId || 'anonymous', tier || 'FREE');
+    await metricsService.trackSessionCreated(code, hostId || 'anonymous', 'FREE');
   }
   
   return { code, partyData };
@@ -3239,20 +3224,13 @@ app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
     console.warn(`[Idempotency] Redis unavailable, proceeding without idempotency`);
   }
   
-  // Extract DJ name, source, and prototype mode fields from request body
-  const { djName, source, tier, prototypeMode } = req.body;
+  // Extract DJ name and source from request body
+  const { djName, source } = req.body;
   
   // Validate DJ name is provided
   if (!djName || !djName.trim()) {
     console.log("[HTTP] Party creation rejected: DJ name is required");
     return res.status(400).json({ error: "DJ name is required to create a party" });
-  }
-  
-  // Validate tier if provided in prototype mode
-  const validTiers = ['FREE', 'PARTY_PASS', 'PRO', 'PRO_MONTHLY'];
-  if (prototypeMode && tier && !validTiers.includes(tier)) {
-    console.log(`[HTTP] Invalid tier in prototype mode: ${tier}`);
-    return res.status(400).json({ error: "Invalid tier specified" });
   }
   
   // Validate and set source (default to "local" if not provided or invalid)
@@ -3287,12 +3265,10 @@ app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
       djName: djName,
       source: partySource,
       hostId: hostId,
-      hostConnected: false,
-      tier: prototypeMode ? tier : null,
-      prototypeMode: prototypeMode || false
+      hostConnected: false
     });
     
-    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}${prototypeMode ? ` (prototype mode, tier: ${tier})` : ''}`);
+    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}`);
     
     // Also store in local memory for WebSocket connections
     parties.set(code, {
@@ -3755,7 +3731,7 @@ app.get("/api/party-state", async (req, res) => {
       chatMode: partyData.chatMode || "OPEN",
       createdAt: partyData.createdAt,
       serverTime: now,
-      // Tier information (for prototype mode)
+      // Tier information (from backend entitlement validation)
       tierInfo: {
         tier: partyData.tier || null,
         partyPassExpiresAt: partyData.partyPassExpiresAt || null,
@@ -6163,7 +6139,7 @@ async function handleJoin(ws, msg) {
         source: normalizedPartyData.source, // IMPORTANT: Load source from Redis
         partyPro: normalizedPartyData.partyPro, // IMPORTANT: Load partyPro from Redis
         promoUsed: normalizedPartyData.promoUsed,
-        tier: normalizedPartyData.tier, // IMPORTANT: Load tier from Redis (for prototype mode)
+        tier: normalizedPartyData.tier, // IMPORTANT: Load tier from Redis
         partyPassExpiresAt: normalizedPartyData.partyPassExpiresAt, // IMPORTANT: Load expiry from Redis
         maxPhones: normalizedPartyData.maxPhones, // IMPORTANT: Load max phones from Redis
         djMessages: [],
@@ -6568,7 +6544,7 @@ async function broadcastRoomState(code) {
     chatMode: party.chatMode || "OPEN",
     partyPro: !!party.partyPro, // Party-wide Pro status
     source: party.source || "local", // Host-selected source
-    // Tier from prototype mode
+    // Tier from backend entitlement validation
     tier: partyData?.tier || party?.tier || null,
     // Party Pass info (source of truth)
     partyPassActive: partyData ? isPartyPassActive(partyData) : false,

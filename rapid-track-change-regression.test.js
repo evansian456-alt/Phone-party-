@@ -150,7 +150,7 @@ describe('Rapid track-change regression (Bug 1 + Bug 2)', () => {
 
       const createProm = waitForMessage(hostWs, 'CREATED');
       hostWs.send(
-        JSON.stringify({ t: 'CREATE', djName: 'RapidDJ', source: 'local', prototypeMode: true })
+        JSON.stringify({ t: 'CREATE', djName: 'RapidDJ', source: 'local' })
       );
       const { code: partyCode } = await createProm;
       expect(partyCode).toBeTruthy();
@@ -224,7 +224,7 @@ describe('Rapid track-change regression (Bug 1 + Bug 2)', () => {
 
       const createProm = waitForMessage(hostWs, 'CREATED');
       hostWs.send(
-        JSON.stringify({ t: 'CREATE', djName: 'SyncDJ', source: 'local', prototypeMode: true })
+        JSON.stringify({ t: 'CREATE', djName: 'SyncDJ', source: 'local' })
       );
       const { code: partyCode } = await createProm;
 

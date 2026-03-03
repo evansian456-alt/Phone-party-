@@ -20,7 +20,6 @@ const DRIFT_SOFT_CORRECTION_THRESHOLD_SEC = 0.80; // Soft correction threshold
 const DRIFT_HARD_RESYNC_THRESHOLD_SEC = 1.00; // Hard resync threshold
 const DRIFT_SHOW_RESYNC_THRESHOLD_SEC = 1.50; // Show manual re-sync button above this
 const DRIFT_CORRECTION_INTERVAL_MS = 2000; // Check drift every 2 seconds
-const WARNING_DISPLAY_DURATION_MS = 2000; // Duration to show warning before proceeding in prototype mode
 const MESSAGE_TTL_MS = 12000; // Messages auto-disappear after 12 seconds (unified feed)
 const AUDIO_UNLOCK_SUCCESS_DELAY_MS = 300; // Delay to show "Audio enabled" success message before playing
 
@@ -28,12 +27,6 @@ const AUDIO_UNLOCK_SUCCESS_DELAY_MS = 300; // Delay to show "Audio enabled" succ
 // Used to confirm the new changer build is running (visible in browser devtools console).
 const CHANGER_VERSION = '2026-02-27-a';
 console.log('[Changer] version:', CHANGER_VERSION);
-
-// Dev/Test Mode Configuration
-const DEV_MODE = window.location.search.includes('devmode=true') || window.location.hash.includes('devmode');
-const TEST_MODE = window.location.search.includes('testmode=true') || window.location.hash.includes('testmode');
-const SKIP_AUTH = DEV_MODE || TEST_MODE; // Skip authentication in dev/test mode
-const AUTO_START_PARTY = window.location.search.includes('autostart=true');
 
 // Sync quality indicator labels
 const SYNC_QUALITY_EXCELLENT = "Excellent";
@@ -44,7 +37,8 @@ const SYNC_QUALITY_POOR = "Poor";
 // All views in the application
 const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
                    'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
-                   'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile'];
+                   'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile',
+                   'viewCompleteProfile'];
 
 // User tier constants
 const USER_TIER = {
@@ -154,9 +148,7 @@ const state = {
   // Unified feed event deduplication (Phase COPILOT PROMPT 2/4)
   feedSeenIds: new Set(), // Set of seen event IDs to prevent duplicates
   // New UX flow state
-  selectedTier: null, // Track tier selection before account creation
-  prototypeMode: false, // Track if user is in prototype mode (skipped account)
-  temporaryUserId: null // Temporary ID for prototype mode users
+  selectedTier: null // Track tier selection before account creation
 };
 
 // Server clock synchronization state
@@ -317,8 +309,8 @@ const Analytics = {
     if (typeof gtag === 'function') {
       gtag('event', eventName, params);
     }
-    // Also log to console in dev mode for debugging
-    if (DEV_MODE) {
+    // Also log to console for debugging (only when developer tools are open)
+    if (typeof console !== 'undefined' && console._commandLineAPI) {
       console.log('[Analytics]', eventName, params);
     }
   },
@@ -1117,7 +1109,7 @@ function handleServer(msg) {
       state.chatMode = msg.snapshot.chatMode;
       updateChatModeUI();
     }
-    // Update tier from server snapshot (for prototype mode tier preservation)
+    // Update tier from server snapshot (server-authoritative)
     if (msg.snapshot?.tier) {
       const oldTier = state.userTier;
       state.userTier = msg.snapshot.tier;
@@ -2250,9 +2242,9 @@ function showParty() {
   show("viewParty");
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   
-  // Display prototype mode message if in offline/local mode
+  // Display offline/local mode message
   if (state.offlineMode && state.isHost) {
-    el("partyMeta").textContent = "Party created locally (prototype mode)";
+    el("partyMeta").textContent = "Party created locally (offline mode)";
     el("partyMeta").style.color = "var(--accent, #5AA9FF)";
     
     // Show offline warning banner
@@ -4240,7 +4232,7 @@ function updateDjScreen() {
     }
   }
   
-  // Check if Party Pass or Pro is active (includes prototype mode tier check)
+  // Check if Party Pass or Pro is active (server-authoritative tier check)
   const hasPartyPassOrPro = state.partyPassActive || state.partyPro || 
                             state.userTier === USER_TIER.PARTY_PASS || 
                             state.userTier === USER_TIER.PRO;
@@ -6650,6 +6642,146 @@ function attemptAddPhone() {
   toast("Open this link on another phone and tap Join");
 }
 
+/**
+ * Initialize auth flow: check if user is logged in and redirect appropriately.
+ * - Logged out: show landing page with Login/Signup CTAs, hide header icons
+ * - Logged in + profileCompleted=false: show complete-profile view
+ * - Logged in + profileCompleted=true: show party (authenticated home) view
+ */
+async function initAuthFlow() {
+  const headerAuthButtons = document.getElementById('headerAuthButtons');
+  try {
+    const response = await fetch('/api/me');
+    if (!response.ok) {
+      // Not authenticated - show landing page without header icons
+      if (headerAuthButtons) headerAuthButtons.style.display = 'none';
+      showLanding();
+      return;
+    }
+    const data = await response.json();
+    // Authenticated - show header icons
+    if (headerAuthButtons) headerAuthButtons.style.display = '';
+    // Update state from server data
+    state.userTier = data.tier || USER_TIER.FREE;
+    if (data.user && data.user.djName) {
+      state.djName = data.user.djName;
+    }
+    // Redirect based on profileCompleted
+    if (!data.user || !data.user.profileCompleted) {
+      showView('viewCompleteProfile');
+      initCompleteProfileView();
+    } else {
+      showView('viewParty');
+      initPartyHomeView();
+    }
+  } catch (err) {
+    console.warn('[Auth] Could not check auth status:', err.message);
+    if (headerAuthButtons) headerAuthButtons.style.display = 'none';
+    showLanding();
+  }
+}
+
+/**
+ * Initialize the complete-profile view handlers
+ */
+function initCompleteProfileView() {
+  const form = document.getElementById('formCompleteProfile');
+  if (!form || form.dataset.initialized) return;
+  form.dataset.initialized = 'true';
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const djNameInput = document.getElementById('completeProfileDjName');
+    const errorEl = document.getElementById('completeProfileError');
+    const djName = djNameInput ? djNameInput.value.trim() : '';
+    if (!djName) {
+      if (errorEl) { errorEl.textContent = 'DJ Name is required'; errorEl.classList.remove('hidden'); }
+      return;
+    }
+    try {
+      const resp = await fetch('/api/complete-profile', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ djName })
+      });
+      if (!resp.ok) {
+        const d = await resp.json();
+        if (errorEl) { errorEl.textContent = d.error || 'Failed to save profile'; errorEl.classList.remove('hidden'); }
+        return;
+      }
+      toast('✅ Profile complete! Welcome to Phone Party!');
+      showView('viewParty');
+      initPartyHomeView();
+    } catch (err) {
+      if (errorEl) { errorEl.textContent = 'Network error. Please try again.'; errorEl.classList.remove('hidden'); }
+    }
+  });
+}
+
+/**
+ * Initialize the /party authenticated home view handlers
+ */
+function initPartyHomeView() {
+  const btnPartyShowCreate = document.getElementById('btnPartyShowCreateParty');
+  const btnPartyShowJoin = document.getElementById('btnPartyShowJoinParty');
+  const btnHideCreate = document.getElementById('btnHidePartyCreate');
+  const btnHideJoin = document.getElementById('btnHidePartyJoin');
+  const btnPartyCreate = document.getElementById('btnPartyCreate');
+  const btnPartyJoin = document.getElementById('btnPartyJoin');
+
+  if (btnPartyShowCreate) {
+    btnPartyShowCreate.onclick = () => {
+      const s = document.getElementById('partyCreateSection');
+      const j = document.getElementById('partyJoinSection');
+      if (s) s.classList.remove('hidden');
+      if (j) j.classList.add('hidden');
+    };
+  }
+  if (btnPartyShowJoin) {
+    btnPartyShowJoin.onclick = () => {
+      const s = document.getElementById('partyCreateSection');
+      const j = document.getElementById('partyJoinSection');
+      if (j) j.classList.remove('hidden');
+      if (s) s.classList.add('hidden');
+    };
+  }
+  if (btnHideCreate) {
+    btnHideCreate.onclick = () => { const s = document.getElementById('partyCreateSection'); if (s) s.classList.add('hidden'); };
+  }
+  if (btnHideJoin) {
+    btnHideJoin.onclick = () => { const j = document.getElementById('partyJoinSection'); if (j) j.classList.add('hidden'); };
+  }
+  if (btnPartyCreate) {
+    btnPartyCreate.onclick = async () => {
+      const hostNameEl = document.getElementById('partyHostName');
+      const djName = hostNameEl ? hostNameEl.value.trim() : (state.djName || 'DJ');
+      if (!djName) { toast('Enter your DJ name'); return; }
+      state.djName = djName;
+      // Delegate to existing create party flow
+      const btnCreate = document.getElementById('btnCreate');
+      const hostNameInput = document.getElementById('hostName');
+      if (hostNameInput) hostNameInput.value = djName;
+      showHome();
+      const createSection = document.getElementById('createPartySection');
+      if (createSection) createSection.classList.remove('hidden');
+    };
+  }
+  if (btnPartyJoin) {
+    btnPartyJoin.onclick = () => {
+      const code = document.getElementById('partyJoinCode')?.value?.trim();
+      const name = document.getElementById('partyGuestName')?.value?.trim();
+      // Pre-fill join form in the existing viewHome and trigger join
+      const joinCode = document.getElementById('joinCode');
+      const guestName = document.getElementById('guestName');
+      if (joinCode && code) joinCode.value = code;
+      if (guestName && name) guestName.value = name;
+      showHome();
+      const joinSection = document.getElementById('joinPartySection');
+      if (joinSection) joinSection.classList.remove('hidden');
+    };
+  }
+}
+
 (async function init(){
   // Connect WebSocket for real-time party sync, DJ authority, and guest updates
   try {
@@ -6658,136 +6790,29 @@ function attemptAddPhone() {
     console.warn("[Init] WebSocket connection failed on startup:", error);
     // Continue with app initialization - WebSocket can reconnect later
   }
-  showLanding();
+
+  // Check authentication state and redirect accordingly
+  await initAuthFlow();
   
   // Initialize music player
   initializeMusicPlayer();
 
-  // NEW LANDING PAGE - TIER SELECTION BUTTONS
-  const landingFreeTier = el("landingFreeTier");
-  const landingPartyPassTier = el("landingPartyPassTier");
-  const landingProTier = el("landingProTier");
+  // LANDING PAGE BUTTONS (for logged-out users)
+  const btnLandingSignup = el("btnLandingSignup");
+  const btnLandingLogin = el("btnLandingLogin");
 
-  if (landingFreeTier) {
-    landingFreeTier.onclick = () => {
-      console.log("[UI] Landing: Free tier selected");
-      state.selectedTier = USER_TIER.FREE;
-      state.userTier = USER_TIER.FREE;
-      showAccountCreation();
+  if (btnLandingSignup) {
+    btnLandingSignup.onclick = () => {
+      console.log("[UI] Landing signup clicked");
+      showView('viewSignup');
     };
   }
 
-  if (landingPartyPassTier) {
-    landingPartyPassTier.onclick = () => {
-      console.log("[UI] Landing: Party Pass tier selected");
-      state.selectedTier = USER_TIER.PARTY_PASS;
-      showAccountCreation();
-    };
-  }
-
-  if (landingProTier) {
-    landingProTier.onclick = () => {
-      console.log("[UI] Landing: Pro tier selected");
-      state.selectedTier = USER_TIER.PRO;
-      showAccountCreation();
-    };
-  }
-
-  // NEW PHONE PARTY LANDING PAGE BUTTONS
-  const btnSeePricing = el("btnSeePricing");
-
-  if (btnSeePricing) {
-    btnSeePricing.onclick = () => {
-      console.log("[UI] Pick Your Vibe clicked");
-      showView('viewChooseTier');
-    };
-  }
-
-
-  // ACCOUNT CREATION PAGE HANDLERS
-  const btnCreateAccountSubmit = el("btnCreateAccountSubmit");
-  const btnShowLogin = el("btnShowLogin");
-  const btnSkipAccount = el("btnSkipAccount");
-  const btnBackToTiers = el("btnBackToTiers");
-
-  if (btnCreateAccountSubmit) {
-    btnCreateAccountSubmit.onclick = async () => {
-      console.log("[UI] Create account submit clicked");
-      const email = el("accountEmail").value;
-      const password = el("accountPassword").value;
-      const djName = el("accountDjName").value;
-
-      if (!email || !password) {
-        toast("Please enter email and password");
-        return;
-      }
-
-      // Apply selected tier
-      state.userTier = state.selectedTier || USER_TIER.FREE;
-      state.prototypeMode = false;
-      
-      // For now, just proceed to home (actual signup would be implemented here)
-      toast(`Account created! Welcome to ${state.selectedTier} tier`);
-      showHome();
-    };
-  }
-
-  if (btnShowLogin) {
-    btnShowLogin.onclick = () => {
-      console.log("[UI] Show login clicked");
+  if (btnLandingLogin) {
+    btnLandingLogin.onclick = () => {
+      console.log("[UI] Landing login clicked");
       showView('viewLogin');
     };
-  }
-
-  if (btnSkipAccount) {
-    btnSkipAccount.onclick = () => {
-      console.log("[UI] Skip account clicked - entering prototype mode");
-      
-      // Show warning if paid tier was selected
-      const upgradeWarning = el("upgradeWarning");
-      if (state.selectedTier !== USER_TIER.FREE) {
-        upgradeWarning.classList.remove("hidden");
-        
-        // Wait to show warning, then proceed
-        setTimeout(() => {
-          proceedWithPrototypeMode();
-        }, WARNING_DISPLAY_DURATION_MS);
-      } else {
-        proceedWithPrototypeMode();
-      }
-    };
-  }
-
-  if (btnBackToTiers) {
-    btnBackToTiers.onclick = () => {
-      console.log("[UI] Back to tiers from account creation");
-      // Hide any warnings
-      const upgradeWarning = el("upgradeWarning");
-      if (upgradeWarning) {
-        upgradeWarning.classList.add("hidden");
-      }
-      showLanding();
-    };
-  }
-
-  // Helper function to proceed with prototype mode
-  function proceedWithPrototypeMode() {
-    state.prototypeMode = true;
-    // CRITICAL: Preserve selected tier instead of forcing FREE
-    state.userTier = state.selectedTier || USER_TIER.FREE;
-    console.log(`[Prototype Mode] Activated with tier: ${state.userTier}`);
-    
-    // Generate cryptographically secure temporary user ID
-    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-      state.temporaryUserId = 'proto_' + crypto.randomUUID();
-    } else {
-      // Fallback for older browsers
-      state.temporaryUserId = 'proto_' + Date.now() + '_' + Math.random().toString(36).substring(7);
-    }
-    localStorage.setItem('syncSpeakerPrototypeId', state.temporaryUserId);
-    
-    toast(`Prototype mode activated (${state.userTier}) - No account required`);
-    showHome();
   }
 
   // Tier selection handlers (from viewChooseTier page)
@@ -6948,7 +6973,7 @@ function attemptAddPhone() {
       // Get user configuration
       state.source = "local"; // Always use local source for music from phone
       state.isPro = el("togglePro").checked;
-      console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro, tier: state.userTier, prototypeMode: state.prototypeMode });
+      console.log("[UI] Creating party with:", { name: state.name, source: state.source, isPro: state.isPro, tier: state.userTier });
       
       // Generate idempotency key for request (reused on retry)
       const requestId = crypto.randomUUID();
@@ -6964,12 +6989,6 @@ function attemptAddPhone() {
           djName: djName,
           source: state.source || "local"
         };
-        
-        // Include tier and prototype mode flag for testing
-        if (state.prototypeMode && state.userTier) {
-          requestBody.prototypeMode = true;
-          requestBody.tier = state.userTier;
-        }
         
         try {
           const response = await fetch("/api/create-party", {
@@ -7405,7 +7424,7 @@ function attemptAddPhone() {
     if (state.ws) {
       state.ws.close(); 
     } else {
-      // In prototype mode (no WebSocket), navigate back to landing manually
+      // No WebSocket connection, navigate back to home manually
       showLanding();
     }
   };
@@ -8859,11 +8878,10 @@ function updateBoostsUI() {
 
 /**
  * Initialize dev/test mode with temporary user
- * Skips signup/profile/payment flows
+ * NOTE: This function is no longer called in production. Kept for reference.
  */
 function initializeDevMode() {
-  const mode = DEV_MODE ? 'DEV' : 'TEST';
-  console.log(`[${mode} MODE] Initializing...`);
+  console.log('[DEV MODE] Initializing...');
   
   // Generate temporary user credentials
   const tempUser = generateTempUser();
@@ -8876,18 +8894,10 @@ function initializeDevMode() {
   state.isPro = tempUser.tier === USER_TIER.PRO;
   state.partyPassActive = tempUser.tier === USER_TIER.PARTY_PASS;
   
-  console.log(`[${mode} MODE] Temp user created:`, tempUser);
+  console.log('[DEV MODE] Temp user created:', tempUser);
   
   // Show dev mode indicator
-  showDevModeIndicator(mode);
-  
-  // Auto-start party if requested
-  if (AUTO_START_PARTY) {
-    setTimeout(() => {
-      console.log(`[${mode} MODE] Auto-starting party...`);
-      autoCreateDevParty(tempUser);
-    }, 500);
-  }
+  showDevModeIndicator('DEV');
 }
 
 /**
@@ -8987,9 +8997,7 @@ async function autoCreateDevParty(user) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         djName: djName,
-        source: 'local',
-        tier: user.tier,
-        prototypeMode: true
+        source: 'local'
       })
     });
     
@@ -9014,8 +9022,7 @@ async function autoCreateDevParty(user) {
 }
 
 function initializeAllFeatures() {
-  // TEMPORARY: Skip auth initialization (no-auth mode)
-  console.log('[Features] Auth initialization SKIPPED (temporary no-auth mode)');
+  console.log('[Features] Initializing all features');
   
   // Restore user entitlements if logged in
   if (typeof restoreUserEntitlements === 'function') {
@@ -9363,19 +9370,16 @@ function setupAuthEventListeners() {
 /**
  * Handle login
  */
-function handleLogin() {
+async function handleLogin() {
   const email = document.getElementById('loginEmail').value;
   const password = document.getElementById('loginPassword').value;
   const errorEl = document.getElementById('loginError');
   
-  const result = logIn(email, password);
+  const result = await logIn(email, password);
   
   if (result.success) {
-    state.userTier = result.user.tier;
-    updateUIForLoggedInUser(result.user);
-    // Redirect to home to start using the app
-    showHome();
     showToast('✅ Welcome back!');
+    await initAuthFlow();
   } else {
     errorEl.textContent = result.error;
     errorEl.classList.remove('hidden');
@@ -9385,7 +9389,7 @@ function handleLogin() {
 /**
  * Handle signup
  */
-function handleSignup() {
+async function handleSignup() {
   const email = document.getElementById('signupEmail').value;
   const password = document.getElementById('signupPassword').value;
   const djName = document.getElementById('signupDjName').value.trim();
@@ -9398,18 +9402,11 @@ function handleSignup() {
     return;
   }
   
-  const result = signUp(email, password, djName);
+  const result = await signUp(email, password, djName);
   
   if (result.success) {
-    // Auto login after signup
-    const loginResult = logIn(email, password);
-    if (loginResult.success) {
-      state.userTier = loginResult.user.tier;
-      updateUIForLoggedInUser(loginResult.user);
-      // Redirect to home to start using the app
-      showHome();
-      showToast('✅ Welcome to Phone Party! Account created successfully!');
-    }
+    showToast('✅ Welcome to Phone Party! Account created successfully!');
+    await initAuthFlow();
   } else {
     errorEl.textContent = result.error;
     errorEl.classList.remove('hidden');
@@ -9419,14 +9416,12 @@ function handleSignup() {
 /**
  * Handle logout
  */
-function handleLogout() {
-  logOut();
+async function handleLogout() {
+  await logOut();
   state.userTier = USER_TIER.FREE;
-  const btnAccount = document.getElementById('btnAccount');
-  if (btnAccount) {
-    btnAccount.textContent = '👤';
-    btnAccount.title = 'Account';
-  }
+  // Hide header icons
+  const headerAuthButtons = document.getElementById('headerAuthButtons');
+  if (headerAuthButtons) headerAuthButtons.style.display = 'none';
   showView('viewLanding');
   showToast('👋 Logged out');
 }
@@ -10893,10 +10888,6 @@ if (document.readyState === 'loading') {
     if (typeof initMediaSession === 'function') {
       initMediaSession();
     }
-    // Initialize dev/test mode if enabled
-    if (DEV_MODE || TEST_MODE) {
-      initializeDevMode();
-    }
   });
 } else {
   initMonetizationUI();
@@ -10908,10 +10899,6 @@ if (document.readyState === 'loading') {
   // Initialize Media Session API for background audio
   if (typeof initMediaSession === 'function') {
     initMediaSession();
-  }
-  // Initialize dev/test mode if enabled
-  if (DEV_MODE || TEST_MODE) {
-    initializeDevMode();
   }
 }
 

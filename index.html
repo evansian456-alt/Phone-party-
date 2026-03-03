@@ -55,7 +55,7 @@
         <div class="subtitle">Turn phones into one big speaker.</div>
       </div>
     </div>
-    <div class="header-right">
+    <div class="header-right auth-only" id="headerAuthButtons" style="display:none">
       <span id="connectionIndicator">● Connected</span>
       <button class="btn-parent-info" id="btnParentInfo" title="Help & About">ℹ️</button>
       <button class="btn-leaderboard" id="btnLeaderboard" title="Leaderboard">🏆</button>
@@ -99,13 +99,13 @@
           </div>
         </div>
         
-        <!-- Main CTA Buttons -->
+        <!-- Main CTA Buttons (for logged-out users) -->
         <div class="landing-cta-buttons">
-          <button class="btn-landing-primary" id="btnSeePricing">
-            🎯 PICK YOUR VIBE
+          <button class="btn-landing-primary" id="btnLandingSignup">
+            🚀 GET STARTED FREE
           </button>
-          <button class="btn-landing-addons" id="btnLandingAddons">
-            ✨ ADD-ONS (BOOST YOUR PARTY)
+          <button class="btn-landing-addons" id="btnLandingLogin">
+            🔑 LOG IN
           </button>
         </div>
       </div>
@@ -229,17 +229,6 @@
         </div>
       </div>
       
-      <!-- Prototype Mode Skip Option -->
-      <div class="prototype-mode-section">
-        <div class="line" style="margin: 2rem 0;"></div>
-        <h3>🔧 Testing Mode</h3>
-        <p class="muted">Skip profile creation and use prototype mode</p>
-        <button class="btn secondary" id="btnSkipAccount">Skip Sign Up (Prototype Mode)</button>
-        <div class="tiny muted" style="margin-top: 1rem;">
-          Note: Some features require a profile to unlock
-        </div>
-      </div>
-      
       <!-- Warning for paid tiers -->
       <div class="upgrade-warning hidden" id="upgradeWarning">
         <div class="warning-banner">
@@ -249,6 +238,68 @@
       </div>
       
       <button class="btn secondary" id="btnBackToTiers" style="margin-top: 2rem;">← Back to Plans</button>
+    </section>
+
+    <section class="card hidden" id="viewCompleteProfile">
+      <h1>🎵 Complete Your Profile</h1>
+      <p class="muted">Set up your DJ name to start using Phone Party</p>
+      <form id="formCompleteProfile">
+        <div class="form-group">
+          <label for="completeProfileDjName">DJ Name</label>
+          <input type="text" id="completeProfileDjName" class="input" placeholder="DJ CoolVibes" required maxlength="50" />
+        </div>
+        <div id="completeProfileError" class="error-msg hidden"></div>
+        <button type="submit" class="btn primary" style="margin-top: 1rem;">Save & Continue 🚀</button>
+      </form>
+    </section>
+
+    <section class="card hidden" id="viewParty">
+      <h1>🎉 PHONE PARTY</h1>
+      <p class="muted">
+        Connect your phones and turn up the volume!
+      </p>
+
+      <!-- Two Giant Neon Buttons -->
+      <div class="start-join-buttons">
+        <button class="btn-giant btn-create-party" id="btnPartyShowCreateParty">
+          <span class="btn-giant-icon">🎧</span>
+          <span class="btn-giant-text">CREATE PARTY</span>
+        </button>
+        <button class="btn-giant btn-join-party" id="btnPartyShowJoinParty">
+          <span class="btn-giant-icon">🎵</span>
+          <span class="btn-giant-text">JOIN PARTY</span>
+        </button>
+      </div>
+
+      <div class="party-form-section hidden" id="partyCreateSection">
+        <h3>🎧 Host a Party</h3>
+        <div class="form-group">
+          <label for="partyHostName">Your DJ Name</label>
+          <input id="partyHostName" class="input" placeholder="DJ CoolVibes" required />
+        </div>
+        <button type="button" class="btn primary" id="btnPartyCreate">🎉 Start the party</button>
+        <div class="party-status hidden" id="partyCreateStatus">
+          <div class="status-message" id="partyCreateStatusMessage">Waiting...</div>
+        </div>
+        <button class="btn secondary" id="btnHidePartyCreate" style="margin-top: 1rem;">← Back</button>
+      </div>
+
+      <div class="party-form-section hidden" id="partyJoinSection">
+        <h3>🎵 Join a Party</h3>
+        <div class="form-group">
+          <label for="partyJoinCode">Party Code</label>
+          <input id="partyJoinCode" class="input" placeholder="ABC123" />
+        </div>
+        <div class="form-group">
+          <label for="partyGuestName">Your Name (optional)</label>
+          <input id="partyGuestName" class="input" placeholder="Leave blank for 'Guest'" />
+        </div>
+        <button class="btn primary" id="btnPartyJoin">🎵 Join the vibe</button>
+        <div class="party-status hidden" id="partyJoinStatus">
+          <div class="status-message" id="partyJoinStatusMessage">Waiting...</div>
+        </div>
+        <button class="btn secondary" id="btnHidePartyJoin" style="margin-top: 1rem;">← Back</button>
+      </div>
     </section>
 
     <section class="card hidden" id="viewHome">
