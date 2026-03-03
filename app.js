@@ -72,7 +72,7 @@ function getSavedProfile() {
 
 function saveProfile(profile) {
   try {
-    // Clear any older schema version keys (e.g. v0 → v0 when current is v1).
+    // Clear any older schema version keys (e.g. v0 → v1 when current is v1).
     // The loop is intentionally 0..PROFILE_SCHEMA_VERSION-1 so it cleans up all
     // previously deployed storage keys when the schema version is bumped.
     for (let v = 0; v < PROFILE_SCHEMA_VERSION; v++) {
@@ -147,7 +147,15 @@ function setView(viewName, opts = {}) {
     const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) || hasValidProfile();
     if (!authenticated) {
       console.log('[NAV] Auth required for', viewName, '→ redirecting to auth');
-      setView('auth', opts);
+      // Update the URL to #auth before redirecting so the address bar reflects reality.
+      // Use replaceState (not pushState) so back-button doesn't loop on the protected hash.
+      // The recursive setView('auth') call below passes fromHash:true which prevents it from
+      // calling pushState again — so there is exactly ONE URL update here.
+      const authView = VIEWS['auth'];
+      if (authView && window.location) {
+        try { history.replaceState(null, '', '#' + authView.hash); } catch (e) { /* may throw in tests */ }
+      }
+      setView('auth', { fromHash: true });
       return;
     }
   }
@@ -161,11 +169,14 @@ function setView(viewName, opts = {}) {
     try { history.pushState(null, '', '#' + view.hash); } catch (e) { /* may throw in tests */ }
   }
 
-  // Use view-specific show function (handles state cleanup) or fall back to generic showView()
+  // Always hide ALL_VIEWS first (via showView) to guarantee single-view display,
+  // then run the view-specific onEnter handler for state cleanup side effects.
+  // The show/hide calls inside onEnter handlers (showHome, showParty, etc.) are
+  // idempotent with respect to the classList already set by showView(), so this
+  // is safe and does not cause any visible double-transition.
+  showView(view.id);
   if (typeof view.onEnter === 'function') {
     view.onEnter();
-  } else {
-    showView(view.id);
   }
 
   // Apply enter animation and update nav visibility
@@ -177,12 +188,14 @@ function setView(viewName, opts = {}) {
     targetEl.classList.add('is-entering');
     targetEl.addEventListener('animationend', () => targetEl.classList.remove('is-entering'), { once: true });
 
-    // Accessibility: focus first heading or interactive element and scroll it into view
+    // Accessibility: focus first heading or interactive element and scroll it into view.
+    // Honor prefers-reduced-motion for scroll behavior.
     setTimeout(() => {
       const focusTarget = targetEl.querySelector('h1, h2, [autofocus], button:not([disabled]), input:not([disabled])');
       if (focusTarget) {
         focusTarget.focus({ preventScroll: false });
-        focusTarget.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        focusTarget.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion ? 'auto' : 'smooth' });
       }
     }, 50);
   }
@@ -6833,7 +6846,7 @@ function attemptAddPhone() {
 
   // BOOT: decide initial view based on auth state
   const _bootAuthenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) || hasValidProfile();
-  console.log('[BOOT]', { commit: CHANGER_VERSION, loggedIn: _bootAuthenticated, profile: hasValidProfile() ? getSavedProfile() : null });
+  console.log('[BOOT]', { commit: CHANGER_VERSION, loggedIn: _bootAuthenticated, hasProfile: hasValidProfile() });
 
   // Check if hash already requests a specific view (e.g. after refresh or back navigation)
   const _bootHash = window.location.hash.replace('#', '');

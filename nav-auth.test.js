@@ -361,6 +361,17 @@ describe('setView() – hash routing', () => {
     expect(pushStateMock).not.toHaveBeenCalled();
   });
 
+  test('redirecting from a protected hash updates URL to #auth via replaceState', () => {
+    // Navigate to a requiresAuth view via hash (fromHash:true), logged out
+    // setView should redirect to auth and update URL with replaceState
+    window.location.hash = '#party';
+    setView('party', { fromHash: true });
+    // Auth view should be shown
+    expect(isVisible('viewAccountCreation')).toBe(true);
+    // replaceState should have been called to update the URL to #auth
+    expect(window.history.replaceState).toHaveBeenCalledWith(null, '', '#auth');
+  });
+
   test('HASH_TO_VIEW maps #create-join → createJoin', () => {
     expect(HASH_TO_VIEW['create-join']).toBe('createJoin');
   });
