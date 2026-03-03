@@ -772,7 +772,7 @@ app.use((req, res, next) => {
 // HTML, JS, and CSS files use no-cache so browsers always revalidate after a deploy.
 app.use(express.static(__dirname, {
   setHeaders(res, filePath) {
-    if (/\.(html|js|css)$/.test(filePath)) {
+    if (/\.(html|js|css|svg)$/.test(filePath)) {
       res.setHeader('Cache-Control', NO_CACHE);
     }
   }
