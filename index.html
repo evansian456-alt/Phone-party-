@@ -62,6 +62,7 @@
       <button class="btn-profile" id="btnProfile" title="My Profile">👤</button>
       <button class="btn-upgrade" id="btnUpgradeHub" title="Upgrade" aria-label="Upgrade options">⭐</button>
       <button class="btn-account" id="btnAccount" title="Account">🔑</button>
+      <button class="btn-logout" id="btnLogout" title="Log out">🚪</button>
       <div class="pill" id="planPill">Free · 2 phones</div>
     </div>
   </header>
@@ -253,7 +254,7 @@
       </form>
     </section>
 
-    <section class="card hidden" id="viewParty">
+    <section class="card hidden" id="viewAuthHome">
       <h1>🎉 PHONE PARTY</h1>
       <p class="muted">
         Connect your phones and turn up the volume!
@@ -2524,6 +2525,7 @@
   </script>
   
   <script src="app.js"></script>
+  <script src="router.js"></script>
   
   <!-- Dev Navigation Panel (only visible in dev mode) -->
   <div id="devNavigationPanel" class="dev-nav-panel hidden">
@@ -2538,6 +2540,7 @@
         <button class="dev-nav-btn" data-view="viewChooseTier">🎯 Choose Tier</button>
         <button class="dev-nav-btn" data-view="viewAccountCreation">👤 Create Account</button>
         <button class="dev-nav-btn" data-view="viewHome">🏡 Home</button>
+        <button class="dev-nav-btn" data-view="viewAuthHome">🏠 Auth Home Hub</button>
         <button class="dev-nav-btn" data-view="viewParty">🎉 Party</button>
         <button class="dev-nav-btn" data-view="viewPayment">💳 Payment</button>
         <button class="dev-nav-btn" data-view="viewGuest">🎧 Guest</button>
