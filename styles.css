@@ -7767,3 +7767,48 @@ body.light-mode .input-field {
     transform: translateX(-50%) translateY(-10px);
   }
 }
+
+/* ============================================================
+   Mobile-first layout hardening (SPA routing / auth upgrade)
+   ============================================================ */
+
+/* Consistent screen-level padding so no content clips on 320px */
+.card {
+  padding: clamp(14px, 4vw, 24px);
+}
+
+/* Full-width inputs + buttons on narrow viewports */
+@media (max-width: 480px) {
+  .input,
+  .btn,
+  .btn-tier {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Prevent sticky header overlapping focused inputs */
+  input:focus, textarea:focus {
+    scroll-margin-top: 72px;
+  }
+}
+
+/* Keyboard-safe: add bottom padding when a fixed/sticky element
+   is present so forms are not hidden behind it */
+@media (max-width: 768px) {
+  main.wrap {
+    padding-bottom: env(safe-area-inset-bottom, 16px);
+  }
+}
+
+/* viewAuthHome — auth hub page: clear hierarchy on mobile */
+#viewAuthHome .start-join-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+@media (min-width: 480px) {
+  #viewAuthHome .start-join-buttons {
+    flex-direction: row;
+  }
+}

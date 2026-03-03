@@ -28,18 +28,6 @@ const AUDIO_UNLOCK_SUCCESS_DELAY_MS = 300; // Delay to show "Audio enabled" succ
 const CHANGER_VERSION = '2026-02-27-a';
 console.log('[Changer] version:', CHANGER_VERSION);
 
-// Dev/Test Mode Configuration
-const DEV_MODE = window.location.search.includes('devmode=true') || window.location.hash.includes('devmode');
-const TEST_MODE = window.location.search.includes('testmode=true') || window.location.hash.includes('testmode');
-// Dev bypass is only allowed when explicitly enabled via localStorage flag.
-// This is an intentional one-time check at startup — the flag is read once and
-// cannot change mid-session, which is the desired security behavior.
-// Default must be OFF — do not skip auth in normal usage.
-const SKIP_AUTH = (DEV_MODE || TEST_MODE) && (() => {
-  try { return localStorage.getItem('devBypassEnabled') === 'true'; } catch(e) { return false; }
-})();
-const AUTO_START_PARTY = window.location.search.includes('autostart=true');
-
 // Sync quality indicator labels
 const SYNC_QUALITY_EXCELLENT = "Excellent";
 const SYNC_QUALITY_GOOD = "Good";
@@ -6863,14 +6851,18 @@ function attemptAddPhone() {
  * - Logged in + profileCompleted=true: show party (authenticated home) view
  */
 async function initAuthFlow() {
+  const headerAuthButtons = document.getElementById('headerAuthButtons');
   try {
     const response = await fetch('/api/me');
     if (!response.ok) {
-      // Not authenticated — show landing (setView handles nav visibility)
+      // Not authenticated — hide auth buttons and show landing
+      if (headerAuthButtons) headerAuthButtons.style.display = 'none';
       setView('landing', { fromHash: true });
       return;
     }
     const data = await response.json();
+    // Authenticated - show auth buttons
+    if (headerAuthButtons) headerAuthButtons.style.display = '';
     // Update state from server data
     state.userTier = data.tier || USER_TIER.FREE;
     if (data.user && data.user.djName) {
@@ -6879,12 +6871,13 @@ async function initAuthFlow() {
     }
     // Redirect based on profileCompleted
     if (!data.user || !data.user.profileCompleted) {
-      setView('completeProfile', { fromHash: true }); // onEnter calls initCompleteProfileView()
+      setView('completeProfile', { fromHash: true });
     } else {
-      setView('authHome', { fromHash: true }); // onEnter calls initPartyHomeView()
+      setView('authHome', { fromHash: true });
     }
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
+    if (headerAuthButtons) headerAuthButtons.style.display = 'none';
     setView('landing', { fromHash: true });
   }
 }
@@ -9779,8 +9772,8 @@ async function handleLogout() {
   await logOut();
   clearProfile();
   state.userTier = USER_TIER.FREE;
-  state.prototypeMode = false;
-  state.temporaryUserId = null;
+  const headerAuthButtons = document.getElementById('headerAuthButtons');
+  if (headerAuthButtons) headerAuthButtons.style.display = 'none';
   setView('landing');
   showToast('👋 Logged out');
 }
@@ -12006,7 +11999,6 @@ if (typeof module !== 'undefined' && module.exports) {
     clearProfile,
     hasValidProfile,
     setView,
-    SKIP_AUTH,
     showView,
     showHome,
     showLanding,

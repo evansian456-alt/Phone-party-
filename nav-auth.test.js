@@ -8,7 +8,6 @@
  *   - VIEWS registry structure
  *   - setView() auth gating and hash routing
  *   - Nav-bar visibility rules
- *   - SKIP_AUTH gate
  */
 
 // ── Spy on history.pushState before loading app.js ───────────────────────────
@@ -192,7 +191,6 @@ const {
   clearProfile,
   hasValidProfile,
   setView,
-  SKIP_AUTH,
 } = appModule;
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -418,10 +416,3 @@ describe('setView() – nav visibility', () => {
   });
 });
 
-describe('SKIP_AUTH gate', () => {
-  test('SKIP_AUTH is false by default (devBypassEnabled not in localStorage)', () => {
-    // In our test environment, localStorage is cleared and DEV_MODE/TEST_MODE
-    // are not set via URL params, so SKIP_AUTH evaluates to false.
-    expect(SKIP_AUTH).toBe(false);
-  });
-});
