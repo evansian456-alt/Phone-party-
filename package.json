@@ -16,7 +16,8 @@
     "test:e2e:auto": "node e2e-workflow/cli.js",
     "test:e2e:workflow": "node e2e-workflow/cli.js",
     "db:migrate": "node ./scripts/db-migrate.js",
-    "validate:pwa": "node validate-pwa.js"
+    "validate:pwa": "node validate-pwa.js",
+    "verify-assets": "node ./scripts/verify-assets.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.993.0",
