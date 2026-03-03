@@ -173,8 +173,7 @@ function setView(viewName, opts = {}) {
   const targetEl = document.getElementById(view.id);
   if (targetEl) {
     targetEl.classList.remove('is-entering');
-    // Force reflow so the animation re-triggers
-    void targetEl.offsetWidth;
+    void targetEl.offsetWidth; // Force reflow so the animation re-triggers on re-entry
     targetEl.classList.add('is-entering');
     targetEl.addEventListener('animationend', () => targetEl.classList.remove('is-entering'), { once: true });
 
@@ -220,6 +219,7 @@ window.addEventListener('hashchange', () => {
     setView(viewName, { fromHash: true });
   }
 });
+
 
 // User tier constants
 const USER_TIER = {
@@ -6846,21 +6846,20 @@ function attemptAddPhone() {
 
 /**
  * Initialize auth flow: check if user is logged in and redirect appropriately.
- * - Logged out: show landing page with Login/Signup CTAs, hide header icons
- * - Logged in + profileCompleted=false: show complete-profile view
- * - Logged in + profileCompleted=true: show party (authenticated home) view
+ * Uses state machine transitions (AppStateMachine) and setView() routing.
+ * - Logged out: LOGGED_OUT state (landing page, nav hidden)
+ * - Logged in + profileCompleted=false: PROFILE_INCOMPLETE state (complete-profile view)
+ * - Logged in + profileCompleted=true: PARTY_HUB state (auth home view)
  */
 async function initAuthFlow() {
   const headerAuthButtons = document.getElementById('headerAuthButtons');
-  // Shorthand to the state machine (loaded by ui/stateMachine.js before app.js).
-  const SM = window.AppStateMachine;
   try {
     const response = await fetch('/api/me');
     if (!response.ok) {
-      // Not authenticated — hide auth buttons and show landing
+      // Not authenticated — hide auth buttons and transition to LOGGED_OUT
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
+      window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
       setView('landing', { fromHash: true });
-      if (SM) SM.transitionTo(SM.APP_STATE.LOGGED_OUT);
       return;
     }
     const data = await response.json();
@@ -6874,17 +6873,17 @@ async function initAuthFlow() {
     }
     // Redirect based on profileCompleted
     if (!data.user || !data.user.profileCompleted) {
+      window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PROFILE_INCOMPLETE);
       setView('completeProfile', { fromHash: true });
-      if (SM) SM.transitionTo(SM.APP_STATE.AUTHENTICATED_PROFILE_INCOMPLETE);
     } else {
+      window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
       setView('authHome', { fromHash: true });
-      if (SM) SM.transitionTo(SM.APP_STATE.AUTHENTICATED_PROFILE_COMPLETE);
     }
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
+    window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
     setView('landing', { fromHash: true });
-    if (SM) SM.transitionTo(SM.APP_STATE.LOGGED_OUT);
   }
 }
 
@@ -6917,13 +6916,14 @@ function initCompleteProfileView() {
         return;
       }
       toast('✅ Profile complete! Welcome to Phone Party!');
+      window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
       if (typeof navigate === 'function') {
         navigate('/home', { replace: true });
       } else {
         showView('viewAuthHome');
         initPartyHomeView();
       }
-      if (window.AppStateMachine) window.AppStateMachine.transitionTo(window.AppStateMachine.APP_STATE.AUTHENTICATED_PROFILE_COMPLETE);
+      if (window.AppStateMachine) window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
     } catch (err) {
       if (errorEl) { errorEl.textContent = 'Network error. Please try again.'; errorEl.classList.remove('hidden'); }
     }
@@ -6998,7 +6998,7 @@ function initPartyHomeView() {
 }
 
 /**
- * Update the billing box in viewParty to reflect current tier.
+ * Update the billing box in viewAuthHome to reflect current tier.
  */
 function initBillingBox() {
   const box = document.getElementById('billingBox');
@@ -9781,8 +9781,8 @@ async function handleLogout() {
   state.userTier = USER_TIER.FREE;
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   if (headerAuthButtons) headerAuthButtons.style.display = 'none';
+  window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
   setView('landing');
-  if (window.AppStateMachine) window.AppStateMachine.transitionTo(window.AppStateMachine.APP_STATE.LOGGED_OUT);
   showToast('👋 Logged out');
 }
 

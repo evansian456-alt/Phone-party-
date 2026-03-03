@@ -7771,6 +7771,49 @@ body.light-mode .input-field {
   }
 }
 
+/* ── Safe-area / mobile layout (Capacitor + PWA) ──────────────────────────── */
+
+/* Respect iOS/Android notch and home-bar safe areas */
+:root {
+  --safe-top:    env(safe-area-inset-top,    0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left,   0px);
+  --safe-right:  env(safe-area-inset-right,  0px);
+}
+
+body {
+  /* Stretch to fill viewport including dynamic height (prevents keyboard-resize jump) */
+  min-height: 100dvh;
+  padding-top:    var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left:   var(--safe-left);
+  padding-right:  var(--safe-right);
+}
+
+/* Each full-screen view fills the visible area without double-scroll */
+.wrap > section {
+  min-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+/* Sticky header: account for notch on iOS */
+.top {
+  padding-top: calc(16px + var(--safe-top));
+  top: 0;
+}
+
+/* Version footer */
+.app-version-footer {
+  display: block;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255,255,255,0.25);
+  padding: 6px 0 calc(6px + var(--safe-bottom));
+  letter-spacing: 0.5px;
+  user-select: none;
+}
+
 /* ============================================================
    Mobile-first layout hardening (SPA routing / auth upgrade)
    ============================================================ */

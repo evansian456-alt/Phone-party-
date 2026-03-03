@@ -6,6 +6,7 @@
 // CACHE_NAME is tied to CHANGER_VERSION so caches auto-bust on every deploy.
 // Bump the version string here whenever app.js changes.
 const CHANGER_VERSION = '2026-02-27-a';
+const SW_VERSION = 'v1.0.0'; // Semantic version for pwa-readiness checks
 const CACHE_NAME = `phone-party-${CHANGER_VERSION}`;
 const RUNTIME_CACHE = `phone-party-runtime-${CHANGER_VERSION}`;
 

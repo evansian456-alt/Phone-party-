@@ -1,118 +1,150 @@
 /**
- * App State Machine — Phone Party SPA
+ * App State Machine
  *
- * Single source of truth for which view is visible and whether the auth-gated
- * navigation icons should be shown.  All view-switching code should call
- * `transitionTo(APP_STATE.*)` instead of touching the DOM directly.
+ * Single source-of-truth for which "view" is visible and what the
+ * header/nav should show.  Any part of the app that needs to change
+ * the visible screen should call  transitionTo(STATES.xxx)  rather
+ * than toggling DOM classes directly.
  *
  * States
  * ──────
- *   LOGGED_OUT                       Landing page, nav hidden.
- *   AUTHENTICATED_PROFILE_INCOMPLETE  "Complete your profile" view, nav visible.
- *   AUTHENTICATED_PROFILE_COMPLETE    Party hub (create/join), nav visible.
- *   IN_PARTY                          In-party view (host), nav visible.
- *   IN_PARTY_GUEST                    In-party view (guest), nav visible.
+ *  LOGGED_OUT             – unauthenticated; landing page, nav hidden
+ *  PROFILE_INCOMPLETE     – authenticated but DJ name not yet set
+ *  PARTY_HUB              – authenticated + profile complete; create/join hub
+ *  IN_PARTY               – inside an active party session (host)
+ *  IN_PARTY_GUEST         – inside an active party session (guest)
  */
 
 'use strict';
 
-/** Enumeration of all valid application states. */
-var APP_STATE = {
-  LOGGED_OUT: 'LOGGED_OUT',
-  AUTHENTICATED_PROFILE_INCOMPLETE: 'AUTHENTICATED_PROFILE_INCOMPLETE',
-  AUTHENTICATED_PROFILE_COMPLETE: 'AUTHENTICATED_PROFILE_COMPLETE',
-  IN_PARTY: 'IN_PARTY',
-  IN_PARTY_GUEST: 'IN_PARTY_GUEST'
+// ── State constants ──────────────────────────────────────────────────────────
+
+const STATES = Object.freeze({
+  LOGGED_OUT:         'LOGGED_OUT',
+  PROFILE_INCOMPLETE: 'PROFILE_INCOMPLETE',
+  PARTY_HUB:          'PARTY_HUB',
+  IN_PARTY:           'IN_PARTY',
+  IN_PARTY_GUEST:     'IN_PARTY_GUEST'
+});
+
+// Views shown for each state (first entry is the primary view to reveal)
+const STATE_VIEWS = {
+  [STATES.LOGGED_OUT]:         ['viewLanding'],
+  [STATES.PROFILE_INCOMPLETE]: ['viewCompleteProfile'],
+  [STATES.PARTY_HUB]:          ['viewAuthHome'],
+  [STATES.IN_PARTY]:           ['viewParty'],
+  [STATES.IN_PARTY_GUEST]:     ['viewGuest']
 };
 
-/** Which view element to reveal for each state. */
-var STATE_VIEW_MAP = {};
-STATE_VIEW_MAP[APP_STATE.LOGGED_OUT]                       = 'viewLanding';
-STATE_VIEW_MAP[APP_STATE.AUTHENTICATED_PROFILE_INCOMPLETE] = 'viewCompleteProfile';
-STATE_VIEW_MAP[APP_STATE.AUTHENTICATED_PROFILE_COMPLETE]   = 'viewAuthHome';  // authenticated create/join hub
-STATE_VIEW_MAP[APP_STATE.IN_PARTY]                         = 'viewParty';     // host party view
-STATE_VIEW_MAP[APP_STATE.IN_PARTY_GUEST]                   = 'viewGuest';     // guest party view
-
-/** States that require the auth-gated navigation bar to be visible. */
-var AUTH_NAV_STATES = [
-  APP_STATE.AUTHENTICATED_PROFILE_INCOMPLETE,
-  APP_STATE.AUTHENTICATED_PROFILE_COMPLETE,
-  APP_STATE.IN_PARTY,
-  APP_STATE.IN_PARTY_GUEST
+// All managed view IDs (mirrors ALL_VIEWS in app.js for the views we gate)
+const GATED_VIEWS = [
+  'viewLanding',
+  'viewCompleteProfile',
+  'viewAuthHome',
+  'viewParty',
+  'viewGuest',
+  'viewHome',
+  'viewChooseTier',
+  'viewAccountCreation',
+  'viewPayment',
+  'viewLogin',
+  'viewSignup',
+  'viewPasswordReset',
+  'viewProfile',
+  'viewUpgradeHub',
+  'viewVisualPackStore',
+  'viewProfileUpgrades',
+  'viewPartyExtensions',
+  'viewDjTitleStore',
+  'viewLeaderboard',
+  'viewMyProfile'
 ];
 
-/**
- * All view section IDs managed by this state machine.
- * Kept in sync with ALL_VIEWS in app.js.
- */
-var SM_ALL_VIEWS = [
-  'viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome',
-  'viewAuthHome', 'viewParty', 'viewPayment', 'viewGuest', 'viewLogin', 'viewSignup',
-  'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
-  'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore',
-  'viewLeaderboard', 'viewMyProfile', 'viewCompleteProfile'
-];
+// ── Internal helpers ─────────────────────────────────────────────────────────
 
-var _currentState = APP_STATE.LOGGED_OUT;
+function _getElementById(id) {
+  /* Allow tests to inject a document stub via module.document */
+  const doc = (typeof module !== 'undefined' && module.document) ||
+              (typeof document !== 'undefined' ? document : null);
+  return doc ? doc.getElementById(id) : null;
+}
+
+function _setNavVisible(visible) {
+  const nav = _getElementById('headerAuthButtons');
+  if (!nav) return;
+  nav.style.display = visible ? '' : 'none';
+}
+
+// ── Current state tracking ───────────────────────────────────────────────────
+
+let _currentState = null;
 
 /**
- * Return the current application state string.
- * @returns {string}
+ * Render the UI for the given state:
+ *  • hide all gated views
+ *  • show the view(s) associated with the new state
+ *  • show/hide the header nav based on authentication
+ *
+ * @param {string} newState - One of the STATES values
  */
+function render(newState) {
+  if (!Object.values(STATES).includes(newState)) {
+    console.warn('[StateMachine] Unknown state:', newState);
+    return;
+  }
+
+  // Hide all gated views
+  GATED_VIEWS.forEach(id => {
+    const el = _getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
+
+  // Show views for this state
+  const views = STATE_VIEWS[newState] || [];
+  views.forEach(id => {
+    const el = _getElementById(id);
+    if (el) el.classList.remove('hidden');
+  });
+
+  // Nav visibility: hidden on landing, visible when authenticated
+  _setNavVisible(newState !== STATES.LOGGED_OUT);
+
+  _currentState = newState;
+  console.log('[StateMachine] →', newState);
+}
+
+/**
+ * Transition to a new state (calls render internally).
+ *
+ * @param {string} newState - One of the STATES values
+ */
+function transitionTo(newState) {
+  render(newState);
+}
+
+/**
+ * Return the current state string (or null before first transition).
+ * @returns {string|null}
+ */
+function currentState() {
+  return _currentState;
+}
+
+/** Alias for currentState() — backward compatibility. */
 function getState() {
   return _currentState;
 }
 
-/**
- * Render the UI for the given state.
- * Hides all managed views then reveals the correct one; also toggles the
- * auth-gated header navigation.
- *
- * Safe to call when `document` is unavailable (server-side / test no-op guard).
- *
- * @param {string} newState - One of APP_STATE values.
- */
-function render(newState) {
-  if (typeof document === 'undefined') return;
+// ── Exports (CommonJS for tests; also available as globals in browser) ───────
 
-  // Hide all managed views
-  SM_ALL_VIEWS.forEach(function(id) {
-    var el = document.getElementById(id);
-    if (el) el.classList.add('hidden');
-  });
+// APP_STATE is a backward-compat alias for STATES (same keys and values)
+const APP_STATE = STATES;
 
-  // Reveal the target view
-  var viewId = STATE_VIEW_MAP[newState] || 'viewLanding';
-  var target = document.getElementById(viewId);
-  if (target) target.classList.remove('hidden');
-
-  // Show auth-gated nav only when the user is authenticated
-  var nav = document.getElementById('headerAuthButtons');
-  if (nav && nav.style) {
-    nav.style.display = AUTH_NAV_STATES.indexOf(newState) !== -1 ? '' : 'none';
-  }
-}
-
-/**
- * Transition to a new state and apply the corresponding UI changes.
- *
- * @param {string} newState - One of APP_STATE values.
- */
-function transitionTo(newState) {
-  if (!Object.values(APP_STATE).includes(newState)) {
-    console.warn('[StateMachine] Unknown state:', newState);
-    return;
-  }
-  _currentState = newState;
-  render(newState);
-}
-
-// Expose globally in browser so app.js can reference window.AppStateMachine.
-if (typeof window !== 'undefined') {
-  window.AppStateMachine = { APP_STATE: APP_STATE, transitionTo: transitionTo, getState: getState, render: render };
-}
-
-// CommonJS export for Jest; harmless in browser (module is undefined there).
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { APP_STATE: APP_STATE, transitionTo: transitionTo, getState: getState, render: render, SM_ALL_VIEWS: SM_ALL_VIEWS };
+  module.exports = { STATES, APP_STATE, transitionTo, render, currentState, getState, GATED_VIEWS };
+}
+
+/* Expose on window for use by app.js in the browser */
+if (typeof window !== 'undefined') {
+  window.AppStateMachine = { STATES, APP_STATE, transitionTo, render, currentState, getState };
 }

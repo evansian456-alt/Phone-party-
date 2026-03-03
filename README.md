@@ -759,63 +759,87 @@ WebSocket message types:
 - `ROOM` - Broadcast room state updates
 - `ENDED` - Party ended notification
 
+
 ---
 
-## 📱 Mobile — Android & iOS (Capacitor)
+## 📱 Mobile Builds (Capacitor)
 
-The frontend can be packaged as a native Android/iOS app via [Capacitor](https://capacitorjs.com/).
-The app shell talks to the existing Cloud Run backend over HTTPS — no backend changes needed.
+Phone Party ships as a PWA and can be packaged as a native Android / iOS app using [Capacitor](https://capacitorjs.com/).
 
 ### Prerequisites
 
-- [Android Studio](https://developer.android.com/studio) (for Android)
-- [Xcode](https://developer.apple.com/xcode/) (for iOS, macOS only)
-- Node.js ≥ 20
-
-### One-time setup
+Install the Capacitor CLI and platform dependencies:
 
 ```bash
-# Install Capacitor CLI + platforms
 npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/ios
-
-# Initialize (only if android/ and ios/ directories don't exist yet)
-npx cap add android
-npx cap add ios
+npx cap init "Phone Party" com.houseparty.syncspeaker --web-dir public
 ```
 
-Set the Cloud Run URL in **`capacitor.config.json`** → `server.url` before syncing.
+> The `capacitor.config.json` at the repo root is already pre-filled with the correct `appId`, `appName`, and `webDir`.
 
-### Build & sync after every code change
+### Sync web assets to native projects
+
+After any frontend change, copy the latest web files into the native platforms:
 
 ```bash
-# Copy static files into dist/
-npm run build
-
-# Sync dist/ into the native projects
-npm run cap:sync
+npm run cap:sync   # equivalent to: npx cap sync
 ```
 
-### Open in IDE
+### Android (Android Studio)
+
+1. Install [Android Studio](https://developer.android.com/studio).
+2. Run `npm run cap:android` to open the project in Android Studio.
+3. Connect a device or start an emulator.
+4. Click **Run ▶** in Android Studio.
+
+To run directly from the terminal:
 
 ```bash
-npm run cap:android   # Opens Android Studio
-npm run cap:ios       # Opens Xcode (macOS only)
+npm run cap:run:android
 ```
 
-Then press **Run** in the IDE to deploy to an emulator or a real device.
+### iOS (Xcode)
 
-### App state machine
+1. Install [Xcode](https://developer.apple.com/xcode/) (macOS only).
+2. Run `npm run cap:ios` to open the project in Xcode.
+3. Select your target device or simulator.
+4. Click **Run ▶** in Xcode.
 
-View transitions are managed by `ui/stateMachine.js` and exposed as
-`window.AppStateMachine`.  The four states are:
+To run directly from the terminal:
 
-| State | View shown | Nav visible |
+```bash
+npm run cap:run:ios
+```
+
+### Connecting to the Cloud Run backend
+
+By default `capacitor.config.json` omits the `server` block so the native app loads its own bundled web files. To point a build at a live Cloud Run backend, add a `server` block temporarily (do **not** commit it):
+
+```json
+{
+  "server": {
+    "url": "https://YOUR_CLOUD_RUN_URL"
+  }
+}
+```
+
+Only add `"cleartext": true` if your backend is HTTP (not HTTPS). For production Cloud Run deployments this is never needed.
+
+---
+
+## 🏗️ App State Machine
+
+View switching is managed by `ui/stateMachine.js`.  All auth-gated navigation goes through:
+
+```js
+window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
+```
+
+| State | View shown | Header nav |
 |---|---|---|
-| `LOGGED_OUT` | Landing | ❌ |
-| `AUTHENTICATED_PROFILE_INCOMPLETE` | Complete profile | ✅ |
-| `AUTHENTICATED_PROFILE_COMPLETE` | Party hub | ✅ |
-| `IN_PARTY` | Party view | ✅ |
+| `LOGGED_OUT` | Landing page | Hidden |
+| `PROFILE_INCOMPLETE` | Complete Profile form | Visible |
+| `PARTY_HUB` | Create / Join party hub | Visible |
+| `IN_PARTY` | Party session view | Visible |
 
-Call `window.AppStateMachine.transitionTo(window.AppStateMachine.APP_STATE.*)` anywhere in the
-codebase to perform an authenticated state change.
-
+Tests live in `nav-auth.test.js` and use jest-environment-jsdom.

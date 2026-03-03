@@ -1,13 +1,13 @@
 {
   "appId": "com.houseparty.syncspeaker",
   "appName": "Phone Party",
-  "webDir": "dist",
-  "bundledWebRuntime": false,
+  "webDir": ".",
   "plugins": {
     "SplashScreen": {
-      "launchAutoHide": true,
+      "launchShowDuration": 2000,
       "backgroundColor": "#0A0A0F",
-      "showSpinner": false
+      "androidSplashResourceName": "splash",
+      "androidScaleType": "CENTER_CROP"
     }
   }
 }
