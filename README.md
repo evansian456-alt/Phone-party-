@@ -28,6 +28,8 @@ Phone Party lets you connect multiple phones together to play music in perfect s
 
 **Note**: Party Pass is a single-use purchase that unlocks Pro features for all guests in one party for 2 hours.
 
+**Pro Monthly** is now available via **Stripe Checkout** on the web. See [docs/stripe-billing.md](docs/stripe-billing.md) for setup instructions.
+
 ## 📚 Documentation
 
 ### 👥 User Documentation
