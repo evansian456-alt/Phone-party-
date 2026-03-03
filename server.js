@@ -72,6 +72,9 @@ const { MetricsService } = require('./metrics-service');
 const { ReferralSystem } = require('./referral-system');
 const { verifyStripeSignature, processStripeWebhook } = require('./stripe-webhook');
 
+// Stripe billing client (null when STRIPE_SECRET_KEY is unset)
+const stripeClient = require('./stripe-client');
+
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "8080", 10);
@@ -1413,9 +1416,12 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // Get user basic info
+    // Get user basic info (including Stripe billing fields added by migration 003)
     const userResult = await db.query(
-      'SELECT id, email, dj_name, created_at, profile_completed FROM users WHERE id = $1',
+      `SELECT id, email, dj_name, created_at, profile_completed,
+              tier, subscription_status, current_period_end,
+              stripe_customer_id, stripe_subscription_id
+       FROM users WHERE id = $1`,
       [userId]
     );
 
@@ -1469,9 +1475,13 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     const upgrades = await db.getOrCreateUserUpgrades(userId);
     const { hasPartyPass, hasPro } = db.resolveEntitlements(upgrades);
 
-    // Determine tier (PRO_MONTHLY if active, PARTY_PASS if active, else FREE)
+    // Determine tier
+    // Priority: Stripe billing tier (PRO) > legacy upgrades > FREE
     let tier = 'FREE';
-    if (hasPro) {
+    if (user.tier === 'PRO') {
+      // Stripe billing says PRO
+      tier = 'PRO';
+    } else if (hasPro) {
       tier = 'PRO_MONTHLY';
     } else if (hasPartyPass) {
       tier = 'PARTY_PASS';
@@ -1500,8 +1510,15 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
         }
       },
       entitlements: {
-        hasPartyPass,
-        hasPro
+        hasPartyPass: hasPartyPass || tier === 'PRO',
+        hasPro: hasPro || tier === 'PRO'
+      },
+      billing: {
+        tier: user.tier || 'FREE',
+        subscriptionStatus: user.subscription_status || null,
+        currentPeriodEnd: user.current_period_end || null,
+        stripeCustomerId: user.stripe_customer_id || null,
+        stripeSubscriptionId: user.stripe_subscription_id || null
       },
       profile: {
         djScore: profile.dj_score,
@@ -4997,6 +5014,274 @@ app.post("/api/referral/track", apiLimiter, authMiddleware.requireAuth, async (r
     return res.status(500).json({ error: 'Failed to track referral' });
   }
 });
+
+// ============================================================================
+// BILLING ENDPOINTS (Stripe Checkout subscriptions)
+// ============================================================================
+
+/**
+ * POST /api/billing/create-checkout-session
+ * Creates a Stripe Checkout Session for a PRO monthly subscription.
+ * Does NOT grant tier here — the webhook does that.
+ */
+app.post('/api/billing/create-checkout-session', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  if (!stripeClient) {
+    return res.status(503).json({ error: 'Billing not configured. STRIPE_SECRET_KEY is missing.' });
+  }
+  const priceId = process.env.STRIPE_PRICE_ID_PRO_MONTHLY;
+  if (!priceId) {
+    return res.status(503).json({ error: 'Billing not configured. STRIPE_PRICE_ID_PRO_MONTHLY is missing.' });
+  }
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+
+  try {
+    const userId = req.user.userId;
+
+    // Fetch user email and current stripe_customer_id
+    const userResult = await db.query(
+      'SELECT email, stripe_customer_id FROM users WHERE id = $1',
+      [userId]
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userResult.rows[0];
+    let customerId = user.stripe_customer_id;
+
+    // Create Stripe customer if not yet linked
+    if (!customerId) {
+      const customer = await stripeClient.customers.create({
+        email: user.email,
+        metadata: { userId }
+      });
+      customerId = customer.id;
+      await db.query(
+        'UPDATE users SET stripe_customer_id = $1 WHERE id = $2',
+        [customerId, userId]
+      );
+    }
+
+    // Create Checkout Session
+    const session = await stripeClient.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${publicBaseUrl}/?billing=success`,
+      cancel_url: `${publicBaseUrl}/?billing=cancel`,
+      client_reference_id: String(userId)
+    });
+
+    return res.json({ url: session.url });
+  } catch (error) {
+    console.error('[BillingCheckout] Error creating session:', error.message);
+    return res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+/**
+ * GET /api/billing/status
+ * Returns the authenticated user's current billing/subscription state.
+ */
+app.get('/api/billing/status', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const result = await db.query(
+      `SELECT tier, subscription_status, current_period_end, stripe_customer_id, stripe_subscription_id
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const row = result.rows[0];
+    return res.json({
+      tier: row.tier || 'FREE',
+      subscription_status: row.subscription_status || null,
+      current_period_end: row.current_period_end || null,
+      stripe_customer_id: row.stripe_customer_id || null,
+      stripe_subscription_id: row.stripe_subscription_id || null
+    });
+  } catch (error) {
+    console.error('[BillingStatus] Error:', error.message);
+    return res.status(500).json({ error: 'Failed to fetch billing status' });
+  }
+});
+
+/**
+ * Derive tier string from subscription status.
+ * Policy: PRO when active or trialing; FREE otherwise.
+ * past_due keeps FREE (conservative).
+ */
+function tierFromSubscriptionStatus(status) {
+  if (status === 'active' || status === 'trialing') return 'PRO';
+  return 'FREE';
+}
+
+/**
+ * POST /api/billing/webhook
+ * Stripe webhook endpoint. Uses raw body for signature verification.
+ * IMPORTANT: this route must be registered BEFORE the JSON body-parser middleware
+ * applies to it, so we attach express.raw() directly on this route.
+ */
+app.post(
+  '/api/billing/webhook',
+  rateLimit({ windowMs: 60000, max: 200 }),
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error('[BillingWebhook] STRIPE_WEBHOOK_SECRET not configured');
+      return res.status(500).json({ error: 'Webhook not configured' });
+    }
+    if (!stripeClient) {
+      console.error('[BillingWebhook] Stripe client not available');
+      return res.status(503).json({ error: 'Billing not configured' });
+    }
+
+    let event;
+    try {
+      event = stripeClient.webhooks.constructEvent(req.body, req.headers['stripe-signature'], webhookSecret);
+    } catch (err) {
+      console.error('[BillingWebhook] Signature verification failed:', err.message);
+      return res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
+    }
+
+    // Respond 200 quickly; process asynchronously
+    res.json({ received: true });
+
+    try {
+      await handleBillingWebhookEvent(event);
+    } catch (err) {
+      console.error('[BillingWebhook] Handler error:', err.message);
+    }
+  }
+);
+
+/**
+ * Handle a verified billing webhook event and update the DB.
+ */
+async function handleBillingWebhookEvent(event) {
+  const { type, data } = event;
+  const obj = data.object;
+
+  console.log(`[BillingWebhook] Received event: ${type}`);
+
+  switch (type) {
+    case 'checkout.session.completed': {
+      const userId = obj.client_reference_id;
+      const customerId = obj.customer;
+      const subscriptionId = obj.subscription;
+      if (!userId) {
+        console.error('[BillingWebhook] checkout.session.completed: missing client_reference_id');
+        return;
+      }
+      await db.query(
+        'UPDATE users SET stripe_customer_id = COALESCE(stripe_customer_id, $1), stripe_subscription_id = $2 WHERE id = $3',
+        [customerId, subscriptionId, userId]
+      );
+      // Fetch subscription to get status + period end
+      if (subscriptionId && stripeClient) {
+        try {
+          const sub = await stripeClient.subscriptions.retrieve(subscriptionId);
+          const newTier = tierFromSubscriptionStatus(sub.status);
+          await db.query(
+            `UPDATE users SET subscription_status = $1, current_period_end = $2, tier = $3
+             WHERE id = $4`,
+            [sub.status, new Date(sub.current_period_end * 1000), newTier, userId]
+          );
+          console.log(`[BillingWebhook] checkout.session.completed: userId=${userId} tier=${newTier}`);
+        } catch (fetchErr) {
+          console.error('[BillingWebhook] Failed to fetch subscription after checkout:', fetchErr.message);
+        }
+      }
+      break;
+    }
+
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated': {
+      const subscriptionId = obj.id;
+      const customerId = obj.customer;
+      const status = obj.status;
+      const periodEnd = new Date(obj.current_period_end * 1000);
+      const newTier = tierFromSubscriptionStatus(status);
+
+      // Prefer metadata.userId; fall back to stripe_customer_id lookup
+      let userId = obj.metadata?.userId;
+      if (!userId) {
+        const r = await db.query('SELECT id FROM users WHERE stripe_customer_id = $1', [customerId]);
+        if (r.rows.length > 0) userId = r.rows[0].id;
+      }
+      if (!userId) {
+        console.error(`[BillingWebhook] ${type}: no userId for customer ${customerId}`);
+        return;
+      }
+
+      await db.query(
+        `UPDATE users SET stripe_subscription_id = $1, subscription_status = $2,
+         current_period_end = $3, tier = $4 WHERE id = $5`,
+        [subscriptionId, status, periodEnd, newTier, userId]
+      );
+      console.log(`[BillingWebhook] ${type}: userId=${userId} status=${status} tier=${newTier}`);
+      break;
+    }
+
+    case 'customer.subscription.deleted': {
+      const subscriptionId = obj.id;
+      const customerId = obj.customer;
+      const status = obj.status;
+
+      let userId = obj.metadata?.userId;
+      if (!userId) {
+        const r = await db.query('SELECT id FROM users WHERE stripe_customer_id = $1', [customerId]);
+        if (r.rows.length > 0) userId = r.rows[0].id;
+      }
+      if (!userId) {
+        const r = await db.query('SELECT id FROM users WHERE stripe_subscription_id = $1', [subscriptionId]);
+        if (r.rows.length > 0) userId = r.rows[0].id;
+      }
+      if (!userId) {
+        console.error(`[BillingWebhook] customer.subscription.deleted: no userId found`);
+        return;
+      }
+
+      await db.query(
+        `UPDATE users SET subscription_status = $1, tier = 'FREE' WHERE id = $2`,
+        [status || 'canceled', userId]
+      );
+      console.log(`[BillingWebhook] customer.subscription.deleted: userId=${userId} tier=FREE`);
+      break;
+    }
+
+    case 'invoice.payment_succeeded': {
+      const subscriptionId = obj.subscription;
+      if (!subscriptionId) return;
+      const periodEnd = new Date(obj.period_end * 1000);
+      await db.query(
+        `UPDATE users SET subscription_status = 'active', current_period_end = $1, tier = 'PRO'
+         WHERE stripe_subscription_id = $2`,
+        [periodEnd, subscriptionId]
+      );
+      console.log(`[BillingWebhook] invoice.payment_succeeded: subscription=${subscriptionId} tier=PRO`);
+      break;
+    }
+
+    case 'invoice.payment_failed': {
+      const subscriptionId = obj.subscription;
+      if (!subscriptionId) return;
+      // Keep subscription_status as past_due; conservative: set tier to FREE
+      await db.query(
+        `UPDATE users SET subscription_status = 'past_due', tier = 'FREE'
+         WHERE stripe_subscription_id = $1`,
+        [subscriptionId]
+      );
+      console.log(`[BillingWebhook] invoice.payment_failed: subscription=${subscriptionId} tier=FREE`);
+      break;
+    }
+
+    default:
+      console.log(`[BillingWebhook] Unhandled event type: ${type}`);
+  }
+}
 
 // ============================================================================
 // STRIPE WEBHOOK ENDPOINT

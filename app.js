@@ -6768,6 +6768,9 @@ function initPartyHomeView() {
   const btnPartyCreate = document.getElementById('btnPartyCreate');
   const btnPartyJoin = document.getElementById('btnPartyJoin');
 
+  // Billing: wire up upgrade button and show billing box
+  initBillingBox();
+
   if (btnPartyShowCreate) {
     btnPartyShowCreate.onclick = () => {
       const s = document.getElementById('partyCreateSection');
@@ -6821,6 +6824,131 @@ function initPartyHomeView() {
   }
 }
 
+/**
+ * Update the billing box in viewParty to reflect current tier.
+ */
+function initBillingBox() {
+  const box = document.getElementById('billingBox');
+  const freeSection = document.getElementById('billingBoxFree');
+  const proSection = document.getElementById('billingBoxPro');
+  const btnUpgrade = document.getElementById('btnUpgradeToPro');
+  if (!box) return;
+
+  const tier = state.userTier || USER_TIER.FREE;
+  const isPro = (tier === 'PRO' || tier === 'PRO_MONTHLY');
+  box.classList.remove('hidden');
+
+  if (isPro) {
+    if (freeSection) freeSection.classList.add('hidden');
+    if (proSection) proSection.classList.remove('hidden');
+    // Show subscription end date if available
+    const statusEl = document.getElementById('billingProStatus');
+    if (statusEl) {
+      fetch('/api/billing/status')
+        .then(r => r.json())
+        .then(d => {
+          if (d.current_period_end) {
+            const until = new Date(d.current_period_end).toLocaleDateString();
+            statusEl.textContent = `Renews/expires ${until}`;
+          }
+        })
+        .catch(() => {});
+    }
+  } else {
+    if (freeSection) freeSection.classList.remove('hidden');
+    if (proSection) proSection.classList.add('hidden');
+    if (btnUpgrade && !btnUpgrade.dataset.wired) {
+      btnUpgrade.dataset.wired = '1';
+      btnUpgrade.addEventListener('click', async () => {
+        btnUpgrade.disabled = true;
+        btnUpgrade.textContent = '⏳ Loading…';
+        try {
+          const res = await fetch('/api/billing/create-checkout-session', { method: 'POST' });
+          if (!res.ok) {
+            const err = await res.json();
+            toast('❌ ' + (err.error || 'Could not start checkout'));
+            btnUpgrade.disabled = false;
+            btnUpgrade.textContent = '🚀 Upgrade to Pro';
+            return;
+          }
+          const { url } = await res.json();
+          window.location.href = url;
+        } catch (e) {
+          toast('❌ Network error – please try again');
+          btnUpgrade.disabled = false;
+          btnUpgrade.textContent = '🚀 Upgrade to Pro';
+        }
+      });
+    }
+  }
+}
+
+/**
+ * Refresh current user data from /api/me and update state.
+ */
+async function refreshMe() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) return false;
+    const data = await res.json();
+    state.userTier = data.tier || USER_TIER.FREE;
+    if (data.user && data.user.djName) state.djName = data.user.djName;
+    return data;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Handle billing=success/cancel query parameters on app load.
+ * Strips the query param from the URL after handling.
+ */
+async function handleBillingReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const billing = params.get('billing');
+  if (!billing) return;
+
+  // Clean URL immediately
+  params.delete('billing');
+  const newSearch = params.toString();
+  const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+  history.replaceState(null, '', newUrl);
+
+  if (billing === 'cancel') {
+    toast('Checkout canceled.');
+    return;
+  }
+
+  if (billing === 'success') {
+    toast('Payment successful! Activating your Pro account…');
+    // Webhook may not have fired yet — poll /api/billing/status for up to 10s
+    const deadline = Date.now() + 10000;
+    let gotPro = false;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 1500));
+      try {
+        const res = await fetch('/api/billing/status');
+        if (res.ok) {
+          const d = await res.json();
+          if (d.tier === 'PRO') {
+            gotPro = true;
+            break;
+          }
+        }
+      } catch (_) { /* ignore */ }
+    }
+    // Refresh state from /api/me
+    await refreshMe();
+    // Re-render billing box if we're on the party view
+    initBillingBox();
+    if (gotPro) {
+      toast('✅ You\'re now Pro!');
+    } else {
+      toast('Payment received. Pro access will activate shortly.');
+    }
+  }
+}
+
 (async function init(){
   // Connect WebSocket for real-time party sync, DJ authority, and guest updates
   try {
@@ -6832,6 +6960,9 @@ function initPartyHomeView() {
 
   // Check authentication state and redirect accordingly
   await initAuthFlow();
+
+  // Handle billing return parameters (billing=success or billing=cancel in URL)
+  await handleBillingReturn();
   
   // Initialize music player
   initializeMusicPlayer();

@@ -260,6 +260,19 @@
         Connect your phones and turn up the volume!
       </p>
 
+      <!-- Upgrade / Pro status box (shown when logged in) -->
+      <div id="billingBox" class="hidden" style="margin-bottom:1rem;padding:0.75rem 1rem;border-radius:8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);">
+        <!-- FREE tier: show upgrade button -->
+        <div id="billingBoxFree">
+          <p style="margin:0 0 0.5rem;font-size:0.9rem;">✨ Upgrade to <strong>Pro</strong> for unlimited devices, uploads &amp; Official App Sync.</p>
+          <button id="btnUpgradeToPro" class="btn primary" style="width:100%;">🚀 Upgrade to Pro</button>
+        </div>
+        <!-- PRO tier: show status -->
+        <div id="billingBoxPro" class="hidden">
+          <p style="margin:0;font-size:0.9rem;">✅ You're Pro! <span id="billingProStatus"></span></p>
+        </div>
+      </div>
+
       <!-- Two Giant Neon Buttons -->
       <div class="start-join-buttons">
         <button class="btn-giant btn-create-party" id="btnPartyShowCreateParty">
