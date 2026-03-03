@@ -182,17 +182,47 @@ describe('GET /api/party/:code/limits', () => {
       .send({ djName: 'Limits Free DJ', isHost: true });
     freePartyCode = freeRes.body.partyCode;
 
-    // PARTY_PASS tier party (via prototype mode)
+    // PARTY_PASS tier party - set tier directly in Redis and in-memory
     const paidRes = await request(app)
       .post('/api/create-party')
-      .send({ djName: 'Limits Pass DJ', isHost: true, prototypeMode: true, tier: 'PARTY_PASS' });
+      .send({ djName: 'Limits Pass DJ', isHost: true });
     paidPartyCode = paidRes.body.partyCode;
+    if (paidPartyCode) {
+      const existing = JSON.parse(await redis.get(`party:${paidPartyCode}`));
+      if (existing) {
+        existing.tier = 'PARTY_PASS';
+        existing.partyPassExpiresAt = Date.now() + (2 * 60 * 60 * 1000);
+        existing.maxPhones = 4;
+        await redis.set(`party:${paidPartyCode}`, JSON.stringify(existing));
+      }
+      const inMem = parties.get(paidPartyCode);
+      if (inMem) {
+        inMem.tier = 'PARTY_PASS';
+        inMem.partyPassExpiresAt = existing ? existing.partyPassExpiresAt : Date.now() + (2 * 60 * 60 * 1000);
+        inMem.maxPhones = 4;
+      }
+    }
 
-    // PRO_MONTHLY tier party (via prototype mode)
+    // PRO_MONTHLY tier party - set tier directly in Redis and in-memory
     const proRes = await request(app)
       .post('/api/create-party')
-      .send({ djName: 'Limits Pro DJ', isHost: true, prototypeMode: true, tier: 'PRO_MONTHLY' });
+      .send({ djName: 'Limits Pro DJ', isHost: true });
     proPartyCode = proRes.body.partyCode;
+    if (proPartyCode) {
+      const existing = JSON.parse(await redis.get(`party:${proPartyCode}`));
+      if (existing) {
+        existing.tier = 'PRO_MONTHLY';
+        existing.partyPassExpiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000);
+        existing.maxPhones = 10;
+        await redis.set(`party:${proPartyCode}`, JSON.stringify(existing));
+      }
+      const inMem = parties.get(proPartyCode);
+      if (inMem) {
+        inMem.tier = 'PRO_MONTHLY';
+        inMem.partyPassExpiresAt = existing ? existing.partyPassExpiresAt : Date.now() + (30 * 24 * 60 * 60 * 1000);
+        inMem.maxPhones = 10;
+      }
+    }
   });
 
   afterEach(async () => {
@@ -697,9 +727,18 @@ describe('Tier-aware display – platform logo visibility', () => {
   it('PARTY_PASS tier: /api/party/:code/limits returns isPaidForOfficialAppSync=true', async () => {
     const res = await request(app)
       .post('/api/create-party')
-      .send({ djName: 'Logo Test DJ Pass', isHost: true, prototypeMode: true, tier: 'PARTY_PASS' });
+      .send({ djName: 'Logo Test DJ Pass', isHost: true });
     const code = res.body.partyCode;
     expect(code).toBeTruthy();
+    // Set tier directly in Redis and in-memory
+    const existingData = JSON.parse(await redis.get(`party:${code}`));
+    if (existingData) {
+      existingData.tier = 'PARTY_PASS';
+      existingData.partyPassExpiresAt = Date.now() + (2 * 60 * 60 * 1000);
+      await redis.set(`party:${code}`, JSON.stringify(existingData));
+    }
+    const inMem = parties.get(code);
+    if (inMem) { inMem.tier = 'PARTY_PASS'; inMem.partyPassExpiresAt = existingData ? existingData.partyPassExpiresAt : Date.now() + (2 * 60 * 60 * 1000); }
     const limitsRes = await request(app).get(`/api/party/${code}/limits`);
     expect(limitsRes.status).toBe(200);
     expect(limitsRes.body.isPaidForOfficialAppSync).toBe(true);
@@ -709,9 +748,18 @@ describe('Tier-aware display – platform logo visibility', () => {
   it('PRO tier: /api/party/:code/limits returns isPaidForOfficialAppSync=true', async () => {
     const res = await request(app)
       .post('/api/create-party')
-      .send({ djName: 'Logo Test DJ Pro', isHost: true, prototypeMode: true, tier: 'PRO' });
+      .send({ djName: 'Logo Test DJ Pro', isHost: true });
     const code = res.body.partyCode;
     expect(code).toBeTruthy();
+    // Set tier directly in Redis and in-memory
+    const existingData = JSON.parse(await redis.get(`party:${code}`));
+    if (existingData) {
+      existingData.tier = 'PRO';
+      existingData.partyPassExpiresAt = Date.now() + (30 * 24 * 60 * 60 * 1000);
+      await redis.set(`party:${code}`, JSON.stringify(existingData));
+    }
+    const inMem = parties.get(code);
+    if (inMem) { inMem.tier = 'PRO'; inMem.partyPassExpiresAt = existingData ? existingData.partyPassExpiresAt : Date.now() + (30 * 24 * 60 * 60 * 1000); }
     const limitsRes = await request(app).get(`/api/party/${code}/limits`);
     expect(limitsRes.status).toBe(200);
     expect(limitsRes.body.isPaidForOfficialAppSync).toBe(true);

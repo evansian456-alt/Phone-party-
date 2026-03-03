@@ -68,6 +68,8 @@ global.setPlanPill = jest.fn();
 global.checkPartyPassStatus = jest.fn();
 global.updatePartyPassUI = jest.fn();
 global.renderRoom = jest.fn();
+global.initCompleteProfileView = jest.fn();
+global.initPartyHomeView = jest.fn();
 global.updatePlaybackUI = jest.fn();
 global.updateQualityUI = jest.fn();
 global.hasPartyPassEntitlement = jest.fn().mockReturnValue(false);
@@ -107,6 +109,8 @@ document.body.innerHTML = `
     <section class="card hidden" id="viewDjTitleStore"><h1>DJ Titles</h1></section>
     <section class="card hidden" id="viewLeaderboard"><h1>Leaderboard</h1></section>
     <section class="card hidden" id="viewMyProfile"><h1>My Profile</h1></section>
+    <section class="card hidden" id="viewCompleteProfile"><h1>Complete Profile</h1></section>
+    <section class="card hidden" id="viewAuthHome"><h1>Auth Home</h1></section>
     <input id="joinCode" /><input id="guestName" />
     <input id="accountDjName" /><input id="accountEmail" /><input id="accountPassword" />
     <div id="selectedTierInfo">

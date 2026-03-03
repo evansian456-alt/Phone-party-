@@ -72,6 +72,9 @@ const { MetricsService } = require('./metrics-service');
 const { ReferralSystem } = require('./referral-system');
 const { verifyStripeSignature, processStripeWebhook } = require('./stripe-webhook');
 
+// Stripe billing client (null when STRIPE_SECRET_KEY is unset)
+const stripeClient = require('./stripe-client');
+
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "8080", 10);
@@ -1346,7 +1349,7 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
 
     // Find user
     const result = await db.query(
-      'SELECT id, email, password_hash, dj_name FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, dj_name, is_admin FROM users WHERE email = $1',
       [email.toLowerCase()]
     );
 
@@ -1368,6 +1371,16 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
       [user.id]
     );
 
+    // Admin bootstrap: promote user on first successful login if email matches
+    const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL
+      ? process.env.ADMIN_BOOTSTRAP_EMAIL.toLowerCase()
+      : null;
+    if (bootstrapEmail && user.email === bootstrapEmail && !user.is_admin) {
+      await db.query('UPDATE users SET is_admin = TRUE WHERE id = $1', [user.id]);
+      user.is_admin = true;
+      console.log('[AdminBootstrap] Promoted user to admin:', user.email, '(id:', user.id + ')');
+    }
+
     // Generate JWT token
     const token = authMiddleware.generateToken({
       userId: user.id,
@@ -1387,7 +1400,8 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        djName: user.dj_name
+        djName: user.dj_name,
+        isAdmin: user.is_admin
       }
     });
   } catch (error) {
@@ -1408,39 +1422,17 @@ app.post("/api/auth/logout", apiLimiter, (req, res) => {
 /**
  * GET /api/me
  * Get current user info with tier and entitlements
- * TEMPORARY HOTFIX: Returns anonymous user when auth is disabled
  */
 app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
     
-    // TEMPORARY: When auth is disabled, return anonymous user data
-    if (userId && userId.startsWith('anonymous-')) {
-      return res.json({
-        user: {
-          id: userId,
-          email: 'anonymous@guest.local',
-          djName: 'Guest DJ',
-          createdAt: new Date().toISOString()
-        },
-        tier: 'FREE',
-        profile: {
-          djScore: 0,
-          djRank: 'Guest DJ',
-          activeVisualPack: null,
-          activeTitle: null,
-          verifiedBadge: false,
-          crownEffect: false,
-          animatedName: false,
-          reactionTrail: false
-        },
-        entitlements: []
-      });
-    }
-
-    // Get user basic info
+    // Get user basic info (including Stripe billing fields added by migration 003)
     const userResult = await db.query(
-      'SELECT id, email, dj_name, created_at FROM users WHERE id = $1',
+      `SELECT id, email, dj_name, created_at, profile_completed,
+              tier, subscription_status, current_period_end,
+              stripe_customer_id, stripe_subscription_id
+       FROM users WHERE id = $1`,
       [userId]
     );
 
@@ -1494,9 +1486,13 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     const upgrades = await db.getOrCreateUserUpgrades(userId);
     const { hasPartyPass, hasPro } = db.resolveEntitlements(upgrades);
 
-    // Determine tier (PRO_MONTHLY if active, PARTY_PASS if active, else FREE)
+    // Determine tier
+    // Priority: Stripe billing tier (PRO) > legacy upgrades > FREE
     let tier = 'FREE';
-    if (hasPro) {
+    if (user.tier === 'PRO') {
+      // Stripe billing says PRO
+      tier = 'PRO';
+    } else if (hasPro) {
       tier = 'PRO_MONTHLY';
     } else if (hasPartyPass) {
       tier = 'PARTY_PASS';
@@ -1510,7 +1506,8 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
         id: user.id,
         email: user.email,
         djName: user.dj_name,
-        createdAt: user.created_at
+        createdAt: user.created_at,
+        profileCompleted: user.profile_completed || false
       },
       tier,
       upgrades: {
@@ -1524,8 +1521,15 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
         }
       },
       entitlements: {
-        hasPartyPass,
-        hasPro
+        hasPartyPass: hasPartyPass || tier === 'PRO',
+        hasPro: hasPro || tier === 'PRO'
+      },
+      billing: {
+        tier: user.tier || 'FREE',
+        subscriptionStatus: user.subscription_status || null,
+        currentPeriodEnd: user.current_period_end || null,
+        stripeCustomerId: user.stripe_customer_id || null,
+        stripeSubscriptionId: user.stripe_subscription_id || null
       },
       profile: {
         djScore: profile.dj_score,
@@ -1551,6 +1555,34 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
 // ============================================================================
 // STORE ENDPOINTS
 // ============================================================================
+
+/**
+ * POST /api/complete-profile
+ * Mark user profile as completed after onboarding, optionally updating DJ name
+ */
+app.post("/api/complete-profile", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { djName } = req.body;
+
+    if (djName && djName.trim()) {
+      await db.query(
+        'UPDATE users SET profile_completed = TRUE, dj_name = $2 WHERE id = $1',
+        [userId, djName.trim().substring(0, 50)]
+      );
+    } else {
+      await db.query(
+        'UPDATE users SET profile_completed = TRUE WHERE id = $1',
+        [userId]
+      );
+    }
+
+    res.json({ success: true, profileCompleted: true });
+  } catch (error) {
+    console.error('[Auth] Complete profile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
 
 /**
  * GET /api/store
@@ -2838,9 +2870,9 @@ function normalizePartyData(partyData) {
     guests: partyData.guests || [],
     status: partyData.status || "active",
     expiresAt: partyData.expiresAt || (Date.now() + PARTY_TTL_MS),
-    // Tier field from prototype mode
+    // Tier field from backend entitlement validation
     tier: partyData.tier || null,
-    // Optional fields from purchases or prototype mode
+    // Optional fields from purchases
     partyPassExpiresAt: partyData.partyPassExpiresAt || null,
     maxPhones: partyData.maxPhones || null,
     // Reaction and playback history for late joiners
@@ -3120,7 +3152,7 @@ async function savePartyState(code, partyData) {
 
 // Shared party creation function used by both HTTP and WS paths
 // This ensures consistent party data structure across all creation methods
-async function createPartyCommon({ djName, source, hostId, hostConnected, tier, prototypeMode }) {
+async function createPartyCommon({ djName, source, hostId, hostConnected }) {
   // Check if we should use Redis or fallback
   const useRedis = redis && redisReady;
   
@@ -3147,25 +3179,6 @@ async function createPartyCommon({ djName, source, hostId, hostConnected, tier, 
   
   const createdAt = Date.now();
   
-  // Calculate tier-specific settings for prototype mode
-  let partyPassExpiresAt = null;
-  let maxPhones = null;
-  
-  if (prototypeMode && tier) {
-    console.log(`[Party] Creating party in prototype mode with tier: ${tier}`);
-    if (tier === 'PARTY_PASS') {
-      // Party Pass: 2 hours duration, 4 phones
-      partyPassExpiresAt = createdAt + (2 * 60 * 60 * 1000);
-      maxPhones = 4;
-    } else if (tier === 'PRO' || tier === 'PRO_MONTHLY') {
-      // Pro Monthly: simulated long duration for testing (30 days), 10 phones
-      // Note: Both 'PRO' (client constant) and 'PRO_MONTHLY' (server label) are accepted
-      partyPassExpiresAt = createdAt + (30 * 24 * 60 * 60 * 1000); // 30 days
-      maxPhones = 10;
-    }
-    // FREE tier: null values (default 2 phones, unlimited time)
-  }
-  
   // Create full party data with all required fields
   const partyData = {
     partyCode: code,
@@ -3181,10 +3194,10 @@ async function createPartyCommon({ djName, source, hostId, hostConnected, tier, 
     guests: [],
     status: "active",
     expiresAt: createdAt + PARTY_TTL_MS,
-    // Tier-based fields (set by prototype mode or purchases)
-    tier: tier || null,
-    partyPassExpiresAt,
-    maxPhones,
+    // Tier-based fields (set by backend entitlement validation only)
+    tier: null,
+    partyPassExpiresAt: null,
+    maxPhones: null,
     // History fields for late joiners
     reactionHistory: [],
     currentTrack: null,
@@ -3205,7 +3218,7 @@ async function createPartyCommon({ djName, source, hostId, hostConnected, tier, 
   
   // Track session creation in metrics
   if (metricsService) {
-    await metricsService.trackSessionCreated(code, hostId || 'anonymous', tier || 'FREE');
+    await metricsService.trackSessionCreated(code, hostId || 'anonymous', 'FREE');
   }
   
   return { code, partyData };
@@ -3239,20 +3252,13 @@ app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
     console.warn(`[Idempotency] Redis unavailable, proceeding without idempotency`);
   }
   
-  // Extract DJ name, source, and prototype mode fields from request body
-  const { djName, source, tier, prototypeMode } = req.body;
+  // Extract DJ name and source from request body
+  const { djName, source } = req.body;
   
   // Validate DJ name is provided
   if (!djName || !djName.trim()) {
     console.log("[HTTP] Party creation rejected: DJ name is required");
     return res.status(400).json({ error: "DJ name is required to create a party" });
-  }
-  
-  // Validate tier if provided in prototype mode
-  const validTiers = ['FREE', 'PARTY_PASS', 'PRO', 'PRO_MONTHLY'];
-  if (prototypeMode && tier && !validTiers.includes(tier)) {
-    console.log(`[HTTP] Invalid tier in prototype mode: ${tier}`);
-    return res.status(400).json({ error: "Invalid tier specified" });
   }
   
   // Validate and set source (default to "local" if not provided or invalid)
@@ -3287,12 +3293,10 @@ app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
       djName: djName,
       source: partySource,
       hostId: hostId,
-      hostConnected: false,
-      tier: prototypeMode ? tier : null,
-      prototypeMode: prototypeMode || false
+      hostConnected: false
     });
     
-    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}${prototypeMode ? ` (prototype mode, tier: ${tier})` : ''}`);
+    console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}`);
     
     // Also store in local memory for WebSocket connections
     parties.set(code, {
@@ -3755,7 +3759,7 @@ app.get("/api/party-state", async (req, res) => {
       chatMode: partyData.chatMode || "OPEN",
       createdAt: partyData.createdAt,
       serverTime: now,
-      // Tier information (for prototype mode)
+      // Tier information (from backend entitlement validation)
       tierInfo: {
         tier: partyData.tier || null,
         partyPassExpiresAt: partyData.partyPassExpiresAt || null,
@@ -5023,6 +5027,274 @@ app.post("/api/referral/track", apiLimiter, authMiddleware.requireAuth, async (r
 });
 
 // ============================================================================
+// BILLING ENDPOINTS (Stripe Checkout subscriptions)
+// ============================================================================
+
+/**
+ * POST /api/billing/create-checkout-session
+ * Creates a Stripe Checkout Session for a PRO monthly subscription.
+ * Does NOT grant tier here — the webhook does that.
+ */
+app.post('/api/billing/create-checkout-session', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  if (!stripeClient) {
+    return res.status(503).json({ error: 'Billing not configured. STRIPE_SECRET_KEY is missing.' });
+  }
+  const priceId = process.env.STRIPE_PRICE_ID_PRO_MONTHLY;
+  if (!priceId) {
+    return res.status(503).json({ error: 'Billing not configured. STRIPE_PRICE_ID_PRO_MONTHLY is missing.' });
+  }
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
+
+  try {
+    const userId = req.user.userId;
+
+    // Fetch user email and current stripe_customer_id
+    const userResult = await db.query(
+      'SELECT email, stripe_customer_id FROM users WHERE id = $1',
+      [userId]
+    );
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const user = userResult.rows[0];
+    let customerId = user.stripe_customer_id;
+
+    // Create Stripe customer if not yet linked
+    if (!customerId) {
+      const customer = await stripeClient.customers.create({
+        email: user.email,
+        metadata: { userId }
+      });
+      customerId = customer.id;
+      await db.query(
+        'UPDATE users SET stripe_customer_id = $1 WHERE id = $2',
+        [customerId, userId]
+      );
+    }
+
+    // Create Checkout Session
+    const session = await stripeClient.checkout.sessions.create({
+      customer: customerId,
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${publicBaseUrl}/?billing=success`,
+      cancel_url: `${publicBaseUrl}/?billing=cancel`,
+      client_reference_id: String(userId)
+    });
+
+    return res.json({ url: session.url });
+  } catch (error) {
+    console.error('[BillingCheckout] Error creating session:', error.message);
+    return res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+/**
+ * GET /api/billing/status
+ * Returns the authenticated user's current billing/subscription state.
+ */
+app.get('/api/billing/status', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const result = await db.query(
+      `SELECT tier, subscription_status, current_period_end, stripe_customer_id, stripe_subscription_id
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    const row = result.rows[0];
+    return res.json({
+      tier: row.tier || 'FREE',
+      subscription_status: row.subscription_status || null,
+      current_period_end: row.current_period_end || null,
+      stripe_customer_id: row.stripe_customer_id || null,
+      stripe_subscription_id: row.stripe_subscription_id || null
+    });
+  } catch (error) {
+    console.error('[BillingStatus] Error:', error.message);
+    return res.status(500).json({ error: 'Failed to fetch billing status' });
+  }
+});
+
+/**
+ * Derive tier string from subscription status.
+ * Policy: PRO when active or trialing; FREE otherwise.
+ * past_due keeps FREE (conservative).
+ */
+function tierFromSubscriptionStatus(status) {
+  if (status === 'active' || status === 'trialing') return 'PRO';
+  return 'FREE';
+}
+
+/**
+ * POST /api/billing/webhook
+ * Stripe webhook endpoint. Uses raw body for signature verification.
+ * IMPORTANT: this route must be registered BEFORE the JSON body-parser middleware
+ * applies to it, so we attach express.raw() directly on this route.
+ */
+app.post(
+  '/api/billing/webhook',
+  rateLimit({ windowMs: 60000, max: 200 }),
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error('[BillingWebhook] STRIPE_WEBHOOK_SECRET not configured');
+      return res.status(500).json({ error: 'Webhook not configured' });
+    }
+    if (!stripeClient) {
+      console.error('[BillingWebhook] Stripe client not available');
+      return res.status(503).json({ error: 'Billing not configured' });
+    }
+
+    let event;
+    try {
+      event = stripeClient.webhooks.constructEvent(req.body, req.headers['stripe-signature'], webhookSecret);
+    } catch (err) {
+      console.error('[BillingWebhook] Signature verification failed:', err.message);
+      return res.status(400).json({ error: `Webhook signature verification failed: ${err.message}` });
+    }
+
+    // Respond 200 quickly; process asynchronously
+    res.json({ received: true });
+
+    try {
+      await handleBillingWebhookEvent(event);
+    } catch (err) {
+      console.error('[BillingWebhook] Handler error:', err.message);
+    }
+  }
+);
+
+/**
+ * Handle a verified billing webhook event and update the DB.
+ */
+async function handleBillingWebhookEvent(event) {
+  const { type, data } = event;
+  const obj = data.object;
+
+  console.log(`[BillingWebhook] Received event: ${type}`);
+
+  switch (type) {
+    case 'checkout.session.completed': {
+      const userId = obj.client_reference_id;
+      const customerId = obj.customer;
+      const subscriptionId = obj.subscription;
+      if (!userId) {
+        console.error('[BillingWebhook] checkout.session.completed: missing client_reference_id');
+        return;
+      }
+      await db.query(
+        'UPDATE users SET stripe_customer_id = COALESCE(stripe_customer_id, $1), stripe_subscription_id = $2 WHERE id = $3',
+        [customerId, subscriptionId, userId]
+      );
+      // Fetch subscription to get status + period end
+      if (subscriptionId && stripeClient) {
+        try {
+          const sub = await stripeClient.subscriptions.retrieve(subscriptionId);
+          const newTier = tierFromSubscriptionStatus(sub.status);
+          await db.query(
+            `UPDATE users SET subscription_status = $1, current_period_end = $2, tier = $3
+             WHERE id = $4`,
+            [sub.status, new Date(sub.current_period_end * 1000), newTier, userId]
+          );
+          console.log(`[BillingWebhook] checkout.session.completed: userId=${userId} tier=${newTier}`);
+        } catch (fetchErr) {
+          console.error('[BillingWebhook] Failed to fetch subscription after checkout:', fetchErr.message);
+        }
+      }
+      break;
+    }
+
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated': {
+      const subscriptionId = obj.id;
+      const customerId = obj.customer;
+      const status = obj.status;
+      const periodEnd = new Date(obj.current_period_end * 1000);
+      const newTier = tierFromSubscriptionStatus(status);
+
+      // Prefer metadata.userId; fall back to stripe_customer_id lookup
+      let userId = obj.metadata?.userId;
+      if (!userId) {
+        const r = await db.query('SELECT id FROM users WHERE stripe_customer_id = $1', [customerId]);
+        if (r.rows.length > 0) userId = r.rows[0].id;
+      }
+      if (!userId) {
+        console.error(`[BillingWebhook] ${type}: no userId for customer ${customerId}`);
+        return;
+      }
+
+      await db.query(
+        `UPDATE users SET stripe_subscription_id = $1, subscription_status = $2,
+         current_period_end = $3, tier = $4 WHERE id = $5`,
+        [subscriptionId, status, periodEnd, newTier, userId]
+      );
+      console.log(`[BillingWebhook] ${type}: userId=${userId} status=${status} tier=${newTier}`);
+      break;
+    }
+
+    case 'customer.subscription.deleted': {
+      const subscriptionId = obj.id;
+      const customerId = obj.customer;
+      const status = obj.status;
+
+      let userId = obj.metadata?.userId;
+      if (!userId) {
+        const r = await db.query('SELECT id FROM users WHERE stripe_customer_id = $1', [customerId]);
+        if (r.rows.length > 0) userId = r.rows[0].id;
+      }
+      if (!userId) {
+        const r = await db.query('SELECT id FROM users WHERE stripe_subscription_id = $1', [subscriptionId]);
+        if (r.rows.length > 0) userId = r.rows[0].id;
+      }
+      if (!userId) {
+        console.error(`[BillingWebhook] customer.subscription.deleted: no userId found`);
+        return;
+      }
+
+      await db.query(
+        `UPDATE users SET subscription_status = $1, tier = 'FREE' WHERE id = $2`,
+        [status || 'canceled', userId]
+      );
+      console.log(`[BillingWebhook] customer.subscription.deleted: userId=${userId} tier=FREE`);
+      break;
+    }
+
+    case 'invoice.payment_succeeded': {
+      const subscriptionId = obj.subscription;
+      if (!subscriptionId) return;
+      const periodEnd = new Date(obj.period_end * 1000);
+      await db.query(
+        `UPDATE users SET subscription_status = 'active', current_period_end = $1, tier = 'PRO'
+         WHERE stripe_subscription_id = $2`,
+        [periodEnd, subscriptionId]
+      );
+      console.log(`[BillingWebhook] invoice.payment_succeeded: subscription=${subscriptionId} tier=PRO`);
+      break;
+    }
+
+    case 'invoice.payment_failed': {
+      const subscriptionId = obj.subscription;
+      if (!subscriptionId) return;
+      // Keep subscription_status as past_due; conservative: set tier to FREE
+      await db.query(
+        `UPDATE users SET subscription_status = 'past_due', tier = 'FREE'
+         WHERE stripe_subscription_id = $1`,
+        [subscriptionId]
+      );
+      console.log(`[BillingWebhook] invoice.payment_failed: subscription=${subscriptionId} tier=FREE`);
+      break;
+    }
+
+    default:
+      console.log(`[BillingWebhook] Unhandled event type: ${type}`);
+  }
+}
+
+// ============================================================================
 // STRIPE WEBHOOK ENDPOINT
 // ============================================================================
 
@@ -6163,7 +6435,7 @@ async function handleJoin(ws, msg) {
         source: normalizedPartyData.source, // IMPORTANT: Load source from Redis
         partyPro: normalizedPartyData.partyPro, // IMPORTANT: Load partyPro from Redis
         promoUsed: normalizedPartyData.promoUsed,
-        tier: normalizedPartyData.tier, // IMPORTANT: Load tier from Redis (for prototype mode)
+        tier: normalizedPartyData.tier, // IMPORTANT: Load tier from Redis
         partyPassExpiresAt: normalizedPartyData.partyPassExpiresAt, // IMPORTANT: Load expiry from Redis
         maxPhones: normalizedPartyData.maxPhones, // IMPORTANT: Load max phones from Redis
         djMessages: [],
@@ -6568,7 +6840,7 @@ async function broadcastRoomState(code) {
     chatMode: party.chatMode || "OPEN",
     partyPro: !!party.partyPro, // Party-wide Pro status
     source: party.source || "local", // Host-selected source
-    // Tier from prototype mode
+    // Tier from backend entitlement validation
     tier: partyData?.tier || party?.tier || null,
     // Party Pass info (source of truth)
     partyPassActive: partyData ? isPartyPassActive(partyData) : false,

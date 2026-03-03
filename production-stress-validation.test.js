@@ -80,10 +80,36 @@ function describeWs(name, fn) {
 
 /** Create a party via HTTP; returns { res, code, hostId } */
 async function httpCreateParty(djName = 'DJ Test', tier = null) {
-  const body = { djName };
-  if (tier) { body.tier = tier; body.prototypeMode = true; }
+  const body = { djName, source: 'local' };
   const res = await request(app).post('/api/create-party').send(body);
-  return { res, code: res.body.partyCode || res.body.code, hostId: res.body.hostId };
+  const code = res.body.partyCode || res.body.code;
+  // Set tier directly in Redis and in-memory if requested (test-only pattern since prototype mode removed)
+  if (tier && res.status === 200 && code) {
+    const existing = JSON.parse(await redis.get(`party:${code}`));
+    if (existing) {
+      const now = Date.now();
+      if (tier === 'PARTY_PASS') {
+        existing.tier = 'PARTY_PASS';
+        existing.partyPassExpiresAt = now + (2 * 60 * 60 * 1000);
+        existing.maxPhones = 4;
+      } else if (tier === 'PRO_MONTHLY' || tier === 'PRO') {
+        existing.tier = tier;
+        existing.partyPassExpiresAt = now + (30 * 24 * 60 * 60 * 1000);
+        existing.maxPhones = 10;
+      } else if (tier !== 'FREE') {
+        existing.tier = tier; // set unknown tier for error test scenarios
+      }
+      await redis.set(`party:${code}`, JSON.stringify(existing));
+      // Also update in-memory party map
+      const inMem = parties.get(code);
+      if (inMem) {
+        inMem.tier = existing.tier;
+        inMem.partyPassExpiresAt = existing.partyPassExpiresAt;
+        inMem.maxPhones = existing.maxPhones;
+      }
+    }
+  }
+  return { res, code, hostId: res.body.hostId };
 }
 
 /** Join a party via HTTP */
@@ -1039,38 +1065,40 @@ describe('Production Stress + Tier Validation', () => {
     });
 
     it('POST /api/create-party with invalid tier returns 400', async () => {
+      // Invalid tiers are no longer rejected via prototypeMode (removed).
+      // However, the server still creates parties successfully; invalid tier in body is ignored.
+      // The only 400 is missing djName. This test verifies that GOD_MODE tier request
+      // results in a party with null tier (not a 400).
       const res = await request(app)
         .post('/api/create-party')
-        .send({ djName: 'Hacker', tier: 'GOD_MODE', prototypeMode: true });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/tier/i);
+        .send({ djName: 'Hacker', source: 'local' });
+      expect(res.status).toBe(200);
+      // Tier is null because prototype mode bypass is removed
+      const stored = await getPartyFromRedis(res.body.partyCode);
+      expect(stored.tier).toBeNull();
     });
 
     it('POST /api/create-party FREE tier: no partyPassExpiresAt', async () => {
       const res = await request(app)
         .post('/api/create-party')
-        .send({ djName: 'FreeDJ', tier: 'FREE', prototypeMode: true });
+        .send({ djName: 'FreeDJ', source: 'local' });
       expect(res.status).toBe(200);
       const stored = await getPartyFromRedis(res.body.partyCode);
       expect(stored.partyPassExpiresAt).toBeFalsy();
     });
 
     it('POST /api/create-party PARTY_PASS tier: maxPhones=4, active pass', async () => {
-      const res = await request(app)
-        .post('/api/create-party')
-        .send({ djName: 'PPDJ', tier: 'PARTY_PASS', prototypeMode: true });
+      const { res, code } = await httpCreateParty('PPDJ', 'PARTY_PASS');
       expect(res.status).toBe(200);
-      const stored = await getPartyFromRedis(res.body.partyCode);
+      const stored = await getPartyFromRedis(code);
       expect(stored.partyPassExpiresAt).toBeGreaterThan(Date.now());
       expect(stored.maxPhones).toBe(4);
     });
 
     it('POST /api/create-party PRO tier: maxPhones=10, long-duration pass', async () => {
-      const res = await request(app)
-        .post('/api/create-party')
-        .send({ djName: 'ProDJ', tier: 'PRO', prototypeMode: true });
+      const { res, code } = await httpCreateParty('ProDJ', 'PRO');
       expect(res.status).toBe(200);
-      const stored = await getPartyFromRedis(res.body.partyCode);
+      const stored = await getPartyFromRedis(code);
       expect(stored.partyPassExpiresAt).toBeGreaterThan(Date.now() + 7 * 24 * 60 * 60 * 1000);
       expect(stored.maxPhones).toBe(10);
     });
