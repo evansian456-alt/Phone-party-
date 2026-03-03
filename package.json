@@ -8,6 +8,10 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "build": "node scripts/build.js",
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap open android",
+    "cap:ios": "npx cap open ios",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -47,6 +51,7 @@
     "@types/jest": "^30.0.0",
     "ioredis-mock": "^8.13.1",
     "jest": "^30.2.0",
+    "jest-environment-jsdom": "^30.2.0",
     "lighthouse": "^13.0.2",
     "playwright": "^1.58.1",
     "supertest": "^7.2.2"

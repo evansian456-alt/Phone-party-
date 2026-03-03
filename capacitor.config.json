@@ -1,0 +1,17 @@
+{
+  "appId": "com.houseparty.syncspeaker",
+  "appName": "Phone Party",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "https://syncspeaker-PLACEHOLDER.a.run.app",
+    "cleartext": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#0A0A0F",
+      "showSpinner": false
+    }
+  }
+}

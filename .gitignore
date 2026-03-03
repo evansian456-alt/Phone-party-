@@ -14,3 +14,4 @@ e2e-tests/reports/
 test-reports/
 server.log
 test-storage-tmp/
+dist/

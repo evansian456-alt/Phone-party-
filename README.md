@@ -757,3 +757,63 @@ WebSocket message types:
 - `ROOM` - Broadcast room state updates
 - `ENDED` - Party ended notification
 
+---
+
+## 📱 Mobile — Android & iOS (Capacitor)
+
+The frontend can be packaged as a native Android/iOS app via [Capacitor](https://capacitorjs.com/).
+The app shell talks to the existing Cloud Run backend over HTTPS — no backend changes needed.
+
+### Prerequisites
+
+- [Android Studio](https://developer.android.com/studio) (for Android)
+- [Xcode](https://developer.apple.com/xcode/) (for iOS, macOS only)
+- Node.js ≥ 20
+
+### One-time setup
+
+```bash
+# Install Capacitor CLI + platforms
+npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/ios
+
+# Initialize (only if android/ and ios/ directories don't exist yet)
+npx cap add android
+npx cap add ios
+```
+
+Set the Cloud Run URL in **`capacitor.config.json`** → `server.url` before syncing.
+
+### Build & sync after every code change
+
+```bash
+# Copy static files into dist/
+npm run build
+
+# Sync dist/ into the native projects
+npm run cap:sync
+```
+
+### Open in IDE
+
+```bash
+npm run cap:android   # Opens Android Studio
+npm run cap:ios       # Opens Xcode (macOS only)
+```
+
+Then press **Run** in the IDE to deploy to an emulator or a real device.
+
+### App state machine
+
+View transitions are managed by `ui/stateMachine.js` and exposed as
+`window.AppStateMachine`.  The four states are:
+
+| State | View shown | Nav visible |
+|---|---|---|
+| `LOGGED_OUT` | Landing | ❌ |
+| `AUTHENTICATED_PROFILE_INCOMPLETE` | Complete profile | ✅ |
+| `AUTHENTICATED_PROFILE_COMPLETE` | Party hub | ✅ |
+| `IN_PARTY` | Party view | ✅ |
+
+Call `window.AppStateMachine.transitionTo(APP_STATE.*)` anywhere in the
+codebase to perform an authenticated state change.
+
