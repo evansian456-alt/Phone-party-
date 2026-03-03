@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
   email_verify_token TEXT,
   reset_password_token TEXT,
   reset_password_expires TIMESTAMPTZ,
-  profile_completed BOOLEAN NOT NULL DEFAULT FALSE
+  profile_completed BOOLEAN NOT NULL DEFAULT FALSE,
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 -- SUBSCRIPTIONS (Pro)

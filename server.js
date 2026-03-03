@@ -1349,7 +1349,7 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
 
     // Find user
     const result = await db.query(
-      'SELECT id, email, password_hash, dj_name FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, dj_name, is_admin FROM users WHERE email = $1',
       [email.toLowerCase()]
     );
 
@@ -1371,6 +1371,16 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
       [user.id]
     );
 
+    // Admin bootstrap: promote user on first successful login if email matches
+    const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL
+      ? process.env.ADMIN_BOOTSTRAP_EMAIL.toLowerCase()
+      : null;
+    if (bootstrapEmail && user.email === bootstrapEmail && !user.is_admin) {
+      await db.query('UPDATE users SET is_admin = TRUE WHERE id = $1', [user.id]);
+      user.is_admin = true;
+      console.log('[AdminBootstrap] Promoted user to admin:', user.email, '(id:', user.id + ')');
+    }
+
     // Generate JWT token
     const token = authMiddleware.generateToken({
       userId: user.id,
@@ -1390,7 +1400,8 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
-        djName: user.dj_name
+        djName: user.dj_name,
+        isAdmin: user.is_admin
       }
     });
   } catch (error) {
