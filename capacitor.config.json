@@ -1,11 +1,7 @@
 {
   "appId": "com.houseparty.syncspeaker",
   "appName": "Phone Party",
-  "webDir": "public",
-  "server": {
-    "url": "https://REPLACE_WITH_CLOUD_RUN_URL",
-    "cleartext": true
-  },
+  "webDir": ".",
   "plugins": {
     "SplashScreen": {
       "launchShowDuration": 2000,

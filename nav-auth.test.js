@@ -37,9 +37,9 @@ beforeEach(() => {
   // Load the module – it runs in Node (no real browser), so we patch
   // module._document to point at the jsdom document.
   sm = require('./ui/stateMachine.js');
-  // Patch the private document lookup used inside the module
+  // Patch the document lookup used inside the module (reads module.document)
   const mod = require.cache[require.resolve('./ui/stateMachine.js')];
-  if (mod) mod._document = document;
+  if (mod) mod.document = document;
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

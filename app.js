@@ -9419,9 +9419,9 @@ async function handleSignup() {
 async function handleLogout() {
   await logOut();
   state.userTier = USER_TIER.FREE;
-  // Transition to logged-out state (hides nav, shows landing)
+  // Transition to logged-out state (hides nav, shows landing, cleans up audio/state)
   window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
-  showView('viewLanding');
+  showLanding();
   showToast('👋 Logged out');
 }
 

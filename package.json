@@ -23,11 +23,11 @@
     "validate:pwa": "node validate-pwa.js",
     "verify-assets": "node ./scripts/verify-assets.js",
     "verify-runtime": "node ./scripts/verify-runtime.js",
-    "cap:sync": "cap sync",
-    "cap:android": "cap open android",
-    "cap:ios": "cap open ios",
-    "cap:run:android": "cap run android",
-    "cap:run:ios": "cap run ios"
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap open android",
+    "cap:ios": "npx cap open ios",
+    "cap:run:android": "npx cap run android",
+    "cap:run:ios": "npx cap run ios"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.993.0",

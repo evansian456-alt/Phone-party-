@@ -811,18 +811,17 @@ npm run cap:run:ios
 
 ### Connecting to the Cloud Run backend
 
-For Capacitor builds to reach the production backend, set the `server.url` in `capacitor.config.json`:
+By default `capacitor.config.json` omits the `server` block so the native app loads its own bundled web files. To point a build at a live Cloud Run backend, add a `server` block temporarily (do **not** commit it):
 
 ```json
 {
   "server": {
-    "url": "https://YOUR_CLOUD_RUN_URL",
-    "cleartext": true
+    "url": "https://YOUR_CLOUD_RUN_URL"
   }
 }
 ```
 
-Leave `server.url` empty (or remove the `server` block) to use the bundled web files directly.
+Only add `"cleartext": true` if your backend is HTTP (not HTTPS). For production Cloud Run deployments this is never needed.
 
 ---
 
