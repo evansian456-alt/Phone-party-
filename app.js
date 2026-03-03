@@ -35,7 +35,7 @@ const SYNC_QUALITY_MEDIUM = "Medium";
 const SYNC_QUALITY_POOR = "Poor";
 
 // All views in the application
-const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewParty', 'viewPayment', 'viewGuest', 
+const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewAuthHome', 'viewParty', 'viewPayment', 'viewGuest', 
                    'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
                    'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile',
                    'viewCompleteProfile'];
@@ -77,6 +77,7 @@ const state = {
   code: null,
   hostId: null, // PHASE 7: Host ID for queue operations (returned from create-party)
   isHost: false,
+  isAuthenticated: false, // True after successful /api/me check
   name: "Guest",
   djName: null, // DJ name for guest view
   source: "local",
@@ -2152,6 +2153,7 @@ function showHome() {
   hide("viewChooseTier");
   hide("viewPayment");
   hide("viewAccountCreation");
+  hide("viewAuthHome");
   show("viewHome"); 
   hide("viewParty");
   hide("viewGuest");
@@ -2185,6 +2187,7 @@ function showHome() {
 function showLanding() {
   show("viewLanding"); 
   hide("viewHome"); 
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   hide("viewChooseTier");
@@ -2237,9 +2240,14 @@ function showLanding() {
 function showParty() {
   hide("viewLanding"); 
   hide("viewHome"); 
+  hide("viewAuthHome");
   hide("viewChooseTier");
   hide("viewPayment");
   show("viewParty");
+  // Update browser URL so refresh restores the party screen
+  if (typeof navigate === 'function' && state.code) {
+    navigate(`/party/${state.code}`, { replace: true, isAuthenticated: true });
+  }
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   
   // Display offline/local mode message
@@ -2315,6 +2323,7 @@ function showParty() {
 function showChooseTier() {
   hide("viewLanding");
   hide("viewHome");
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   hide("viewPayment");
@@ -2327,6 +2336,7 @@ function showChooseTier() {
 function showAccountCreation() {
   hide("viewLanding");
   hide("viewHome");
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   hide("viewPayment");
@@ -2360,6 +2370,7 @@ function updateSelectedTierDisplay() {
 function showPayment() {
   hide("viewLanding");
   hide("viewHome");
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   hide("viewChooseTier");
@@ -2857,7 +2868,8 @@ function updatePartyTimeRemaining(timeRemainingMs) {
 
 function showGuest() {
   hide("viewLanding"); 
-  hide("viewHome"); 
+  hide("viewHome");
+  hide("viewAuthHome");
   hide("viewParty"); 
   show("viewGuest");
   
@@ -6654,12 +6666,16 @@ async function initAuthFlow() {
     const response = await fetch('/api/me');
     if (!response.ok) {
       // Not authenticated - show landing page without header icons
+      state.isAuthenticated = false;
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
+      // Use router navigate so the URL reflects the current screen
+      if (typeof navigate === 'function') navigate('/', { replace: true, isAuthenticated: false });
       showLanding();
       return;
     }
     const data = await response.json();
     // Authenticated - show header icons
+    state.isAuthenticated = true;
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     // Update state from server data
     state.userTier = data.tier || USER_TIER.FREE;
@@ -6671,14 +6687,25 @@ async function initAuthFlow() {
       showView('viewCompleteProfile');
       initCompleteProfileView();
     } else {
-      showView('viewParty');
-      initPartyHomeView();
+      navigateToAuthHome();
     }
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
+    state.isAuthenticated = false;
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
+    if (typeof navigate === 'function') navigate('/', { replace: true, isAuthenticated: false });
     showLanding();
   }
+}
+
+/**
+ * Navigate to the authenticated home hub (/home → viewAuthHome).
+ * Centralises the repeated pattern of navigate() + showView() + initPartyHomeView().
+ */
+function navigateToAuthHome() {
+  if (typeof navigate === 'function') navigate('/home', { replace: true, isAuthenticated: true });
+  showView('viewAuthHome');
+  initPartyHomeView();
 }
 
 /**
@@ -6710,8 +6737,7 @@ function initCompleteProfileView() {
         return;
       }
       toast('✅ Profile complete! Welcome to Phone Party!');
-      showView('viewParty');
-      initPartyHomeView();
+      navigateToAuthHome();
     } catch (err) {
       if (errorEl) { errorEl.textContent = 'Network error. Please try again.'; errorEl.classList.remove('hidden'); }
     }
@@ -6789,6 +6815,24 @@ function initPartyHomeView() {
   } catch (error) {
     console.warn("[Init] WebSocket connection failed on startup:", error);
     // Continue with app initialization - WebSocket can reconnect later
+  }
+
+  // Initialize the History API router so back/forward and deep links work.
+  // We init it BEFORE initAuthFlow so the URL is resolved after auth state is known.
+  if (typeof initRouter === 'function') {
+    initRouter(
+      function onRouteChange(viewId, params) {
+        // Called on browser back/forward — show the correct screen
+        if (viewId === 'viewParty' && params && params.code) {
+          state.code = params.code;
+        }
+        showView(viewId);
+      },
+      function getAuthState() {
+        // Use the state.isAuthenticated flag (set by initAuthFlow)
+        return { isAuthenticated: state.isAuthenticated };
+      }
+    );
   }
 
   // Check authentication state and redirect accordingly
@@ -9329,10 +9373,16 @@ function setupAuthEventListeners() {
     btnLogout.addEventListener('click', handleLogout);
   }
   
-  // Close profile
+  // Close profile — go back to the appropriate screen based on auth state
   const btnCloseProfile = document.getElementById('btnCloseProfile');
   if (btnCloseProfile) {
-    btnCloseProfile.addEventListener('click', () => showView('viewLanding'));
+    btnCloseProfile.addEventListener('click', () => {
+      if (isLoggedIn()) {
+        navigateToAuthHome();
+      } else {
+        showView('viewLanding');
+      }
+    });
   }
   
   // Navigation links
@@ -9419,9 +9469,11 @@ async function handleSignup() {
 async function handleLogout() {
   await logOut();
   state.userTier = USER_TIER.FREE;
+  state.isAuthenticated = false;
   // Hide header icons
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   if (headerAuthButtons) headerAuthButtons.style.display = 'none';
+  if (typeof navigate === 'function') navigate('/', { replace: true, isAuthenticated: false });
   showView('viewLanding');
   showToast('👋 Logged out');
 }
@@ -11605,3 +11657,16 @@ function handleOfficialAppSyncTrackSelected(msg) {
     });
   });
 })();
+
+// ---------------------------------------------------------------------------
+// CommonJS export (Jest / Node — skipped in browser)
+// ---------------------------------------------------------------------------
+/* istanbul ignore next */
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    ALL_VIEWS: ALL_VIEWS,
+    showView: typeof showView !== 'undefined' ? showView : null,
+    initAuthFlow: typeof initAuthFlow !== 'undefined' ? initAuthFlow : null,
+    navigateToAuthHome: typeof navigateToAuthHome !== 'undefined' ? navigateToAuthHome : null
+  };
+}
