@@ -6852,12 +6852,15 @@ function attemptAddPhone() {
  */
 async function initAuthFlow() {
   const headerAuthButtons = document.getElementById('headerAuthButtons');
+  // Shorthand to the state machine (loaded by ui/stateMachine.js before app.js).
+  const SM = window.AppStateMachine;
   try {
     const response = await fetch('/api/me');
     if (!response.ok) {
       // Not authenticated — hide auth buttons and show landing
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
       setView('landing', { fromHash: true });
+      if (SM) SM.transitionTo(SM.APP_STATE.LOGGED_OUT);
       return;
     }
     const data = await response.json();
@@ -6872,13 +6875,16 @@ async function initAuthFlow() {
     // Redirect based on profileCompleted
     if (!data.user || !data.user.profileCompleted) {
       setView('completeProfile', { fromHash: true });
+      if (SM) SM.transitionTo(SM.APP_STATE.AUTHENTICATED_PROFILE_INCOMPLETE);
     } else {
       setView('authHome', { fromHash: true });
+      if (SM) SM.transitionTo(SM.APP_STATE.AUTHENTICATED_PROFILE_COMPLETE);
     }
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
     setView('landing', { fromHash: true });
+    if (SM) SM.transitionTo(SM.APP_STATE.LOGGED_OUT);
   }
 }
 
@@ -6917,6 +6923,7 @@ function initCompleteProfileView() {
         showView('viewAuthHome');
         initPartyHomeView();
       }
+      if (window.AppStateMachine) window.AppStateMachine.transitionTo(window.AppStateMachine.APP_STATE.AUTHENTICATED_PROFILE_COMPLETE);
     } catch (err) {
       if (errorEl) { errorEl.textContent = 'Network error. Please try again.'; errorEl.classList.remove('hidden'); }
     }
@@ -9775,6 +9782,7 @@ async function handleLogout() {
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   if (headerAuthButtons) headerAuthButtons.style.display = 'none';
   setView('landing');
+  if (window.AppStateMachine) window.AppStateMachine.transitionTo(window.AppStateMachine.APP_STATE.LOGGED_OUT);
   showToast('👋 Logged out');
 }
 

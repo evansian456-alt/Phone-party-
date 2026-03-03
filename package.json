@@ -8,6 +8,10 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "build": "node scripts/build.js",
+    "cap:sync": "npx cap sync",
+    "cap:android": "npx cap open android",
+    "cap:ios": "npx cap open ios",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

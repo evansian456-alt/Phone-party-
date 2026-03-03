@@ -2537,6 +2537,7 @@
     }
   </script>
   
+  <script src="ui/stateMachine.js"></script>
   <script src="app.js"></script>
   <script src="router.js"></script>
   
@@ -2622,6 +2623,18 @@
         }
       });
     }
+  </script>
+
+  <!-- Build/version indicator — fetched from /version endpoint at runtime -->
+  <footer id="appVersionFooter" style="text-align:center;padding:6px 0 calc(6px + env(safe-area-inset-bottom));font-size:11px;opacity:0.45;color:inherit;pointer-events:none" aria-hidden="true"></footer>
+  <script>
+    fetch('/version').then(function(r){ return r.json(); }).then(function(d){
+      var el = document.getElementById('appVersionFooter');
+      if (!el) return;
+      var ver = d.appVersion || '';
+      var sha = (d.commit && d.commit !== 'unknown') ? ' · ' + d.commit.slice(0, 7) : '';
+      el.textContent = 'v' + ver + sha;
+    }).catch(function(){/* ignore — version footer is cosmetic */});
   </script>
 </body>
 </html>
