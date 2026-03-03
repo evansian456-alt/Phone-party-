@@ -1,104 +1,186 @@
 # App Navigation Flow
 
-This document describes the screen-flow and routing behaviour of the Phone Party SPA.
+## Overview
 
-## Screens (HTML sections)
+Phone Party is a single-page application (SPA) that uses the **History API** (`pushState` /
+`replaceState`) for navigation. All screen transitions are handled by showing and hiding
+`<section>` elements in `index.html` without full page reloads.
 
-| View ID | Route | Auth | Description |
-|---|---|---|---|
-| `viewLanding` | `/` | Public | Landing/marketing page with Get Started & Log In CTAs |
-| `viewLogin` | `/login` | Logged-out only | Email + password login form |
-| `viewSignup` | `/signup` | Logged-out only | Registration form (email, password, DJ name) |
-| `viewCompleteProfile` | *(transient)* | Logged-in | First-time profile completion (DJ name) |
-| `viewAuthHome` | `/home` | Logged-in | **Main hub** — Create Party / Join Party after authentication |
-| `viewParty` | `/party/:code` | Logged-in | Live party room (host controls + guest list) |
-| `viewGuest` | *(deep-linked)* | Any | Guest listening view |
-| `viewChooseTier` | *(inline flow)* | Any | Tier/plan selector |
-| `viewAccountCreation` | *(inline flow)* | Any | New account setup wizard |
-| `viewProfile` | `/account` | Logged-in | User profile, stats, DJ rank |
-| `viewUpgradeHub` | *(modal-like)* | Any | Upgrade / subscription options |
-| `viewPayment` | *(inline flow)* | Any | Payment processing |
+A lightweight router in `router.js` enforces auth-gated routes and keeps the browser URL
+in sync so that **back/forward navigation** and **deep-link / refresh** work correctly.
 
-## State Storage
+---
 
-| Key | Store | Contents |
-|---|---|---|
-| `syncSpeakerGuestSession` | localStorage | `{ partyCode, guestId, nickname, joinedAt }` — auto-reconnect data |
-| `lastPartyCode` | localStorage | Last party code joined (for pre-filling join form) |
-| `lastGuestName` | localStorage | Last nickname used (for pre-filling join form) |
-| `audioUnlocked` | localStorage + sessionStorage | Whether the user has unlocked audio playback |
-| `CURRENT_USER_KEY` (`syncspeaker_current_user`) | localStorage | Cached user data from `/api/me` |
-| `monetization_${email}` | localStorage | Owned visual packs, titles, subscription status |
-| `partyPass_${code}` | localStorage | Active Party Pass state for the current party |
+## Screens (View IDs)
 
-Auth tokens are stored in **HTTP-only cookies** by the backend.  The frontend does **not** hold the raw JWT.
+| View ID            | URL Path        | Who can see it                     |
+|--------------------|-----------------|-------------------------------------|
+| `viewLanding`      | `/`             | Logged-out users only               |
+| `viewLogin`        | `/login`        | Logged-out users only               |
+| `viewSignup`       | `/signup`       | Logged-out users only               |
+| `viewChooseTier`   | *(modal-like)*  | During account creation flow        |
+| `viewAccountCreation` | *(modal-like)* | During account creation flow      |
+| `viewCompleteProfile` | *(modal-like)* | Logged-in, profile not yet saved  |
+| `viewAuthHome`     | `/home`         | Logged-in users — Create or Join hub |
+| `viewHome`         | *(internal)*    | Legacy unauthenticated home (still used for the actual create/join forms) |
+| `viewParty`        | `/party/:code`  | Active host party session           |
+| `viewGuest`        | `/party/:code`  | Active guest party session          |
+| `viewPayment`      | *(modal-like)*  | During payment flow                 |
+| `viewProfile`      | `/account`      | Logged-in users                     |
+| `viewUpgradeHub`   | *(overlay)*     | Logged-in users                     |
+
+---
 
 ## Navigation Flows
 
-### Logged-out entry (`/`)
-1. Browser opens `/`
-2. `initAuthFlow()` calls `GET /api/me` → `401`
-3. `showLanding()` is called → shows `viewLanding`
-4. URL remains `/` (router sets it via `replaceState`)
+### Logged-out entry
+
+```
+User visits /  →  initAuthFlow() → /api/me returns 401
+                  → showLanding()  (URL: /)
+```
+
+### Direct deep-link when logged out
+
+```
+User visits /home  →  router._renderRoute('/home')
+                   →  isLoggedIn() === false
+                   →  replaceState('/')  →  showLanding()
+```
 
 ### Login
-1. User taps **LOG IN** on landing → `showView('viewLogin')`
-2. Fills credentials → `handleLogin()` → `POST /api/auth/login`
-3. On success → `initAuthFlow()` is called again
-4. `GET /api/me` now returns `200` with user data
-5. If `profileCompleted=true` → router navigates to `/home`, shows `viewAuthHome`
-6. If `profileCompleted=false` → shows `viewCompleteProfile`
 
-### After login (profile already complete)
-1. `viewAuthHome` is shown
-2. Header icons appear (connection indicator, profile, upgrade, etc.)
-3. URL is `/home`
-4. Browser Back → router `popstate` handler → resolves to `/home` for logged-in user
+```
+Landing  →  "Log In" button  →  viewLogin
+  →  handleLogin()  →  logIn(email, pwd)  →  success
+  →  initAuthFlow()  →  /api/me returns user
+  →  navigate('/home', { replace: true })
+  →  viewAuthHome + initPartyHomeView()
+```
 
-### Register / New user
-1. User taps **GET STARTED FREE** → `showView('viewSignup')`
-2. Fills form → `handleSignup()` → `POST /api/auth/signup`
-3. On success → `initAuthFlow()` → profile not yet completed → `viewCompleteProfile`
-4. User enters DJ name → `POST /api/complete-profile`
-5. On success → navigate `/home`, show `viewAuthHome`
+### After login / app refresh while authenticated
 
-### Join/Create party
-1. From `viewAuthHome`, user taps **CREATE PARTY** or **JOIN PARTY**
-2. The relevant form section inside `viewAuthHome` expands
-3. After successful creation/join:
-   - Host → `showParty()` → `viewParty`, URL `/party/:code`
-   - Guest → `showGuest()` → `viewGuest`
+```
+Any path  →  initAuthFlow() → /api/me returns user
+           →  navigate('/home', { replace: true })
+           →  viewAuthHome
+```
 
-### Inside party (`/party/:code`)
-- URL is `/party/XXXXXX` (pushed via `navigate()` in `showParty()`)
-- Page refresh: router resolves `/party/XXXXXX` → `viewParty` (for logged-in users)
-- Leaving party → `showHome()` or `showLanding()` based on auth state
+### Signup
+
+```
+Landing  →  "Get Started" button  →  viewSignup
+  →  handleSignup()  →  success
+  →  initAuthFlow()  →  profile not complete?
+       yes → viewCompleteProfile
+       no  → navigate('/home')
+```
+
+### Profile completion
+
+```
+viewCompleteProfile  →  form submit  →  /api/complete-profile
+  →  success  →  navigate('/home', { replace: true })
+  →  viewAuthHome
+```
+
+### Join/Create party (from authenticated home hub)
+
+```
+viewAuthHome  →  "Create Party" button
+  →  showHome()  (opens legacy viewHome with create form)
+  →  user fills form + clicks "Start the party"
+  →  POST /api/create-party
+  →  WS JOIN event  →  showParty()
+  →  URL pushed: /party/:code
+
+viewAuthHome  →  "Join Party" button
+  →  showHome()  (opens legacy viewHome with join form)
+  →  user fills code + name + clicks "Join the vibe"
+  →  POST /api/join-party
+  →  WS JOIN_ACK  →  showGuest()
+  →  URL pushed: /party/:code
+```
+
+### Inside a party
+
+```
+Host:   viewParty  (URL: /party/:code)
+Guest:  viewGuest  (URL: /party/:code)
+```
+
+### Back button from party → home
+
+```
+Browser back  →  popstate  →  _renderRoute('/home')
+              →  isLoggedIn() === true
+              →  showView('viewAuthHome') + initPartyHomeView()
+```
+
+### Refresh while in party
+
+```
+User refreshes /party/ABC123
+  →  router._bootRouter()  →  popstate registered
+  →  app init: initAuthFlow() → /api/me → user found
+  →  router._renderRoute('/party/ABC123')
+  →  partyCode = 'ABC123'
+  →  state.code = 'ABC123'
+  →  showParty()  (restores party screen)
+```
 
 ### Logout
-1. User clicks logout button in profile or header
-2. `handleLogout()` → `POST /api/auth/logout` → clears cookie
-3. Router navigates to `/` → `showLanding()`
-4. Header icons hidden
 
-## Router (`router.js`)
+```
+Header "🚪" button  →  handleLogout()
+  →  logOut() (clears cookie + localStorage)
+  →  headerAuthButtons hidden
+  →  navigate('/', { replace: true })
+  →  viewLanding
+```
 
-The app uses a lightweight History API router (no framework):
+---
 
-- **`navigate(path, opts)`** — calls `history.pushState` / `replaceState`
-- **`resolvePath(path, isAuthenticated)`** — pure function, returns `{ path, view, params }` after applying guards
-- **`checkGuard(route, isAuthenticated)`** — pure function, returns `{ allowed, redirect }`
-- **`initRouter(onNavigate, getAuthState)`** — wires up `window.addEventListener('popstate', ...)`
+## State Storage
 
-### Auth guard rules
-| Route | Rule |
-|---|---|
-| `/` | Public; if logged-in → redirect to `/home` |
-| `/login`, `/signup` | Logged-out only; if logged-in → redirect to `/home` |
-| `/home`, `/party/:code`, `/account` | Logged-in only; if logged-out → redirect to `/` |
+| Key | Storage | Purpose |
+|-----|---------|---------|
+| `syncspeaker_current_user` | `localStorage` | Cached user object (email, tier, djName) |
+| `syncSpeakerGuestSession` | `localStorage` | Guest session for auto-reconnect |
+| `lastPartyCode` | `localStorage` | Last joined party code (for rejoin) |
+| `lastGuestName` | `localStorage` | Last guest nickname |
+| `audioUnlocked` | `localStorage` + `sessionStorage` | Audio autoplay unlock state |
+| `partyPass_<code>` | `localStorage` | Party Pass activation state |
 
-## Official App Sync
+---
 
-- **Host only** (PARTY_PASS / PRO tier): Platform selector + track URL/ID input + "Sync Track" button
-- **Guests**: When host syncs a track, guests see a "Now synced" panel with platform name, track ref, and "Open in App" deep-link button
-- **FREE tier**: Official App Sync UI hidden entirely
-- Compliance text always shown when the section is visible
+## Router Module (`router.js`)
+
+### API
+
+```js
+// Navigate to a path (adds to history by default)
+navigate('/home');
+navigate('/home', { replace: true });  // replaceState
+
+// Internal: render the correct screen for a path
+_renderRoute('/party/ABC123');
+
+// Utility helpers (also exported for tests)
+_isProtected('/home');         // → true
+_partyCodeFromPath('/party/ABC123');  // → 'ABC123'
+```
+
+### Route Guards
+
+- **Unauthenticated user → protected path**: forced to `/` (landing)
+- **Authenticated user → `/` or `/login`**: redirected to `/home`
+
+---
+
+## Official App Sync (Host-only, paid tiers)
+
+- **FREE**: sync UI hidden completely
+- **PARTY_PASS / PRO (host)**: sync UI shown with platform select + track ref input
+  - Pasting a YouTube / Spotify / SoundCloud URL **auto-detects** the platform
+- **Guests**: receive `OFFICIAL_APP_SYNC` WS event → "Now synced" panel + "Open in App" button

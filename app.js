@@ -77,7 +77,6 @@ const state = {
   code: null,
   hostId: null, // PHASE 7: Host ID for queue operations (returned from create-party)
   isHost: false,
-  isAuthenticated: false, // True after successful /api/me check
   name: "Guest",
   djName: null, // DJ name for guest view
   source: "local",
@@ -2153,8 +2152,8 @@ function showHome() {
   hide("viewChooseTier");
   hide("viewPayment");
   hide("viewAccountCreation");
-  hide("viewAuthHome");
   show("viewHome"); 
+  hide("viewAuthHome");
   hide("viewParty");
   hide("viewGuest");
   state.code = null; state.isHost = false; state.playing = false; state.adActive = false;
@@ -2244,9 +2243,12 @@ function showParty() {
   hide("viewChooseTier");
   hide("viewPayment");
   show("viewParty");
-  // Update browser URL so refresh restores the party screen
-  if (typeof navigate === 'function' && state.code) {
-    navigate(`/party/${state.code}`, { replace: true, isAuthenticated: true });
+  // Update URL to /party/:code so back button and refresh work
+  if (state.code && typeof history !== 'undefined') {
+    var partyPath = '/party/' + state.code;
+    if (window.location.pathname !== partyPath) {
+      history.pushState({ path: partyPath }, '', partyPath);
+    }
   }
   el("partyTitle").textContent = state.isHost ? "Host party" : "Guest party";
   
@@ -2868,10 +2870,17 @@ function updatePartyTimeRemaining(timeRemainingMs) {
 
 function showGuest() {
   hide("viewLanding"); 
-  hide("viewHome");
+  hide("viewHome"); 
   hide("viewAuthHome");
   hide("viewParty"); 
   show("viewGuest");
+  // Update URL so refresh stays in guest view
+  if (state.code && typeof history !== 'undefined') {
+    var guestPath = '/party/' + state.code;
+    if (window.location.pathname !== guestPath) {
+      history.pushState({ path: guestPath }, '', guestPath);
+    }
+  }
   
   // Update guest meta with DJ name if available
   if (state.djName) {
@@ -6666,16 +6675,17 @@ async function initAuthFlow() {
     const response = await fetch('/api/me');
     if (!response.ok) {
       // Not authenticated - show landing page without header icons
-      state.isAuthenticated = false;
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-      // Use router navigate so the URL reflects the current screen
-      if (typeof navigate === 'function') navigate('/', { replace: true, isAuthenticated: false });
-      showLanding();
+      // Use router if available, otherwise fallback
+      if (typeof navigate === 'function') {
+        navigate('/', { replace: true });
+      } else {
+        showLanding();
+      }
       return;
     }
     const data = await response.json();
     // Authenticated - show header icons
-    state.isAuthenticated = true;
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     // Update state from server data
     state.userTier = data.tier || USER_TIER.FREE;
@@ -6687,25 +6697,23 @@ async function initAuthFlow() {
       showView('viewCompleteProfile');
       initCompleteProfileView();
     } else {
-      navigateToAuthHome();
+      // After login always land on authenticated home hub (/home)
+      if (typeof navigate === 'function') {
+        navigate('/home', { replace: true });
+      } else {
+        showView('viewAuthHome');
+        initPartyHomeView();
+      }
     }
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
-    state.isAuthenticated = false;
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-    if (typeof navigate === 'function') navigate('/', { replace: true, isAuthenticated: false });
-    showLanding();
+    if (typeof navigate === 'function') {
+      navigate('/', { replace: true });
+    } else {
+      showLanding();
+    }
   }
-}
-
-/**
- * Navigate to the authenticated home hub (/home → viewAuthHome).
- * Centralises the repeated pattern of navigate() + showView() + initPartyHomeView().
- */
-function navigateToAuthHome() {
-  if (typeof navigate === 'function') navigate('/home', { replace: true, isAuthenticated: true });
-  showView('viewAuthHome');
-  initPartyHomeView();
 }
 
 /**
@@ -6737,7 +6745,12 @@ function initCompleteProfileView() {
         return;
       }
       toast('✅ Profile complete! Welcome to Phone Party!');
-      navigateToAuthHome();
+      if (typeof navigate === 'function') {
+        navigate('/home', { replace: true });
+      } else {
+        showView('viewAuthHome');
+        initPartyHomeView();
+      }
     } catch (err) {
       if (errorEl) { errorEl.textContent = 'Network error. Please try again.'; errorEl.classList.remove('hidden'); }
     }
@@ -6754,6 +6767,9 @@ function initPartyHomeView() {
   const btnHideJoin = document.getElementById('btnHidePartyJoin');
   const btnPartyCreate = document.getElementById('btnPartyCreate');
   const btnPartyJoin = document.getElementById('btnPartyJoin');
+
+  // Billing: wire up upgrade button and show billing box
+  initBillingBox();
 
   if (btnPartyShowCreate) {
     btnPartyShowCreate.onclick = () => {
@@ -6808,6 +6824,131 @@ function initPartyHomeView() {
   }
 }
 
+/**
+ * Update the billing box in viewParty to reflect current tier.
+ */
+function initBillingBox() {
+  const box = document.getElementById('billingBox');
+  const freeSection = document.getElementById('billingBoxFree');
+  const proSection = document.getElementById('billingBoxPro');
+  const btnUpgrade = document.getElementById('btnUpgradeToPro');
+  if (!box) return;
+
+  const tier = state.userTier || USER_TIER.FREE;
+  const isPro = (tier === 'PRO' || tier === 'PRO_MONTHLY');
+  box.classList.remove('hidden');
+
+  if (isPro) {
+    if (freeSection) freeSection.classList.add('hidden');
+    if (proSection) proSection.classList.remove('hidden');
+    // Show subscription end date if available
+    const statusEl = document.getElementById('billingProStatus');
+    if (statusEl) {
+      fetch('/api/billing/status')
+        .then(r => r.json())
+        .then(d => {
+          if (d.current_period_end) {
+            const until = new Date(d.current_period_end).toLocaleDateString();
+            statusEl.textContent = `Renews/expires ${until}`;
+          }
+        })
+        .catch(() => {});
+    }
+  } else {
+    if (freeSection) freeSection.classList.remove('hidden');
+    if (proSection) proSection.classList.add('hidden');
+    if (btnUpgrade && !btnUpgrade.dataset.wired) {
+      btnUpgrade.dataset.wired = '1';
+      btnUpgrade.addEventListener('click', async () => {
+        btnUpgrade.disabled = true;
+        btnUpgrade.textContent = '⏳ Loading…';
+        try {
+          const res = await fetch('/api/billing/create-checkout-session', { method: 'POST' });
+          if (!res.ok) {
+            const err = await res.json();
+            toast('❌ ' + (err.error || 'Could not start checkout'));
+            btnUpgrade.disabled = false;
+            btnUpgrade.textContent = '🚀 Upgrade to Pro';
+            return;
+          }
+          const { url } = await res.json();
+          window.location.href = url;
+        } catch (e) {
+          toast('❌ Network error – please try again');
+          btnUpgrade.disabled = false;
+          btnUpgrade.textContent = '🚀 Upgrade to Pro';
+        }
+      });
+    }
+  }
+}
+
+/**
+ * Refresh current user data from /api/me and update state.
+ */
+async function refreshMe() {
+  try {
+    const res = await fetch('/api/me');
+    if (!res.ok) return false;
+    const data = await res.json();
+    state.userTier = data.tier || USER_TIER.FREE;
+    if (data.user && data.user.djName) state.djName = data.user.djName;
+    return data;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Handle billing=success/cancel query parameters on app load.
+ * Strips the query param from the URL after handling.
+ */
+async function handleBillingReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const billing = params.get('billing');
+  if (!billing) return;
+
+  // Clean URL immediately
+  params.delete('billing');
+  const newSearch = params.toString();
+  const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash;
+  history.replaceState(null, '', newUrl);
+
+  if (billing === 'cancel') {
+    toast('Checkout canceled.');
+    return;
+  }
+
+  if (billing === 'success') {
+    toast('Payment successful! Activating your Pro account…');
+    // Webhook may not have fired yet — poll /api/billing/status for up to 10s
+    const deadline = Date.now() + 10000;
+    let gotPro = false;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, 1500));
+      try {
+        const res = await fetch('/api/billing/status');
+        if (res.ok) {
+          const d = await res.json();
+          if (d.tier === 'PRO') {
+            gotPro = true;
+            break;
+          }
+        }
+      } catch (_) { /* ignore */ }
+    }
+    // Refresh state from /api/me
+    await refreshMe();
+    // Re-render billing box if we're on the party view
+    initBillingBox();
+    if (gotPro) {
+      toast('✅ You\'re now Pro!');
+    } else {
+      toast('Payment received. Pro access will activate shortly.');
+    }
+  }
+}
+
 (async function init(){
   // Connect WebSocket for real-time party sync, DJ authority, and guest updates
   try {
@@ -6817,26 +6958,11 @@ function initPartyHomeView() {
     // Continue with app initialization - WebSocket can reconnect later
   }
 
-  // Initialize the History API router so back/forward and deep links work.
-  // We init it BEFORE initAuthFlow so the URL is resolved after auth state is known.
-  if (typeof initRouter === 'function') {
-    initRouter(
-      function onRouteChange(viewId, params) {
-        // Called on browser back/forward — show the correct screen
-        if (viewId === 'viewParty' && params && params.code) {
-          state.code = params.code;
-        }
-        showView(viewId);
-      },
-      function getAuthState() {
-        // Use the state.isAuthenticated flag (set by initAuthFlow)
-        return { isAuthenticated: state.isAuthenticated };
-      }
-    );
-  }
-
   // Check authentication state and redirect accordingly
   await initAuthFlow();
+
+  // Handle billing return parameters (billing=success or billing=cancel in URL)
+  await handleBillingReturn();
   
   // Initialize music player
   initializeMusicPlayer();
@@ -9055,7 +9181,7 @@ async function autoCreateDevParty(user) {
       state.isHost = true;
       state.djName = djName;
       
-      showView('viewParty');
+      showParty();
       connectWebSocket();
     } else {
       console.error('[DEV MODE] Failed to create party:', response.status);
@@ -9373,16 +9499,10 @@ function setupAuthEventListeners() {
     btnLogout.addEventListener('click', handleLogout);
   }
   
-  // Close profile — go back to the appropriate screen based on auth state
+  // Close profile
   const btnCloseProfile = document.getElementById('btnCloseProfile');
   if (btnCloseProfile) {
-    btnCloseProfile.addEventListener('click', () => {
-      if (isLoggedIn()) {
-        navigateToAuthHome();
-      } else {
-        showView('viewLanding');
-      }
-    });
+    btnCloseProfile.addEventListener('click', () => showView('viewLanding'));
   }
   
   // Navigation links
@@ -9469,12 +9589,14 @@ async function handleSignup() {
 async function handleLogout() {
   await logOut();
   state.userTier = USER_TIER.FREE;
-  state.isAuthenticated = false;
   // Hide header icons
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-  if (typeof navigate === 'function') navigate('/', { replace: true, isAuthenticated: false });
-  showView('viewLanding');
+  if (typeof navigate === 'function') {
+    navigate('/', { replace: true });
+  } else {
+    showView('viewLanding');
+  }
   showToast('👋 Logged out');
 }
 
@@ -11610,6 +11732,34 @@ function handleOfficialAppSyncTrackSelected(msg) {
   const btn = el('btnSyncTrack');
   if (!btn) return;
 
+  // Auto-detect platform when user pastes a URL into the track ref input
+  const trackRefInput = el('syncTrackRefInput');
+  const platformSelect = el('syncPlatformSelect');
+  if (trackRefInput && platformSelect) {
+    // Known hostnames per platform (exact match to prevent host-spoofing false positives)
+    const PLATFORM_HOSTS = {
+      youtube:    ['www.youtube.com', 'youtube.com', 'youtu.be', 'm.youtube.com'],
+      spotify:    ['open.spotify.com', 'spotify.com'],
+      soundcloud: ['soundcloud.com', 'www.soundcloud.com', 'm.soundcloud.com'],
+    };
+    function _detectPlatform() {
+      const raw = trackRefInput.value.trim();
+      let hostname = '';
+      try { hostname = new URL(raw).hostname.toLowerCase(); } catch (_) { /* not a full URL */ }
+      const spotifyUri = raw.toLowerCase().startsWith('spotify:');
+      if (PLATFORM_HOSTS.youtube.indexOf(hostname) !== -1) {
+        platformSelect.value = 'youtube';
+      } else if (PLATFORM_HOSTS.spotify.indexOf(hostname) !== -1 || spotifyUri) {
+        platformSelect.value = 'spotify';
+      } else if (PLATFORM_HOSTS.soundcloud.indexOf(hostname) !== -1) {
+        platformSelect.value = 'soundcloud';
+      }
+    }
+    // 'paste' fires after clipboard content is inserted; 'change' covers manual edits
+    trackRefInput.addEventListener('paste', function () { setTimeout(_detectPlatform, 0); });
+    trackRefInput.addEventListener('change', _detectPlatform);
+  }
+
   btn.addEventListener('click', function () {
     const platform = (el('syncPlatformSelect')?.value || '').toLowerCase();
     const trackRef  = (el('syncTrackRefInput')?.value || '').trim();
@@ -11658,15 +11808,18 @@ function handleOfficialAppSyncTrackSelected(msg) {
   });
 })();
 
-// ---------------------------------------------------------------------------
-// CommonJS export (Jest / Node — skipped in browser)
-// ---------------------------------------------------------------------------
-/* istanbul ignore next */
+// ---- Module exports (for testing in Node/Jest environment) ----
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    ALL_VIEWS: ALL_VIEWS,
-    showView: typeof showView !== 'undefined' ? showView : null,
-    initAuthFlow: typeof initAuthFlow !== 'undefined' ? initAuthFlow : null,
-    navigateToAuthHome: typeof navigateToAuthHome !== 'undefined' ? navigateToAuthHome : null
+    ALL_VIEWS,
+    showView,
+    showHome,
+    showLanding,
+    showParty,
+    showGuest,
+    initAuthFlow,
+    handleLogout,
+    state,
+    USER_TIER,
   };
 }

@@ -116,6 +116,9 @@ body{
   background: var(--gradient-bg);
   color:var(--text);
   min-height: 100vh;
+  /* Prevent horizontal scroll on mobile */
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 .top{
   display:flex; justify-content:space-between; align-items:center;
@@ -4789,6 +4792,22 @@ h2,h3{margin:0; font-weight:800}
   transform: scale(1.05);
 }
 
+.btn-logout {
+  background: rgba(255, 45, 149, 0.15);
+  border: 1px solid rgba(255, 45, 149, 0.3);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s;
+}
+
+.btn-logout:hover {
+  background: rgba(255, 45, 149, 0.25);
+  transform: scale(1.05);
+}
+
 .btn-upgrade {
   background: linear-gradient(135deg, #FFD700, #FFA500);
   border: none;
@@ -7727,18 +7746,12 @@ body.light-mode .input-field {
    Mobile-first layout hardening (SPA routing / auth upgrade)
    ============================================================ */
 
-/* 1. Prevent horizontal scroll on any viewport width */
-html, body {
-  overflow-x: hidden;
-  max-width: 100vw;
-}
-
-/* 2. Consistent screen-level padding so no content clips on 320px */
+/* Consistent screen-level padding so no content clips on 320px */
 .card {
   padding: clamp(14px, 4vw, 24px);
 }
 
-/* 3. Full-width inputs + buttons on narrow viewports */
+/* Full-width inputs + buttons on narrow viewports */
 @media (max-width: 480px) {
   .input,
   .btn,
@@ -7753,15 +7766,15 @@ html, body {
   }
 }
 
-/* 4. Keyboard-safe: add bottom padding when a fixed/sticky element
-      is present so forms are not hidden behind it */
+/* Keyboard-safe: add bottom padding when a fixed/sticky element
+   is present so forms are not hidden behind it */
 @media (max-width: 768px) {
   main.wrap {
     padding-bottom: env(safe-area-inset-bottom, 16px);
   }
 }
 
-/* 5. viewAuthHome — auth hub page: clear hierarchy on mobile */
+/* viewAuthHome — auth hub page: clear hierarchy on mobile */
 #viewAuthHome .start-join-buttons {
   display: flex;
   flex-direction: column;
@@ -7772,9 +7785,4 @@ html, body {
   #viewAuthHome .start-join-buttons {
     flex-direction: row;
   }
-}
-
-/* 6. Party form sections inside auth home */
-#viewAuthHome .party-form-section {
-  padding: 16px 0;
 }

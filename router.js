@@ -1,227 +1,197 @@
 /**
- * router.js — Lightweight History API router for Phone Party SPA.
+ * Lightweight SPA Router — History API
  *
- * Maps URL paths to view IDs, enforces auth guards, and uses
- * history.pushState / replaceState so back/forward buttons work
- * and deep links survive a page refresh.
+ * Responsibilities
+ *  - Map URL paths to view IDs
+ *  - navigate(path, opts) — pushState / replaceState + render
+ *  - popstate handler so browser back/forward works
+ *  - Route guards: unauthenticated → /, authenticated on / → /home
+ *  - Initial load renders the correct screen (no flicker)
  *
- * Exports (for Jest tests):
- *   ROUTES, VIEWS, HASH_TO_VIEW, routerState,
- *   matchRoute, checkGuard, resolvePath, navigate, initRouter
+ * Depends on globals from app.js / auth.js that are loaded first:
+ *   isLoggedIn(), showLanding(), showView(), showParty(),
+ *   initPartyHomeView(), state, ALL_VIEWS
  */
 
-'use strict';
-
 // ---------------------------------------------------------------------------
-// Route definitions
-// auth: null   = public (anyone)
-//       'user' = logged-in only  → redirect to /  if not authed
-//       'guest'= logged-out only → redirect to /home if already authed
+// Route map  (path → view id that owns the screen)
 // ---------------------------------------------------------------------------
-var ROUTES = [
-  { pattern: /^\/$/, view: 'viewLanding', auth: null },
-  { pattern: /^\/login$/, view: 'viewLogin', auth: 'guest' },
-  { pattern: /^\/signup$/, view: 'viewSignup', auth: 'guest' },
-  { pattern: /^\/home$/, view: 'viewAuthHome', auth: 'user' },
-  { pattern: /^\/party\/create$/, view: 'viewAuthHome', auth: 'user' },
-  { pattern: /^\/party\/join$/, view: 'viewAuthHome', auth: 'user' },
-  { pattern: /^\/party\/([A-Za-z0-9]{6})$/, view: 'viewParty', auth: 'user', paramKey: 'code' },
-  { pattern: /^\/account$/, view: 'viewProfile', auth: 'user' }
-];
-
-// VIEWS registry: logical name → DOM element id
-var VIEWS = {
-  landing:          'viewLanding',
-  login:            'viewLogin',
-  signup:           'viewSignup',
-  home:             'viewAuthHome',
-  party:            'viewParty',
-  guest:            'viewGuest',
-  profile:          'viewProfile',
-  chooseTier:       'viewChooseTier',
-  accountCreation:  'viewAccountCreation',
-  completeProfile:  'viewCompleteProfile',
-  payment:          'viewPayment',
-  upgradeHub:       'viewUpgradeHub'
+const ROUTE_MAP = {
+  '/':              'viewLanding',
+  '/login':         'viewLogin',
+  '/signup':        'viewSignup',
+  '/home':          'viewAuthHome',   // authenticated Create-or-Join hub
+  '/party/create':  'viewAuthHome',   // create form shown inside the hub
+  '/party/join':    'viewAuthHome',   // join  form shown inside the hub
+  '/account':       'viewProfile',
 };
 
-// Legacy hash-fragment → view name mapping (kept for back-compat)
-var HASH_TO_VIEW = {
-  '#landing':  'landing',
-  '#login':    'login',
-  '#signup':   'signup',
-  '#home':     'home',
-  '#party':    'party',
-  '#profile':  'profile'
-};
+// Prefix for routes that carry a dynamic segment: /party/:code
+const PARTY_ROUTE_PREFIX = '/party/';
 
-// Mutable router state (inspectable from tests)
-var routerState = {
-  currentPath: '/',
-  isAuthenticated: false,
-  partyCode: null
-};
+// Paths that require the user to be logged in
+const PROTECTED_PATHS = ['/home', '/party/create', '/party/join', '/account'];
 
 // ---------------------------------------------------------------------------
-// Pure helpers (no DOM, no side-effects — safe to unit-test)
+// Internal helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Match a pathname against the route table.
+ * Determine whether a path is protected (needs login).
+ * /party/:code paths are also protected.
  * @param {string} path
- * @returns {{ route: Object, params: Object }|null}
+ * @returns {boolean}
  */
-function matchRoute(path) {
-  for (var i = 0; i < ROUTES.length; i++) {
-    var route = ROUTES[i];
-    var m = path.match(route.pattern);
-    if (m) {
-      var params = {};
-      if (route.paramKey && m[1]) {
-        params[route.paramKey] = m[1].toUpperCase();
-      }
-      return { route: route, params: params };
-    }
-  }
+function _isProtected(path) {
+  if (PROTECTED_PATHS.includes(path)) return true;
+  if (path.startsWith(PARTY_ROUTE_PREFIX) && path.length > PARTY_ROUTE_PREFIX.length) return true;
+  return false;
+}
+
+/**
+ * Extract a party code from a /party/:code path.
+ * Returns null when the path doesn't match that pattern.
+ * @param {string} path
+ * @returns {string|null}
+ */
+function _partyCodeFromPath(path) {
+  if (!path.startsWith(PARTY_ROUTE_PREFIX)) return null;
+  const code = path.slice(PARTY_ROUTE_PREFIX.length);
+  // Codes are 6 alphanumeric chars; normalise to upper-case
+  if (/^[a-z0-9]{6}$/i.test(code)) return code.toUpperCase();
   return null;
 }
 
-/**
- * Evaluate the auth guard for a route.
- * @param {Object} route
- * @param {boolean} isAuthenticated
- * @returns {{ allowed: boolean, redirect: string|null }}
- */
-function checkGuard(route, isAuthenticated) {
-  if (route.auth === 'user' && !isAuthenticated) {
-    return { allowed: false, redirect: '/' };
-  }
-  if (route.auth === 'guest' && isAuthenticated) {
-    return { allowed: false, redirect: '/home' };
-  }
-  return { allowed: true, redirect: null };
-}
-
-/**
- * Resolve a path against the route table, applying auth guards.
- * Returns the final { path, view, params } after any redirects.
- * @param {string} path
- * @param {boolean} isAuthenticated
- * @returns {{ path: string, view: string, params: Object }}
- */
-function resolvePath(path, isAuthenticated) {
-  // Logged-in users landing on / go straight to /home
-  if (path === '/' && isAuthenticated) {
-    return resolvePath('/home', isAuthenticated);
-  }
-
-  var result = matchRoute(path);
-  if (!result) {
-    // Unknown path → sensible default
-    return isAuthenticated
-      ? resolvePath('/home', isAuthenticated)
-      : resolvePath('/', false);
-  }
-
-  var guard = checkGuard(result.route, isAuthenticated);
-  if (!guard.allowed) {
-    return resolvePath(guard.redirect, isAuthenticated);
-  }
-
-  return { path: path, view: result.route.view, params: result.params };
-}
-
 // ---------------------------------------------------------------------------
-// DOM-side navigation (only runs in browser)
+// navigate  — push or replace history entry then render
 // ---------------------------------------------------------------------------
-
 /**
- * Navigate to a path, push/replace browser history, and return the resolved
- * route so the caller can render the correct view.
- *
- * @param {string} path          - Target pathname (e.g. '/home')
- * @param {Object} [opts]
- * @param {boolean} [opts.replace]          - Use replaceState instead of pushState
- * @param {boolean} [opts.isAuthenticated]  - Override auth state (optional)
- * @returns {{ path: string, view: string, params: Object }}
+ * Navigate to a path.
+ * @param {string} path   URL pathname, e.g. '/home'
+ * @param {{ replace?: boolean }} [opts]
  */
 function navigate(path, opts) {
-  opts = opts || {};
-  var isAuthenticated = (opts.isAuthenticated !== undefined)
-    ? opts.isAuthenticated
-    : routerState.isAuthenticated;
+  const replace = opts && opts.replace;
+  if (replace) {
+    history.replaceState({ path }, '', path);
+  } else {
+    history.pushState({ path }, '', path);
+  }
+  _renderRoute(path);
+}
 
-  var resolved = resolvePath(path, isAuthenticated);
+// ---------------------------------------------------------------------------
+// _renderRoute  — show the right screen for a given path
+// ---------------------------------------------------------------------------
+/**
+ * @param {string} path
+ */
+function _renderRoute(path) {
+  var loggedIn = (typeof isLoggedIn === 'function') ? isLoggedIn() : false;
 
-  if (typeof history !== 'undefined') {
-    var histState = { path: resolved.path, params: resolved.params };
-    if (opts.replace || resolved.path !== path) {
-      history.replaceState(histState, '', resolved.path);
-    } else {
-      history.pushState(histState, '', resolved.path);
+  // --- Route guards ---
+  if (_isProtected(path) && !loggedIn) {
+    // Redirect to landing without creating a history entry
+    history.replaceState({ path: '/' }, '', '/');
+    _showScreen('viewLanding');
+    return;
+  }
+
+  if ((path === '/' || path === '/login' || path === '/signup') && loggedIn) {
+    // Already authenticated — skip landing/auth screens
+    history.replaceState({ path: '/home' }, '', '/home');
+    _showScreen('viewAuthHome');
+    if (typeof initPartyHomeView === 'function') initPartyHomeView();
+    return;
+  }
+
+  // --- Party route with dynamic code ---
+  var partyCode = _partyCodeFromPath(path);
+  if (partyCode) {
+    if (typeof state !== 'undefined') state.code = partyCode;
+    if (typeof showParty === 'function') showParty();
+    return;
+  }
+
+  // --- Static route ---
+  var viewId = ROUTE_MAP[path];
+  if (viewId) {
+    _showScreen(viewId);
+    if (viewId === 'viewAuthHome' && typeof initPartyHomeView === 'function') {
+      initPartyHomeView();
     }
+    return;
   }
 
-  routerState.currentPath = resolved.path;
-  if (resolved.params && resolved.params.code) {
-    routerState.partyCode = resolved.params.code;
+  // --- Fallback ---
+  if (loggedIn) {
+    history.replaceState({ path: '/home' }, '', '/home');
+    _showScreen('viewAuthHome');
+    if (typeof initPartyHomeView === 'function') initPartyHomeView();
+  } else {
+    history.replaceState({ path: '/' }, '', '/');
+    _showScreen('viewLanding');
   }
-
-  return resolved;
 }
 
 /**
- * Boot the router: wire up popstate and resolve the current URL.
- *
- * @param {Function} onNavigate   - Called with (viewId, params) on every route change
- * @param {Function} getAuthState - Returns { isAuthenticated: boolean }
- * @returns {{ path: string, view: string, params: Object }}  Initial resolved route
+ * Show a view by its DOM id, hiding all others.
+ * Falls back to showView() from app.js if available.
+ * @param {string} viewId
  */
-function initRouter(onNavigate, getAuthState) {
-  window.addEventListener('popstate', function (e) {
-    var st = e.state;
-    var path = (st && st.path) ? st.path : window.location.pathname;
-    var auth = getAuthState();
-    var resolved = resolvePath(path, auth.isAuthenticated);
-    routerState.currentPath = resolved.path;
-    if (resolved.params && resolved.params.code) {
-      routerState.partyCode = resolved.params.code;
-    }
-    onNavigate(resolved.view, resolved.params || {});
-  });
-
-  // Resolve the current URL on first load
-  var initialPath = window.location.pathname;
-  var auth = getAuthState();
-  var resolved = resolvePath(initialPath, auth.isAuthenticated);
-
-  // Stamp the history entry so popstate carries the route state
-  if (typeof history !== 'undefined') {
-    history.replaceState(
-      { path: resolved.path, params: resolved.params || {} },
-      '',
-      resolved.path
-    );
+function _showScreen(viewId) {
+  if (typeof showView === 'function') {
+    showView(viewId);
+  } else if (typeof ALL_VIEWS !== 'undefined') {
+    ALL_VIEWS.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
+    });
+    var target = document.getElementById(viewId);
+    if (target) target.classList.remove('hidden');
   }
-
-  routerState.currentPath = resolved.path;
-  return resolved;
 }
 
 // ---------------------------------------------------------------------------
-// CommonJS export (Jest / Node)
+// Boot — handle initial page load
 // ---------------------------------------------------------------------------
-/* istanbul ignore next */
+/**
+ * Called once on DOMContentLoaded (or immediately if DOM is already ready).
+ * Reads the current URL and renders the appropriate screen without flicker.
+ */
+function _bootRouter() {
+  window.addEventListener('popstate', function(e) {
+    _renderRoute(window.location.pathname);
+  });
+
+  // Replace current history entry so it carries our state shape
+  var currentPath = window.location.pathname || '/';
+  history.replaceState({ path: currentPath }, '', currentPath);
+
+  // The main app init (initAuthFlow) already checks auth and calls show*()
+  // on first load. We skip re-rendering here to avoid a double flash.
+  // Instead, we hook into the existing initAuthFlow result by patching
+  // navigate calls used after login / logout (see app.js integration).
+}
+
+// Run boot when DOM is ready
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _bootRouter);
+  } else {
+    _bootRouter();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Export for testing (Node / Jest environment)
+// ---------------------------------------------------------------------------
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    ROUTES: ROUTES,
-    VIEWS: VIEWS,
-    HASH_TO_VIEW: HASH_TO_VIEW,
-    routerState: routerState,
-    matchRoute: matchRoute,
-    checkGuard: checkGuard,
-    resolvePath: resolvePath,
-    navigate: navigate,
-    initRouter: initRouter
+    navigate,
+    _renderRoute,
+    _isProtected,
+    _partyCodeFromPath,
+    ROUTE_MAP,
   };
 }
