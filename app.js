@@ -6671,10 +6671,14 @@ function attemptAddPhone() {
  * - Logged in + profileCompleted=true: PARTY_HUB state
  */
 async function initAuthFlow() {
+  const headerAuthButtons = document.getElementById('headerAuthButtons');
   try {
     const response = await fetch('/api/me');
     if (!response.ok) {
+      // Not authenticated - hide header icons + transition state machine to LOGGED_OUT
+      if (headerAuthButtons) headerAuthButtons.style.display = 'none';
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
+      // Use router if available, otherwise fallback
       if (typeof navigate === 'function') {
         navigate('/', { replace: true });
       } else {
@@ -6694,6 +6698,7 @@ async function initAuthFlow() {
       showView('viewCompleteProfile');
       initCompleteProfileView();
     } else {
+      // After login always land on authenticated home hub (/home)
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
       if (typeof navigate === 'function') {
         navigate('/home', { replace: true });
@@ -6704,6 +6709,7 @@ async function initAuthFlow() {
     }
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
+    if (headerAuthButtons) headerAuthButtons.style.display = 'none';
     window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
     if (typeof navigate === 'function') {
       navigate('/', { replace: true });
@@ -9588,6 +9594,8 @@ async function handleLogout() {
   await logOut();
   state.userTier = USER_TIER.FREE;
   // Transition to logged-out state (hides nav, shows landing, cleans up audio/state)
+  const headerAuthButtons = document.getElementById('headerAuthButtons');
+  if (headerAuthButtons) headerAuthButtons.style.display = 'none';
   window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
   showLanding();
   showToast('👋 Logged out');
