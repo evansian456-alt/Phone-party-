@@ -173,8 +173,7 @@ function setView(viewName, opts = {}) {
   const targetEl = document.getElementById(view.id);
   if (targetEl) {
     targetEl.classList.remove('is-entering');
-    // Force reflow so the animation re-triggers
-    void targetEl.offsetWidth;
+    void targetEl.offsetWidth; // Force reflow so the animation re-triggers on re-entry
     targetEl.classList.add('is-entering');
     targetEl.addEventListener('animationend', () => targetEl.classList.remove('is-entering'), { once: true });
 
