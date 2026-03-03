@@ -83,7 +83,7 @@ async function httpCreateParty(djName = 'DJ Test', tier = null) {
   const body = { djName, source: 'local' };
   const res = await request(app).post('/api/create-party').send(body);
   const code = res.body.partyCode || res.body.code;
-  // Set tier directly in Redis if requested (test-only pattern since prototype mode removed)
+  // Set tier directly in Redis and in-memory if requested (test-only pattern since prototype mode removed)
   if (tier && res.status === 200 && code) {
     const existing = JSON.parse(await redis.get(`party:${code}`));
     if (existing) {
@@ -100,6 +100,13 @@ async function httpCreateParty(djName = 'DJ Test', tier = null) {
         existing.tier = tier; // set unknown tier for error test scenarios
       }
       await redis.set(`party:${code}`, JSON.stringify(existing));
+      // Also update in-memory party map
+      const inMem = parties.get(code);
+      if (inMem) {
+        inMem.tier = existing.tier;
+        inMem.partyPassExpiresAt = existing.partyPassExpiresAt;
+        inMem.maxPhones = existing.maxPhones;
+      }
     }
   }
   return { res, code, hostId: res.body.hostId };
