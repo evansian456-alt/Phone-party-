@@ -11986,7 +11986,7 @@ function handleOfficialAppSyncTrackSelected(msg) {
   });
 })();
 
-// Test/module exports — allows Jest to require() these helpers directly.
+// Test/module exports (for Jest) — allows require() in tests; not reached in browsers.
 // In the browser this block is never reached (no `module` global).
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
