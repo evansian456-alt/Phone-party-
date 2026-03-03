@@ -1,181 +1,417 @@
 /**
  * @jest-environment jsdom
  *
- * Tests for the view state machine (ui/stateMachine.js).
- * Verifies that the correct views are shown/hidden and the header nav
- * is toggled correctly for each application state.
+ * Navigation + Auth-state unit tests.
+ * These tests do NOT require Redis or a running server.
+ * They validate:
+ *   - Profile schema helpers (getSavedProfile, saveProfile, clearProfile, hasValidProfile)
+ *   - VIEWS registry structure
+ *   - setView() auth gating and hash routing
+ *   - Nav-bar visibility rules
  */
 
-'use strict';
-
-// Provide a fresh jsdom environment for each test via the @jest-environment
-// annotation above.  We also reset module state between tests so that the
-// _currentState internal variable starts clean.
-
-let sm; // stateMachine module reference
-
-// Helper – build a minimal DOM with all view elements + the nav element
-function buildDOM() {
-  document.body.innerHTML = `
-    <div id="headerAuthButtons" style="display:none"></div>
-    <section id="viewLanding"></section>
-    <section id="viewCompleteProfile" class="hidden"></section>
-    <section id="viewAuthHome" class="hidden"></section>
-    <section id="viewParty" class="hidden"></section>
-    <section id="viewGuest" class="hidden"></section>
-    <section id="viewHome" class="hidden"></section>
-    <section id="viewLogin" class="hidden"></section>
-    <section id="viewSignup" class="hidden"></section>
-  `;
-}
-
-beforeEach(() => {
-  // Re-require the module so _currentState is reset between tests
-  jest.resetModules();
-
-  buildDOM();
-
-  // Load the module – it runs in Node (no real browser), so we patch
-  // module._document to point at the jsdom document.
-  sm = require('./ui/stateMachine.js');
-  // Patch the document lookup used inside the module (reads module.document)
-  const mod = require.cache[require.resolve('./ui/stateMachine.js')];
-  if (mod) mod.document = document;
+// ── Spy on history.pushState before loading app.js ───────────────────────────
+const pushStateMock = jest.fn();
+Object.defineProperty(window, 'history', {
+  value: { pushState: pushStateMock, replaceState: jest.fn(), back: jest.fn() },
+  writable: true,
+  configurable: true,
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
+// ── Stub WebSocket (connectWS opens one at startup) ──────────────────────────
+global.WebSocket = class {
+  constructor() { this.readyState = 0; }
+  send() {} close() {} addEventListener() {} removeEventListener() {}
+};
 
-function isHidden(id) {
+// ── Stub cross-file globals (live in other <script> tags in the real page) ───
+global.connectWS = jest.fn().mockResolvedValue(undefined);
+global.toast = jest.fn();
+global.showToast = jest.fn();
+global.logOut = jest.fn();
+global.logIn = jest.fn();
+global.signUp = jest.fn();
+global.getCurrentUser = jest.fn().mockReturnValue(null);
+global.getCachedUser = jest.fn().mockReturnValue(null);
+global.isLoggedIn = jest.fn().mockReturnValue(false);
+global.restoreUserEntitlements = jest.fn().mockResolvedValue(undefined);
+global.initNetworkMonitoring = jest.fn();
+global.initAccessibility = jest.fn();
+global.initModeration = jest.fn();
+global.initMediaSession = jest.fn();
+global.SyncStatusUI = class { start() {} };
+global.DriftController = class { start() {} };
+global.TimeSyncClient = class { start() {} };
+global.ReferralUI = undefined;
+
+// ── Stub init helpers called during initializeAllFeatures ────────────────────
+global.initCrowdEnergyMeter = jest.fn();
+global.initDJMoments = jest.fn();
+global.initPartyRecap = jest.fn();
+global.initHostGiftPartyPass = jest.fn();
+global.initParentInfo = jest.fn();
+global.initBeatAwareUI = jest.fn();
+global.initSessionStats = jest.fn();
+global.initBoostAddons = jest.fn();
+global.initLeaderboardProfileUI = jest.fn();
+global.initMonetizationUI = jest.fn();
+global.initProductionUpgradeModules = jest.fn();
+global.checkAutoReconnect = jest.fn();
+global.initializeMusicPlayer = jest.fn();
+global.updateDebugState = jest.fn();
+global.cleanupMusicPlayer = jest.fn();
+global.cleanupGuestAudio = jest.fn();
+global.stopPartyStatusPolling = jest.fn();
+global.startPartyStatusPolling = jest.fn();
+global.setPlanPill = jest.fn();
+global.checkPartyPassStatus = jest.fn();
+global.updatePartyPassUI = jest.fn();
+global.renderRoom = jest.fn();
+global.initCompleteProfileView = jest.fn();
+global.initPartyHomeView = jest.fn();
+global.updatePlaybackUI = jest.fn();
+global.updateQualityUI = jest.fn();
+global.hasPartyPassEntitlement = jest.fn().mockReturnValue(false);
+global.showGuest = jest.fn();
+global.showPayment = jest.fn();
+global.updateSelectedTierDisplay = jest.fn();
+global.showProfile = jest.fn();
+
+// ── Minimal DOM (every view + required controls) ─────────────────────────────
+document.body.innerHTML = `
+  <header class="top">
+    <div class="header-right">
+      <button id="btnParentInfo">ℹ️</button>
+      <button class="btn-leaderboard post-auth-only nav-hidden" id="btnLeaderboard">🏆</button>
+      <button class="btn-profile post-auth-only nav-hidden" id="btnProfile">👤</button>
+      <button class="btn-upgrade post-auth-only nav-hidden" id="btnUpgradeHub">⭐</button>
+      <button class="btn-account" id="btnAccount">🔑</button>
+      <div class="pill post-auth-only nav-hidden" id="planPill">Free · 2 phones</div>
+    </div>
+  </header>
+  <main class="wrap">
+    <section class="landing-page" id="viewLanding"><h1>Landing</h1></section>
+    <section class="card hidden" id="viewChooseTier"><h1>Choose Tier</h1></section>
+    <section class="card hidden" id="viewAccountCreation"><h1>Create Account</h1></section>
+    <section class="card hidden" id="viewHome"><h1>Create/Join</h1></section>
+    <section class="card hidden" id="viewParty"><h1>Party</h1></section>
+    <section class="card hidden" id="viewPayment"><h1>Payment</h1></section>
+    <section class="card hidden" id="viewGuest"><h1>Guest</h1></section>
+    <section class="card hidden" id="viewLogin"><h1>Login</h1></section>
+    <section class="card hidden" id="viewSignup"><h1>Signup</h1></section>
+    <section class="card hidden" id="viewPasswordReset"><h1>Reset</h1></section>
+    <section class="card hidden" id="viewProfile"><h1>Profile</h1></section>
+    <section class="card hidden" id="viewUpgradeHub"><h1>Upgrade</h1></section>
+    <section class="card hidden" id="viewVisualPackStore"><h1>Visual</h1></section>
+    <section class="card hidden" id="viewProfileUpgrades"><h1>Upgrades</h1></section>
+    <section class="card hidden" id="viewPartyExtensions"><h1>Extensions</h1></section>
+    <section class="card hidden" id="viewDjTitleStore"><h1>DJ Titles</h1></section>
+    <section class="card hidden" id="viewLeaderboard"><h1>Leaderboard</h1></section>
+    <section class="card hidden" id="viewMyProfile"><h1>My Profile</h1></section>
+    <section class="card hidden" id="viewCompleteProfile"><h1>Complete Profile</h1></section>
+    <section class="card hidden" id="viewAuthHome"><h1>Auth Home</h1></section>
+    <input id="joinCode" /><input id="guestName" />
+    <input id="accountDjName" /><input id="accountEmail" /><input id="accountPassword" />
+    <div id="selectedTierInfo">
+      <div class="selected-tier-badge"></div>
+      <div class="selected-tier-details"></div>
+    </div>
+    <div id="partyCode"></div><div id="partyTitle"></div><div id="partyMeta"></div>
+    <div id="createStatusMessage"></div><div id="createDebugInfo"></div>
+    <div id="joinStatusMessage"></div><div id="joinDebugInfo"></div>
+    <div id="partyStatus" class="hidden"></div><div id="joinStatus" class="hidden"></div>
+    <div id="offlineWarning" class="hidden"></div>
+    <div id="partyPassBanner" class="hidden"></div>
+    <div id="partyPassActive" class="hidden"></div>
+    <div id="partyPassUpgrade" class="hidden"></div>
+    <div id="partyPassTitle"></div><div id="partyPassTimer"></div>
+    <div id="partyPassDesc" class="hidden"></div>
+    <div id="partyGuestCount"></div><div id="partyTimeRemaining"></div>
+    <div id="crowdEnergyCard" class="hidden"></div>
+    <div id="djMomentsCard" class="hidden"></div>
+    <div id="hostGiftSection" class="hidden"></div>
+    <div id="djEmojiReactionsSection" class="hidden"></div>
+    <div id="djPresetMessagesSection" class="hidden"></div>
+    <div id="djQuickButtonsContainer" class="hidden"></div>
+    <div id="officialAppSyncSection" class="hidden"></div>
+    <div id="musicUploadSection" class="hidden"></div>
+    <div id="hostQueueSection" class="hidden"></div>
+    <button id="btnBackToDj" class="hidden"></button>
+    <button id="btnCloseDj"></button>
+    <div id="devNavigationPanel" class="hidden"></div>
+    <div id="upgradeWarning" class="hidden"></div>
+    <div id="promoModal" class="hidden"></div>
+    <input id="promoInput" /><button id="promoBtn"></button>
+    <button id="promoApply"></button><button id="promoClose"></button>
+    <button id="btnSeePricing"></button>
+    <button id="btnSelectFree"></button>
+    <button id="btnSelectPartyPass"></button>
+    <button id="btnSelectPro"></button>
+    <button id="btnBackToLanding"></button>
+    <button id="btnBackToTiers"></button>
+    <button id="btnLandingAddons"></button>
+    <button id="btnShowCreateParty"></button>
+    <button id="btnShowJoinParty"></button>
+    <button id="btnHideCreateParty"></button>
+    <button id="btnHideJoinParty"></button>
+    <button id="btnCreate"></button>
+    <button id="btnJoin"></button>
+    <div id="createPartySection" class="hidden"></div>
+    <div id="joinPartySection" class="hidden"></div>
+    <button id="btnCreateAccountSubmit"></button>
+    <button id="btnShowLogin"></button>
+    <button id="btnSkipAccount">Skip</button>
+    <div class="prototype-mode-section"><div class="line"></div></div>
+  </main>
+`;
+
+// ── Suppress noise from app.js during tests ───────────────────────────────────
+beforeAll(() => {
+  jest.spyOn(console, 'log').mockImplementation(() => {});
+  jest.spyOn(console, 'warn').mockImplementation(() => {});
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+});
+afterAll(() => {
+  console.log.mockRestore();
+  console.warn.mockRestore();
+  console.error.mockRestore();
+});
+
+// ── Load app.js; destructure exported helpers ─────────────────────────────────
+localStorage.clear();
+const appModule = require('./app.js');
+
+const {
+  VIEWS,
+  HASH_TO_VIEW,
+  ALL_VIEWS,
+  PROFILE_SCHEMA_VERSION,
+  getSavedProfile,
+  saveProfile,
+  clearProfile,
+  hasValidProfile,
+  setView,
+} = appModule;
+
+// ── DOM helpers ───────────────────────────────────────────────────────────────
+function isVisible(id) {
   const el = document.getElementById(id);
-  return el ? el.classList.contains('hidden') : true;
+  return el != null && !el.classList.contains('hidden');
 }
 
-function isNavVisible() {
-  const nav = document.getElementById('headerAuthButtons');
-  return nav ? nav.style.display !== 'none' : false;
+function resetViews() {
+  ALL_VIEWS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('hidden');
+  });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 // Tests
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
 
-describe('StateMachine – LOGGED_OUT', () => {
-  beforeEach(() => sm.transitionTo(sm.STATES.LOGGED_OUT));
-
-  test('shows viewLanding', () => {
-    expect(isHidden('viewLanding')).toBe(false);
+describe('Profile schema helpers', () => {
+  beforeEach(() => {
+    localStorage.clear();
   });
 
-  test('hides viewCompleteProfile', () => {
-    expect(isHidden('viewCompleteProfile')).toBe(true);
+  test('getSavedProfile() returns null when nothing is stored', () => {
+    expect(getSavedProfile()).toBeNull();
   });
 
-  test('hides viewParty', () => {
-    expect(isHidden('viewParty')).toBe(true);
+  test('saveProfile() persists a profile and getSavedProfile() retrieves it', () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    const p = getSavedProfile();
+    expect(p).not.toBeNull();
+    expect(p.djName).toBe('DJ Test');
+    expect(p.schemaVersion).toBe(PROFILE_SCHEMA_VERSION);
   });
 
-  test('hides header nav buttons', () => {
-    expect(isNavVisible()).toBe(false);
+  test('clearProfile() removes the saved profile', () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    clearProfile();
+    expect(getSavedProfile()).toBeNull();
   });
 
-  test('currentState() returns LOGGED_OUT', () => {
-    expect(sm.currentState()).toBe(sm.STATES.LOGGED_OUT);
-  });
-});
-
-describe('StateMachine – PROFILE_INCOMPLETE', () => {
-  beforeEach(() => sm.transitionTo(sm.STATES.PROFILE_INCOMPLETE));
-
-  test('shows viewCompleteProfile', () => {
-    expect(isHidden('viewCompleteProfile')).toBe(false);
+  test('hasValidProfile() returns false when no profile saved', () => {
+    expect(hasValidProfile()).toBe(false);
   });
 
-  test('hides viewLanding', () => {
-    expect(isHidden('viewLanding')).toBe(true);
+  test('hasValidProfile() returns true after saveProfile()', () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    expect(hasValidProfile()).toBe(true);
   });
 
-  test('shows header nav buttons', () => {
-    expect(isNavVisible()).toBe(true);
+  test('getSavedProfile() returns null when stored profile has no djName', () => {
+    localStorage.setItem('syncSpeakerProfile_v' + PROFILE_SCHEMA_VERSION, JSON.stringify({ tier: 'FREE' }));
+    expect(getSavedProfile()).toBeNull();
   });
 
-  test('currentState() returns PROFILE_INCOMPLETE', () => {
-    expect(sm.currentState()).toBe(sm.STATES.PROFILE_INCOMPLETE);
-  });
-});
-
-describe('StateMachine – PARTY_HUB', () => {
-  beforeEach(() => sm.transitionTo(sm.STATES.PARTY_HUB));
-
-  test('shows viewAuthHome (create/join hub)', () => {
-    expect(isHidden('viewAuthHome')).toBe(false);
-  });
-
-  test('hides viewParty while on hub', () => {
-    expect(isHidden('viewParty')).toBe(true);
-  });
-
-  test('hides viewLanding', () => {
-    expect(isHidden('viewLanding')).toBe(true);
-  });
-
-  test('shows header nav buttons', () => {
-    expect(isNavVisible()).toBe(true);
-  });
-
-  test('currentState() returns PARTY_HUB', () => {
-    expect(sm.currentState()).toBe(sm.STATES.PARTY_HUB);
+  test('saveProfile() clears older schema versions', () => {
+    if (PROFILE_SCHEMA_VERSION > 0) {
+      const oldKey = 'syncSpeakerProfile_v' + (PROFILE_SCHEMA_VERSION - 1);
+      localStorage.setItem(oldKey, 'old-data');
+      saveProfile({ djName: 'New DJ', tier: 'FREE' });
+      expect(localStorage.getItem(oldKey)).toBeNull();
+    }
+    expect(getSavedProfile()).not.toBeNull();
   });
 });
 
-describe('StateMachine – IN_PARTY', () => {
-  beforeEach(() => sm.transitionTo(sm.STATES.IN_PARTY));
-
-  test('shows viewParty', () => {
-    expect(isHidden('viewParty')).toBe(false);
+describe('VIEWS registry', () => {
+  test('VIEWS is defined with expected entries', () => {
+    expect(VIEWS).toBeDefined();
+    expect(VIEWS.landing).toBeDefined();
+    expect(VIEWS.auth).toBeDefined();
+    expect(VIEWS.createJoin).toBeDefined();
+    expect(VIEWS.party).toBeDefined();
   });
 
-  test('shows header nav buttons', () => {
-    expect(isNavVisible()).toBe(true);
+  test('createJoin view requires auth', () => {
+    expect(VIEWS.createJoin.requiresAuth).toBe(true);
   });
 
-  test('hides viewLanding', () => {
-    expect(isHidden('viewLanding')).toBe(true);
+  test('party view requires auth', () => {
+    expect(VIEWS.party.requiresAuth).toBe(true);
+  });
+
+  test('landing view does NOT require auth', () => {
+    expect(VIEWS.landing.requiresAuth).toBe(false);
+  });
+
+  test('auth view does NOT require auth', () => {
+    expect(VIEWS.auth.requiresAuth).toBe(false);
+  });
+
+  test('every view in VIEWS has an element in the test DOM', () => {
+    Object.entries(VIEWS).forEach(([, def]) => {
+      expect(document.getElementById(def.id)).not.toBeNull();
+    });
   });
 });
 
-describe('StateMachine – state transitions', () => {
-  test('login flow: LOGGED_OUT → PROFILE_INCOMPLETE → PARTY_HUB', () => {
-    sm.transitionTo(sm.STATES.LOGGED_OUT);
-    expect(isHidden('viewLanding')).toBe(false);
-    expect(isNavVisible()).toBe(false);
-
-    sm.transitionTo(sm.STATES.PROFILE_INCOMPLETE);
-    expect(isHidden('viewCompleteProfile')).toBe(false);
-    expect(isNavVisible()).toBe(true);
-
-    sm.transitionTo(sm.STATES.PARTY_HUB);
-    expect(isHidden('viewAuthHome')).toBe(false);
-    expect(isHidden('viewCompleteProfile')).toBe(true);
-    expect(isNavVisible()).toBe(true);
+describe('setView() – auth gating', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    global.isLoggedIn.mockReturnValue(false);
+    resetViews();
+    pushStateMock.mockClear();
   });
 
-  test('logout: PARTY_HUB → LOGGED_OUT hides nav and shows landing', () => {
-    sm.transitionTo(sm.STATES.PARTY_HUB);
-    sm.transitionTo(sm.STATES.LOGGED_OUT);
-    expect(isNavVisible()).toBe(false);
-    expect(isHidden('viewLanding')).toBe(false);
-    expect(isHidden('viewAuthHome')).toBe(true);
+  test('setView("createJoin") when logged out → shows auth (viewAccountCreation)', () => {
+    setView('createJoin');
+    expect(isVisible('viewAccountCreation')).toBe(true);
+    expect(isVisible('viewHome')).toBe(false);
   });
 
-  test('unknown state emits warning and does not crash', () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    sm.transitionTo('NOT_A_REAL_STATE');
-    expect(warn).toHaveBeenCalledWith(
-      '[StateMachine] Unknown state:',
-      'NOT_A_REAL_STATE'
-    );
-    warn.mockRestore();
+  test('setView("party") when logged out → shows auth (viewAccountCreation)', () => {
+    setView('party');
+    expect(isVisible('viewAccountCreation')).toBe(true);
+    expect(isVisible('viewParty')).toBe(false);
+  });
+
+  test('setView("createJoin") when profile exists → shows createJoin (viewHome)', () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    setView('createJoin');
+    expect(isVisible('viewHome')).toBe(true);
+  });
+
+  test('setView("landing") always works without auth', () => {
+    setView('landing');
+    expect(isVisible('viewLanding')).toBe(true);
+  });
+
+  test('setView("login") always works without auth', () => {
+    setView('login');
+    expect(isVisible('viewLogin')).toBe(true);
+  });
+
+  test('setView("auth") always works without auth', () => {
+    setView('auth');
+    expect(isVisible('viewAccountCreation')).toBe(true);
+  });
+
+  test('setView with unknown view name logs error and keeps current view', () => {
+    // Landing should still be showing from previous reset
+    document.getElementById('viewLanding').classList.remove('hidden');
+    setView('nonExistentViewXYZ');
+    // Should not have changed anything
+    expect(isVisible('viewLanding')).toBe(true);
+  });
+});
+
+describe('setView() – hash routing', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    global.isLoggedIn.mockReturnValue(false);
+    resetViews();
+    pushStateMock.mockClear();
+  });
+
+  test('setView("landing") calls pushState with #landing', () => {
+    setView('landing');
+    expect(pushStateMock).toHaveBeenCalledWith(null, '', '#landing');
+  });
+
+  test('setView("auth") calls pushState with #auth', () => {
+    setView('auth');
+    expect(pushStateMock).toHaveBeenCalledWith(null, '', '#auth');
+  });
+
+  test('setView with fromHash:true does NOT call pushState', () => {
+    setView('landing', { fromHash: true });
+    expect(pushStateMock).not.toHaveBeenCalled();
+  });
+
+  test('redirecting from a protected hash updates URL to #auth via replaceState', () => {
+    // Navigate to a requiresAuth view via hash (fromHash:true), logged out
+    // setView should redirect to auth and update URL with replaceState
+    window.location.hash = '#party';
+    setView('party', { fromHash: true });
+    // Auth view should be shown
+    expect(isVisible('viewAccountCreation')).toBe(true);
+    // replaceState should have been called to update the URL to #auth
+    expect(window.history.replaceState).toHaveBeenCalledWith(null, '', '#auth');
+  });
+
+  test('HASH_TO_VIEW maps #create-join → createJoin', () => {
+    expect(HASH_TO_VIEW['create-join']).toBe('createJoin');
+  });
+
+  test('HASH_TO_VIEW maps #landing → landing', () => {
+    expect(HASH_TO_VIEW['landing']).toBe('landing');
+  });
+
+  test('HASH_TO_VIEW maps #auth → auth', () => {
+    expect(HASH_TO_VIEW['auth']).toBe('auth');
+  });
+
+  test('HASH_TO_VIEW maps #party → party', () => {
+    expect(HASH_TO_VIEW['party']).toBe('party');
+  });
+});
+
+describe('setView() – nav visibility', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    global.isLoggedIn.mockReturnValue(false);
+    resetViews();
+    // Reset nav-hidden on post-auth elements
+    document.querySelectorAll('.post-auth-only').forEach(el => el.classList.add('nav-hidden'));
+  });
+
+  test('post-auth-only elements remain hidden when not logged in', () => {
+    setView('landing');
+    document.querySelectorAll('.post-auth-only').forEach(el => {
+      expect(el.classList.contains('nav-hidden')).toBe(true);
+    });
+  });
+
+  test('post-auth-only elements become visible when profile exists', () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    setView('createJoin');
+    document.querySelectorAll('.post-auth-only').forEach(el => {
+      expect(el.classList.contains('nav-hidden')).toBe(false);
+    });
   });
 });

@@ -268,6 +268,32 @@ h2,h3{margin:0; font-weight:800}
 .member .name{font-weight:700}
 .member .meta{font-size:12px; color:var(--muted); margin-top:2px}
 .hidden{display:none !important}
+
+/* =========================================================
+   VIEW TRANSITION SYSTEM
+   fade + subtle upward slide, ~220ms
+   ========================================================= */
+@keyframes viewEnter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.is-entering {
+  animation: viewEnter 0.22s ease both;
+}
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .is-entering {
+    animation: none;
+  }
+}
+
+/* Post-auth-only nav items — hidden until user logs in */
+.post-auth-only.nav-hidden {
+  display: none !important;
+}
+
 .modal{
   position:fixed; inset:0;
   background: rgba(0,0,0,0.55);
@@ -7783,6 +7809,8 @@ body {
   padding: 6px 0 calc(6px + var(--safe-bottom));
   letter-spacing: 0.5px;
   user-select: none;
+}
+
 /* ============================================================
    Mobile-first layout hardening (SPA routing / auth upgrade)
    ============================================================ */
