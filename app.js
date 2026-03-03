@@ -25,7 +25,7 @@ const AUDIO_UNLOCK_SUCCESS_DELAY_MS = 300; // Delay to show "Audio enabled" succ
 
 // Changer version – bump this whenever platform detection / URL transformation logic changes.
 // Used to confirm the new changer build is running (visible in browser devtools console).
-const CHANGER_VERSION = '2026-02-27-a';
+const CHANGER_VERSION = '2026-03-03-a';
 console.log('[Changer] version:', CHANGER_VERSION);
 
 // Sync quality indicator labels
@@ -39,6 +39,187 @@ const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'view
                    'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
                    'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile',
                    'viewCompleteProfile'];
+
+// ============================================================
+// PROFILE SCHEMA (versioned localStorage helpers)
+// ============================================================
+const PROFILE_SCHEMA_VERSION = 1;
+const PROFILE_STORAGE_KEY = 'syncSpeakerProfile_v' + PROFILE_SCHEMA_VERSION;
+
+function getSavedProfile() {
+  try {
+    const raw = localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || !p.djName) return null;
+    return p;
+  } catch (e) {
+    return null;
+  }
+}
+
+function saveProfile(profile) {
+  try {
+    // Clear any older schema version keys (e.g. v0 → v1 when current is v1).
+    // The loop is intentionally 0..PROFILE_SCHEMA_VERSION-1 so it cleans up all
+    // previously deployed storage keys when the schema version is bumped.
+    for (let v = 0; v < PROFILE_SCHEMA_VERSION; v++) {
+      localStorage.removeItem('syncSpeakerProfile_v' + v);
+    }
+    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify({ ...profile, schemaVersion: PROFILE_SCHEMA_VERSION }));
+  } catch (e) {
+    console.warn('[Profile] Could not save profile:', e);
+  }
+}
+
+function clearProfile() {
+  for (let v = 0; v <= PROFILE_SCHEMA_VERSION; v++) {
+    try { localStorage.removeItem('syncSpeakerProfile_v' + v); } catch (e) {}
+  }
+  try { localStorage.removeItem('syncSpeakerPrototypeId'); } catch (e) {}
+}
+
+function hasValidProfile() {
+  return getSavedProfile() !== null;
+}
+
+// ============================================================
+// VIEW REGISTRY — single source of truth for all screens
+// ============================================================
+// Note: onEnter callbacks reference functions defined later in this file;
+// they are only *called* at runtime, so forward references are safe.
+/* eslint-disable no-use-before-define */
+const VIEWS = {
+  landing:       { id: 'viewLanding',         requiresAuth: false, hash: 'landing',     onEnter: () => showLanding() },
+  chooseTier:    { id: 'viewChooseTier',       requiresAuth: false, hash: 'choose-tier', onEnter: () => showChooseTier() },
+  auth:          { id: 'viewAccountCreation',  requiresAuth: false, hash: 'auth',        onEnter: () => showAccountCreation() },
+  createJoin:    { id: 'viewHome',             requiresAuth: true,  hash: 'create-join', onEnter: () => showHome() },
+  party:         { id: 'viewParty',            requiresAuth: true,  hash: 'party',       onEnter: () => showParty() },
+  guest:         { id: 'viewGuest',            requiresAuth: false, hash: 'guest',       onEnter: () => showGuest() },
+  payment:       { id: 'viewPayment',          requiresAuth: false, hash: 'payment',     onEnter: () => showPayment() },
+  login:         { id: 'viewLogin',            requiresAuth: false, hash: 'login' },
+  signup:        { id: 'viewSignup',           requiresAuth: false, hash: 'signup' },
+  passwordReset: { id: 'viewPasswordReset',    requiresAuth: false, hash: 'reset' },
+  profile:       { id: 'viewProfile',          requiresAuth: true,  hash: 'profile' },
+  upgradeHub:    { id: 'viewUpgradeHub',       requiresAuth: false, hash: 'upgrade' },
+  leaderboard:   { id: 'viewLeaderboard',      requiresAuth: false, hash: 'leaderboard' },
+  myProfile:       { id: 'viewMyProfile',        requiresAuth: true,  hash: 'my-profile' },
+  completeProfile: { id: 'viewCompleteProfile',  requiresAuth: true,  hash: 'complete-profile', onEnter: () => initCompleteProfileView() },
+  authHome:        { id: 'viewAuthHome',          requiresAuth: true,  hash: 'home',             onEnter: () => initPartyHomeView() },
+};
+/* eslint-enable no-use-before-define */
+
+// Hash → viewName lookup (built from VIEWS registry)
+const HASH_TO_VIEW = Object.fromEntries(
+  Object.entries(VIEWS).map(([name, def]) => [def.hash, name])
+);
+
+// ============================================================
+// SET VIEW — single navigation controller
+// ============================================================
+let _currentViewName = null;
+
+/**
+ * Navigate to a named view.
+ * @param {string} viewName  - Key from VIEWS registry
+ * @param {object} [opts]
+ * @param {boolean} [opts.fromHash] - true when called from hashchange (avoids redundant pushState)
+ */
+function setView(viewName, opts = {}) {
+  const view = VIEWS[viewName];
+  if (!view) {
+    console.error('[NAV] Unknown view:', viewName, '— valid views:', Object.keys(VIEWS));
+    return;
+  }
+
+  // Auth gating: redirect unauthenticated users away from protected views
+  if (view.requiresAuth) {
+    const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) || hasValidProfile();
+    if (!authenticated) {
+      console.log('[NAV] Auth required for', viewName, '→ redirecting to auth');
+      // Update the URL to #auth before redirecting so the address bar reflects reality.
+      // Use replaceState (not pushState) so back-button doesn't loop on the protected hash.
+      // The recursive setView('auth') call below passes fromHash:true which prevents it from
+      // calling pushState again — so there is exactly ONE URL update here.
+      const authView = VIEWS['auth'];
+      if (authView && window.location) {
+        try { history.replaceState(null, '', '#' + authView.hash); } catch (e) { /* may throw in tests */ }
+      }
+      setView('auth', { fromHash: true });
+      return;
+    }
+  }
+
+  const from = _currentViewName;
+  _currentViewName = viewName;
+  console.log('[NAV]', from, '->', viewName, { hash: '#' + view.hash });
+
+  // Update location hash (unless triggered by a hashchange)
+  if (!opts.fromHash && window.location && window.location.hash !== '#' + view.hash) {
+    try { history.pushState(null, '', '#' + view.hash); } catch (e) { /* may throw in tests */ }
+  }
+
+  // Always hide ALL_VIEWS first (via showView) to guarantee single-view display,
+  // then run the view-specific onEnter handler for state cleanup side effects.
+  // The show/hide calls inside onEnter handlers (showHome, showParty, etc.) are
+  // idempotent with respect to the classList already set by showView(), so this
+  // is safe and does not cause any visible double-transition.
+  showView(view.id);
+  if (typeof view.onEnter === 'function') {
+    view.onEnter();
+  }
+
+  // Apply enter animation and update nav visibility
+  const targetEl = document.getElementById(view.id);
+  if (targetEl) {
+    targetEl.classList.remove('is-entering');
+    // Force reflow so the animation re-triggers
+    void targetEl.offsetWidth;
+    targetEl.classList.add('is-entering');
+    targetEl.addEventListener('animationend', () => targetEl.classList.remove('is-entering'), { once: true });
+
+    // Accessibility: focus first heading or interactive element and scroll it into view.
+    // Honor prefers-reduced-motion for scroll behavior.
+    setTimeout(() => {
+      const focusTarget = targetEl.querySelector('h1, h2, [autofocus], button:not([disabled]), input:not([disabled])');
+      if (focusTarget) {
+        focusTarget.focus({ preventScroll: false });
+        const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        focusTarget.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+      }
+    }, 50);
+  }
+
+  // Show/hide header elements based on auth state
+  _updateNavVisibility();
+}
+
+/**
+ * Update header/nav visibility based on post-auth vs pre-auth state.
+ */
+function _updateNavVisibility() {
+  const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) || hasValidProfile();
+  const postAuthEls = document.querySelectorAll('.post-auth-only');
+  postAuthEls.forEach(el => {
+    if (authenticated) {
+      el.classList.remove('nav-hidden');
+    } else {
+      el.classList.add('nav-hidden');
+    }
+  });
+}
+
+/**
+ * Handle browser hash changes (back/forward button support).
+ */
+window.addEventListener('hashchange', () => {
+  const hash = window.location.hash.replace('#', '');
+  if (!hash) return;
+  const viewName = HASH_TO_VIEW[hash];
+  if (viewName) {
+    setView(viewName, { fromHash: true });
+  }
+});
 
 // User tier constants
 const USER_TIER = {
@@ -6676,48 +6857,33 @@ async function initAuthFlow() {
   try {
     const response = await fetch('/api/me');
     if (!response.ok) {
-      // Not authenticated - show landing page without header icons
+      // Not authenticated — hide auth buttons and show landing
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-      // Use router if available, otherwise fallback
-      if (typeof navigate === 'function') {
-        navigate('/', { replace: true });
-      } else {
-        showLanding();
-      }
+      setView('landing', { fromHash: true });
       if (SM) SM.transitionTo(SM.APP_STATE.LOGGED_OUT);
       return;
     }
     const data = await response.json();
-    // Authenticated - show header icons
+    // Authenticated - show auth buttons
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     // Update state from server data
     state.userTier = data.tier || USER_TIER.FREE;
     if (data.user && data.user.djName) {
       state.djName = data.user.djName;
+      saveProfile({ djName: data.user.djName, email: data.user.email, tier: state.userTier });
     }
     // Redirect based on profileCompleted
     if (!data.user || !data.user.profileCompleted) {
-      showView('viewCompleteProfile');
+      setView('completeProfile', { fromHash: true });
       if (SM) SM.transitionTo(SM.APP_STATE.AUTHENTICATED_PROFILE_INCOMPLETE);
-      initCompleteProfileView();
     } else {
-      // After login always land on authenticated home hub (/home)
-      if (typeof navigate === 'function') {
-        navigate('/home', { replace: true });
-      } else {
-        showView('viewAuthHome');
-        initPartyHomeView();
-      }
+      setView('authHome', { fromHash: true });
       if (SM) SM.transitionTo(SM.APP_STATE.AUTHENTICATED_PROFILE_COMPLETE);
     }
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-    if (typeof navigate === 'function') {
-      navigate('/', { replace: true });
-    } else {
-      showLanding();
-    }
+    setView('landing', { fromHash: true });
     if (SM) SM.transitionTo(SM.APP_STATE.LOGGED_OUT);
   }
 }
@@ -6965,8 +7131,19 @@ async function handleBillingReturn() {
     // Continue with app initialization - WebSocket can reconnect later
   }
 
-  // Check authentication state and redirect accordingly
-  await initAuthFlow();
+  // BOOT: check if a specific view was requested via URL hash (e.g. after refresh or back navigation)
+  const _bootHash = window.location.hash.replace('#', '');
+  const _bootHashView = HASH_TO_VIEW[_bootHash];
+  console.log('[BOOT]', { commit: CHANGER_VERSION, hasProfile: hasValidProfile(), hash: _bootHashView || null });
+
+  if (_bootHashView) {
+    // Hash-driven navigation: setView's auth gating will redirect to auth/landing if needed
+    setView(_bootHashView);
+  } else {
+    // Check server-side authentication state and redirect accordingly
+    // (handles unauthenticated → landing, profileCompleted=false → complete-profile, else → authHome)
+    await initAuthFlow();
+  }
 
   // Handle billing return parameters (billing=success or billing=cancel in URL)
   await handleBillingReturn();
@@ -6988,7 +7165,7 @@ async function handleBillingReturn() {
   if (btnLandingLogin) {
     btnLandingLogin.onclick = () => {
       console.log("[UI] Landing login clicked");
-      showView('viewLogin');
+      setView('login');
     };
   }
 
@@ -9450,7 +9627,7 @@ function setupAuthEventListeners() {
       if (isLoggedIn()) {
         showProfile();
       } else {
-        showView('viewLogin');
+        setView('login');
       }
     });
   }
@@ -9509,38 +9686,38 @@ function setupAuthEventListeners() {
   // Close profile
   const btnCloseProfile = document.getElementById('btnCloseProfile');
   if (btnCloseProfile) {
-    btnCloseProfile.addEventListener('click', () => showView('viewLanding'));
+    btnCloseProfile.addEventListener('click', () => setView('landing'));
   }
   
   // Navigation links
   document.getElementById('linkToSignup')?.addEventListener('click', (e) => {
     e.preventDefault();
-    showView('viewSignup');
+    setView('signup');
   });
   
   document.getElementById('linkToLogin')?.addEventListener('click', (e) => {
     e.preventDefault();
-    showView('viewLogin');
+    setView('login');
   });
   
   document.getElementById('linkToLanding')?.addEventListener('click', (e) => {
     e.preventDefault();
-    showView('viewLanding');
+    setView('landing');
   });
   
   document.getElementById('linkSignupToLanding')?.addEventListener('click', (e) => {
     e.preventDefault();
-    showView('viewLanding');
+    setView('landing');
   });
   
   document.getElementById('linkForgotPassword')?.addEventListener('click', (e) => {
     e.preventDefault();
-    showView('viewPasswordReset');
+    setView('passwordReset');
   });
   
   document.getElementById('linkResetToLogin')?.addEventListener('click', (e) => {
     e.preventDefault();
-    showView('viewLogin');
+    setView('login');
   });
 }
 
@@ -9555,6 +9732,11 @@ async function handleLogin() {
   const result = await logIn(email, password);
   
   if (result.success) {
+    // Save profile to localStorage for fast auth detection on next startup
+    if (result.user) {
+      state.userTier = result.user.tier;
+      saveProfile({ djName: result.user.djName, email: result.user.email, tier: result.user.tier });
+    }
     showToast('✅ Welcome back!');
     await initAuthFlow();
   } else {
@@ -9595,15 +9777,11 @@ async function handleSignup() {
  */
 async function handleLogout() {
   await logOut();
+  clearProfile();
   state.userTier = USER_TIER.FREE;
-  // Hide header icons
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   if (headerAuthButtons) headerAuthButtons.style.display = 'none';
-  if (typeof navigate === 'function') {
-    navigate('/', { replace: true });
-  } else {
-    showView('viewLanding');
-  }
+  setView('landing');
   if (window.AppStateMachine) window.AppStateMachine.transitionTo(window.AppStateMachine.APP_STATE.LOGGED_OUT);
   showToast('👋 Logged out');
 }
@@ -9676,7 +9854,7 @@ function handleProfileUpdate() {
 function showProfile() {
   const user = getCurrentUser();
   if (!user) {
-    showView('viewLogin');
+    setView('login');
     return;
   }
   
@@ -11816,10 +11994,19 @@ function handleOfficialAppSyncTrackSelected(msg) {
   });
 })();
 
-// ---- Module exports (for testing in Node/Jest environment) ----
+// Test/module exports (for Jest) — allows require() in tests; not reached in browsers.
+// In the browser this block is never reached (no `module` global).
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    VIEWS,
+    HASH_TO_VIEW,
     ALL_VIEWS,
+    PROFILE_SCHEMA_VERSION,
+    getSavedProfile,
+    saveProfile,
+    clearProfile,
+    hasValidProfile,
+    setView,
     showView,
     showHome,
     showLanding,
