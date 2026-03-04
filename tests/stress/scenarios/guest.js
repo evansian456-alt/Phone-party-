@@ -21,7 +21,7 @@ async function signupAndLogin(request, app, user) {
 
   const signupRes = await agent
     .post('/api/auth/signup')
-    .send({ email: user.email, password: user.password, djName: user.djName });
+    .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true });
 
   if (signupRes.status !== 201 && signupRes.status !== 200) {
     return { ok: false, agent, user };

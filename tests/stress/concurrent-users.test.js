@@ -40,7 +40,7 @@ async function signupAndLogin(user) {
   const agent = request.agent(app);
   await agent
     .post('/api/auth/signup')
-    .send({ email: user.email, password: user.password, djName: user.djName });
+    .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true });
   await agent
     .post('/api/auth/login')
     .send({ email: user.email, password: user.password });
@@ -147,7 +147,7 @@ describe('Signup uniqueness under concurrent requests', () => {
     const tasks = Array.from({ length: ATTEMPTS }, () =>
       request(app)
         .post('/api/auth/signup')
-        .send({ email: user.email, password: user.password, djName: user.djName })
+        .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true })
     );
 
     const results = await Promise.all(tasks);

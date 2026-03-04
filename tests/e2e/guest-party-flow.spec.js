@@ -35,7 +35,7 @@ test.describe('Guest party flow', () => {
     // Create a host and a party
     const host = makeUser('host_for_guest');
     await request.post(`${BASE}/api/auth/signup`, {
-      data: { email: host.email, password: host.password, djName: host.djName },
+      data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true },
     });
     await request.post(`${BASE}/api/auth/login`, {
       data: { email: host.email, password: host.password },
@@ -107,7 +107,7 @@ test.describe('Guest party flow', () => {
     // Create and end a party
     const host2 = makeUser('host2');
     await request.post(`${BASE}/api/auth/signup`, {
-      data: { email: host2.email, password: host2.password, djName: host2.djName },
+      data: { email: host2.email, password: host2.password, djName: host2.djName, termsAccepted: true },
     });
     await request.post(`${BASE}/api/auth/login`, {
       data: { email: host2.email, password: host2.password },

@@ -23,7 +23,7 @@ function makeUser(prefix = 'host') {
 
 async function apiSignup(request, user) {
   const res = await request.post(`${BASE}/api/auth/signup`, {
-    data: { email: user.email, password: user.password, djName: user.djName },
+    data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
   });
   return res;
 }

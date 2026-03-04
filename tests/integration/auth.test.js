@@ -43,7 +43,7 @@ function makeUser(prefix = 'auth') {
 async function signupAndGetCookie(agent, user) {
   await agent
     .post('/api/auth/signup')
-    .send({ email: user.email, password: user.password, djName: user.djName })
+    .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true })
     .expect(201);
 
   const loginRes = await agent
@@ -62,7 +62,7 @@ describe('POST /api/auth/signup', () => {
     const user = makeUser();
     const res = await request(app)
       .post('/api/auth/signup')
-      .send({ email: user.email, password: user.password, djName: user.djName });
+      .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true });
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
@@ -73,11 +73,11 @@ describe('POST /api/auth/signup', () => {
     const user = makeUser('dup');
     await request(app)
       .post('/api/auth/signup')
-      .send({ email: user.email, password: user.password, djName: user.djName });
+      .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true });
 
     const res = await request(app)
       .post('/api/auth/signup')
-      .send({ email: user.email, password: user.password, djName: user.djName });
+      .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true });
 
     expect(res.status).toBe(409);
   });
@@ -97,7 +97,7 @@ describe('POST /api/auth/login', () => {
     user = makeUser('login');
     await request(app)
       .post('/api/auth/signup')
-      .send({ email: user.email, password: user.password, djName: user.djName });
+      .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true });
   });
 
   test('returns 200 and sets session cookie on correct credentials', async () => {
@@ -146,7 +146,7 @@ describe('GET /api/me', () => {
     const res = await agent.get('/api/me');
 
     expect(res.status).toBe(200);
-    expect(res.body.email).toBe(user.email.toLowerCase());
+    expect(res.body.user.email).toBe(user.email.toLowerCase());
     expect(res.body.tier).toBeDefined();
     expect(res.body.entitlements).toBeDefined();
     expect(res.body.entitlements.hasPartyPass).toBe(false);
@@ -199,7 +199,7 @@ describe('Admin bootstrap', () => {
     try {
       await request(app)
         .post('/api/auth/signup')
-        .send({ email: adminEmail, password: 'Admin123!', djName: 'AdminTest' });
+        .send({ email: adminEmail, password: 'Admin123!', djName: 'AdminTest', termsAccepted: true });
 
       const loginRes = await request(app)
         .post('/api/auth/login')

@@ -27,7 +27,7 @@ function makeUser(p = 'profileaudit') {
 test.describe('Profile view — /api/me accuracy', () => {
   test('/api/me returns djName matching signup input', async ({ request }) => {
     const u = makeUser();
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const meRes = await request.get(`${BASE}/api/me`);
@@ -39,7 +39,7 @@ test.describe('Profile view — /api/me accuracy', () => {
 
   test('/api/me returns tier FREE for new user', async ({ request }) => {
     const u = makeUser();
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const meRes = await request.get(`${BASE}/api/me`);
@@ -51,7 +51,7 @@ test.describe('Profile view — /api/me accuracy', () => {
 
   test('/api/me profileCompleted is true after signup', async ({ request }) => {
     const u = makeUser();
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const meRes = await request.get(`${BASE}/api/me`);
@@ -63,7 +63,7 @@ test.describe('Profile view — /api/me accuracy', () => {
 
   test('/api/me profile.djScore defaults to 0', async ({ request }) => {
     const u = makeUser();
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const meRes = await request.get(`${BASE}/api/me`);
@@ -74,7 +74,7 @@ test.describe('Profile view — /api/me accuracy', () => {
 
   test('/api/me profile.djRank is "Bedroom DJ" for new user', async ({ request }) => {
     const u = makeUser();
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const meRes = await request.get(`${BASE}/api/me`);
@@ -121,7 +121,7 @@ test.describe('Profile view — /api/me accuracy', () => {
 
   test('updating DJ name via API reflects in /api/me', async ({ request }) => {
     const u = makeUser('nameupdate');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const newName = `Updated_${uid()}`.slice(0, 30);
@@ -209,7 +209,7 @@ test.describe('My Profile view', () => {
 
   test('/api/me entitlements structure is correct', async ({ request }) => {
     const u = makeUser('entitlements');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const meRes = await request.get(`${BASE}/api/me`);
@@ -241,7 +241,7 @@ test.describe('Admin dashboard view', () => {
 
   test('/api/admin/stats returns 403 for non-admin users', async ({ request }) => {
     const u = makeUser('nonadmin');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const res = await request.get(`${BASE}/api/admin/stats`);

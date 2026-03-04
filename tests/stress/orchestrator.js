@@ -83,7 +83,7 @@ async function buildAdminAgent() {
   // Try signup (may already exist — that's fine)
   await agent
     .post('/api/auth/signup')
-    .send({ email: adminEmail, password: pw, djName: 'StressAdmin' });
+    .send({ email: adminEmail, password: pw, djName: 'StressAdmin', termsAccepted: true });
 
   const loginRes = await agent
     .post('/api/auth/login')

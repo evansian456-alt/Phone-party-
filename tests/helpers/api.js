@@ -67,7 +67,7 @@ async function apiFetch(path, { method = 'GET', body, cookies = '' } = {}) {
 async function signup(user) {
   return apiFetch('/api/auth/signup', {
     method: 'POST',
-    body: { email: user.email, password: user.password, djName: user.djName },
+    body: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
   });
 }
 

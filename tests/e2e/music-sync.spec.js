@@ -30,7 +30,7 @@ function makeUser(prefix = 'music') {
 
 async function signupAndLogin(request, user) {
   await request.post(`${BASE}/api/auth/signup`, {
-    data: { email: user.email, password: user.password, djName: user.djName },
+    data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
   });
   const res = await request.post(`${BASE}/api/auth/login`, {
     data: { email: user.email, password: user.password },

@@ -31,7 +31,7 @@ function makeUser(p = 'hostaudit') {
 
 async function createAndNavigateToParty(page, request) {
   const u = makeUser();
-  await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+  await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
   await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
   // Create party via API
@@ -62,7 +62,7 @@ async function createAndNavigateToParty(page, request) {
 test.describe('Host party view — creation and display', () => {
   test('party code is displayed and has 6 characters', async ({ request }) => {
     const u = makeUser('partydisplay');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });
@@ -74,7 +74,7 @@ test.describe('Host party view — creation and display', () => {
 
   test('party state shows exists=true with correct djName', async ({ request }) => {
     const u = makeUser('partymeta');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });
@@ -120,7 +120,7 @@ test.describe('Host party view — chat mode selector', () => {
 
   test('chat mode API updates correctly', async ({ request }) => {
     const u = makeUser('chatmode');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });
@@ -140,7 +140,7 @@ test.describe('Host party view — chat mode selector', () => {
 
   test('chat mode LOCKED prevents text messages (API)', async ({ request }) => {
     const u = makeUser('lockedchat');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });
@@ -200,7 +200,7 @@ test.describe('Host party view — DJ moment buttons', () => {
 
   test('DJ moment API endpoint accepts moment events', async ({ request }) => {
     const u = makeUser('moment');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });
@@ -219,7 +219,7 @@ test.describe('Host party view — DJ moment buttons', () => {
 test.describe('Host party view — Party Pass banner', () => {
   test('upgrade CTA is shown when party is FREE tier', async ({ request }) => {
     const u = makeUser('ppbanner');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });
@@ -259,7 +259,7 @@ test.describe('Host party view — Party Pass banner', () => {
 test.describe('Host party view — guest count and info', () => {
   test('guest count API increments when guests join', async ({ request }) => {
     const u = makeUser('guestcount');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });
@@ -280,7 +280,7 @@ test.describe('Host party view — guest count and info', () => {
 
   test('party time remaining is a positive number for new party', async ({ request }) => {
     const u = makeUser('timeleft');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });
@@ -311,7 +311,7 @@ test.describe('Host party view — tier-gated features', () => {
 
   test('Add another phone triggers paywall on FREE tier when limit reached', async ({ request }) => {
     const u = makeUser('addphone');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: u.djName } });

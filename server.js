@@ -1383,7 +1383,7 @@ app.post("/api/auth/signup", authLimiter, async (req, res) => {
     );
 
     if (existingUser.rows.length > 0) {
-      return res.status(400).json({ error: 'Email already registered' });
+      return res.status(409).json({ error: 'Email already registered' });
     }
 
     // Hash password
@@ -1420,7 +1420,7 @@ app.post("/api/auth/signup", authLimiter, async (req, res) => {
       sameSite: 'lax'
     });
 
-    res.json({
+    res.status(201).json({
       success: true,
       user: {
         id: user.id,

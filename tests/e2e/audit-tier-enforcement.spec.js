@@ -83,7 +83,7 @@ test.describe('Tier info API accuracy', () => {
 test.describe('FREE tier enforcement', () => {
   test('new user default tier is FREE', async ({ request }) => {
     const u = makeUser('free_default');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     const me = await (await request.get(`${BASE}/api/me`)).json();
@@ -95,7 +95,7 @@ test.describe('FREE tier enforcement', () => {
 
   test('FREE tier: text message rejected by server', async ({ request }) => {
     const host = makeUser('free_chat_host');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -120,7 +120,7 @@ test.describe('FREE tier enforcement', () => {
 
   test('FREE tier: guest count limit enforced at 2', async ({ request }) => {
     const host = makeUser('free_limit');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -141,7 +141,7 @@ test.describe('FREE tier enforcement', () => {
 
   test('FREE tier: party has no partyPassExpiresAt (unlimited time)', async ({ request }) => {
     const host = makeUser('free_time');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -162,7 +162,7 @@ test.describe('PARTY_PASS tier enforcement (test mode)', () => {
     if (process.env.NODE_ENV !== 'test') return;
 
     const host = makeUser('pp_tier');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     const loginRes = await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
     if (!loginRes.ok()) return;
 
@@ -197,7 +197,7 @@ test.describe('Chat mode enforcement', () => {
 
   test.beforeAll(async ({ request }) => {
     const host = makeUser('chatmode');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -269,7 +269,7 @@ test.describe('Chat mode enforcement', () => {
 test.describe('UI tier display consistency', () => {
   test('planPill text matches /api/me tier for FREE user', async ({ page, request }) => {
     const u = makeUser('planpillfree');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     await page.goto(BASE);
@@ -286,7 +286,7 @@ test.describe('UI tier display consistency', () => {
 
   test('profileTierBadge shows correct tier text', async ({ page, request }) => {
     const u = makeUser('tierbadge');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     await page.goto(BASE);
@@ -308,7 +308,7 @@ test.describe('UI tier display consistency', () => {
 
   test('upgrade hub currentStatusFree is visible for FREE user', async ({ page, request }) => {
     const u = makeUser('statusfree');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     await page.goto(`${BASE}/#upgrade`);

@@ -65,7 +65,7 @@ test.describe('Auth flow', () => {
 
     // Create account via API
     await request.post(`${BASE}/api/auth/signup`, {
-      data: { email: user.email, password: user.password, djName: user.djName },
+      data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
     });
 
     // Verify login via API
@@ -88,7 +88,7 @@ test.describe('Auth flow', () => {
     const user = makeUser();
 
     await request.post(`${BASE}/api/auth/signup`, {
-      data: { email: user.email, password: user.password, djName: user.djName },
+      data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
     });
     await request.post(`${BASE}/api/auth/login`, {
       data: { email: user.email, password: user.password },
@@ -120,7 +120,7 @@ test.describe('Auth flow', () => {
     // Pre-create account
     const req = page.context().request;
     await req.post(`${BASE}/api/auth/signup`, {
-      data: { email: user.email, password: user.password, djName: user.djName },
+      data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
     });
 
     await page.goto(BASE);

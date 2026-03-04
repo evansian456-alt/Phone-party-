@@ -128,7 +128,7 @@ test.describe('Host music controls — API', () => {
 
   test.beforeAll(async ({ request }) => {
     host = makeUser('musicapi');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const res = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -224,7 +224,7 @@ test.describe('Sync accuracy', () => {
 
   test.beforeAll(async ({ request }) => {
     const h = makeUser('syncaudit');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: h.email, password: h.password, djName: h.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: h.email, password: h.password, djName: h.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: h.email, password: h.password } });
 
     const res = await request.post(`${BASE}/api/create-party`, { data: { djName: h.djName } });

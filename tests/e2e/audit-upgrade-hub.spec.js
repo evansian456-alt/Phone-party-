@@ -28,7 +28,7 @@ function makeUser(p = 'store') {
   return { email: `e2e_${p}_${id}@test.invalid`, password: 'Audit123!', djName: `DJ_${p}_${id}`.slice(0, 30) };
 }
 async function signupAndLogin(page, request, u) {
-  await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+  await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
   await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
   await page.goto(BASE);
   await page.waitForTimeout(1500);
@@ -88,7 +88,7 @@ test.describe('Upgrade hub', () => {
 
   test.beforeAll(async ({ request }) => {
     u = makeUser('upgradehub');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
   });
 

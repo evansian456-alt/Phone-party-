@@ -19,7 +19,7 @@ function makeUser(p = 'audit') {
   return { email: `e2e_${p}_${id}@test.invalid`, password: 'Audit123!', djName: `DJ_${p}_${id}`.slice(0, 30) };
 }
 async function signup(request, u) {
-  return request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName } });
+  return request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
 }
 async function login(request, u) {
   return request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });

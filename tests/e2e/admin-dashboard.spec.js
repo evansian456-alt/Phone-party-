@@ -37,7 +37,7 @@ test.describe('Admin dashboard — access control', () => {
   test('authenticated non-admin returns 403', async ({ request }) => {
     const normalUser = makeUser('nonadmin');
     await request.post(`${BASE}/api/auth/signup`, {
-      data: { email: normalUser.email, password: normalUser.password, djName: normalUser.djName },
+      data: { email: normalUser.email, password: normalUser.password, djName: normalUser.djName, termsAccepted: true },
     });
     await request.post(`${BASE}/api/auth/login`, {
       data: { email: normalUser.email, password: normalUser.password },

@@ -44,7 +44,7 @@ function makeUser(prefix = 'pay') {
 async function signupAndLogin(agent, user) {
   await agent
     .post('/api/auth/signup')
-    .send({ email: user.email, password: user.password, djName: user.djName })
+    .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true })
     .expect(201);
 
   const res = await agent

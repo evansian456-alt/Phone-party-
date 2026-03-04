@@ -142,7 +142,7 @@ test.describe('Guest view — emoji reactions', () => {
 
   test('emoji reaction API returns OK when allowed', async ({ request }) => {
     const host = makeUser('emojihost');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -167,7 +167,7 @@ test.describe('Guest view — emoji reactions', () => {
 
   test('emoji reaction rejected when chat mode is LOCKED', async ({ request }) => {
     const host = makeUser('emojilocked');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -226,7 +226,7 @@ test.describe('Guest view — quick reply buttons', () => {
 test.describe('Guest view — now playing and queue updates', () => {
   test('after start-track, party-state currentTrack title is visible in response', async ({ request }) => {
     const host = makeUser('nowplaying');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -251,7 +251,7 @@ test.describe('Guest view — now playing and queue updates', () => {
 
   test('queue items appear in party-state after queuing', async ({ request }) => {
     const host = makeUser('queuestate');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -283,7 +283,7 @@ test.describe('Guest view — now playing and queue updates', () => {
 test.describe('Guest join and leave', () => {
   test('joining a party via API succeeds', async ({ request }) => {
     const host = makeUser('jointest');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
@@ -308,7 +308,7 @@ test.describe('Guest join and leave', () => {
 
   test('leaving a party succeeds', async ({ request }) => {
     const host = makeUser('leavetest');
-    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName } });
+    await request.post(`${BASE}/api/auth/signup`, { data: { email: host.email, password: host.password, djName: host.djName, termsAccepted: true } });
     await request.post(`${BASE}/api/auth/login`, { data: { email: host.email, password: host.password } });
 
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
