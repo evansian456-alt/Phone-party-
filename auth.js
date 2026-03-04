@@ -18,7 +18,7 @@ const TIER = {
  */
 async function initAuth() {
   console.log('[Auth] Auth system initializing');
-  
+
   // Check if user is logged in by calling /api/me
   try {
     const user = await getCurrentUser();
@@ -43,11 +43,11 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
   if (!isValidEmail(email)) {
     return { success: false, error: 'Invalid email address' };
   }
-  
+
   if (!isValidPassword(password)) {
     return { success: false, error: 'Password must be at least 6 characters' };
   }
-  
+
   if (!djName || djName.trim().length === 0) {
     return { success: false, error: 'DJ name is required' };
   }
@@ -55,7 +55,7 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
   if (!termsAccepted) {
     return { success: false, error: 'You must accept the Terms & Conditions and Privacy Policy' };
   }
-  
+
   try {
     const response = await fetch('/api/auth/signup', {
       method: 'POST',
@@ -70,26 +70,29 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
         termsAccepted
       })
     });
-    
+
     let data;
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {
       data = await response.json();
     } else {
-      await response.text();
-      return { success: false, error: `Server returned non-JSON error (status ${response.status}). Check server logs.` };
+      const text = await response.text();
+      if (!response.ok) {
+        return { success: false, error: `Server returned non-JSON error (status ${response.status}): ${text.slice(0, 200)}` };
+      }
+      data = {};
     }
-    
+
     if (!response.ok) {
       return { success: false, error: data.error || 'Signup failed' };
     }
-    
+
     // Fetch full user data
     const userData = await getCurrentUser();
     if (userData) {
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userData));
     }
-    
+
     return { success: true, user: sanitizeUser(data.user) };
   } catch (error) {
     console.error('[Auth] Signup error:', error);
@@ -104,7 +107,7 @@ async function logIn(email, password) {
   if (!isValidEmail(email)) {
     return { success: false, error: 'Invalid email address' };
   }
-  
+
   try {
     const response = await fetch('/api/auth/login', {
       method: 'POST',
@@ -117,26 +120,29 @@ async function logIn(email, password) {
         password
       })
     });
-    
+
     let data;
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {
       data = await response.json();
     } else {
-      await response.text();
-      return { success: false, error: `Server returned non-JSON error (status ${response.status}). Check server logs.` };
+      const text = await response.text();
+      if (!response.ok) {
+        return { success: false, error: `Server returned non-JSON error (status ${response.status}): ${text.slice(0, 200)}` };
+      }
+      data = {};
     }
-    
+
     if (!response.ok) {
       return { success: false, error: data.error || 'Login failed' };
     }
-    
+
     // Fetch full user data
     const userData = await getCurrentUser();
     if (userData) {
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userData));
     }
-    
+
     return { success: true, user: sanitizeUser(data.user) };
   } catch (error) {
     console.error('[Auth] Login error:', error);
@@ -153,7 +159,7 @@ async function logOut() {
       method: 'POST',
       credentials: 'include'
     });
-    
+
     localStorage.removeItem(CURRENT_USER_KEY);
     return { success: true };
   } catch (error) {
@@ -170,7 +176,7 @@ async function logOut() {
 async function getCurrentUser() {
   try {
     const response = await fetch('/api/me', { credentials: 'include' });
-    
+
     if (!response.ok) {
       if (response.status === 401) {
         // Not authenticated
@@ -178,7 +184,7 @@ async function getCurrentUser() {
       }
       throw new Error('Failed to get user');
     }
-    
+
     const data = await response.json();
     return data;
   } catch (error) {

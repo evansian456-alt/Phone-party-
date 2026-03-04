@@ -253,6 +253,23 @@ Expected response:
 - **Redis shows "error"**: Redis connection failed. Check Redis plugin status and network connectivity.
 - **Party creation returns 503**: Redis is not ready. Wait a few seconds for Redis to connect, or check logs.
 
+### 5. Set JWT_SECRET for Stable Authentication
+
+**Required for all production-like deployments** (Railway, Cloud Run, or any environment with `REDIS_URL` or `RAILWAY_ENVIRONMENT` set).
+
+```
+JWT_SECRET=replace_with_long_random_string_at_least_32_chars
+```
+
+> **Important**: Deployments with multiple instances (Cloud Run, Railway, etc.) **must use the same `JWT_SECRET` for all instances**. Using a different or missing secret per instance will cause login tokens to be rejected after signup (auth bounce-back), since tokens signed by one instance cannot be verified by another.
+
+Generate a secure secret:
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+If `JWT_SECRET` is missing in a production-like environment, the server will refuse to start with a clear error message.
+
 ## Testing
 
 This project includes a comprehensive test suite for server-side functions and utilities.

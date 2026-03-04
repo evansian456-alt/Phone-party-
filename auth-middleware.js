@@ -6,6 +6,7 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { isValidEmail, isValidPassword } = require('./auth-utils');
+const { isProduction: isProductionEnv, isTest: isTestEnv } = require('./env-validator');
 
 // ============================================================================
 // ADMIN EMAIL ALLOWLIST
@@ -30,7 +31,6 @@ function isAdminEmail(email) {
 // JWT_SECRET is REQUIRED in production-like environments. Use the same production
 // detection logic as env-validator.js to cover NODE_ENV=production, RAILWAY_ENVIRONMENT,
 // and REDIS_URL deployments. In development/test a per-process random fallback is used.
-const { isProduction: isProductionEnv, isTest: isTestEnv } = require('./env-validator');
 // Test mode always overrides production detection so unit tests can run with REDIS_URL set.
 const _isProduction = isProductionEnv() && !isTestEnv();
 if (_isProduction && !process.env.JWT_SECRET) {
@@ -85,16 +85,16 @@ function verifyToken(token) {
  */
 function requireAuth(req, res, next) {
   const token = req.cookies?.auth_token;
-  
+
   if (!token) {
     return res.status(401).json({ error: 'Authentication required' });
   }
-  
+
   const decoded = verifyToken(token);
   if (!decoded) {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
-  
+
   req.user = decoded;
   next();
 }
@@ -104,14 +104,14 @@ function requireAuth(req, res, next) {
  */
 function optionalAuth(req, res, next) {
   const token = req.cookies?.auth_token;
-  
+
   if (token) {
     const decoded = verifyToken(token);
     if (decoded) {
       req.user = decoded;
     }
   }
-  
+
   next();
 }
 

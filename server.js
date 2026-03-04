@@ -746,6 +746,13 @@ app.locals.setSecureCookie = setSecureCookie;
 // SECTION 2: Trust proxy for Railway deployment (behind HTTPS proxy)
 app.set('trust proxy', 1);
 
+// Helper function to detect HTTPS for cookie secure flag
+// With trust proxy enabled, req.secure and req.protocol correctly handle X-Forwarded-Proto
+// including comma-separated values like 'https,http'
+function isHttpsRequest(req) {
+  return req.secure || req.protocol === 'https';
+}
+
 // Parse cookies for JWT authentication
 app.use(cookieParser());
 
@@ -1412,12 +1419,11 @@ app.post("/api/auth/signup", authLimiter, async (req, res) => {
       email: user.email
     });
 
-    // Set HTTP-only cookie — use HTTPS detection so it works behind proxies too
-    const isHttpsSignup = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    // Set HTTP-only cookie — use HTTPS detection that works behind proxies
     res.cookie('auth_token', token, {
       httpOnly: true,
       path: '/',
-      secure: isHttpsSignup,
+      secure: isHttpsRequest(req),
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       sameSite: 'lax'
     });
@@ -1493,12 +1499,11 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
       isAdmin: user.is_admin || false
     });
 
-    // Set HTTP-only cookie — use HTTPS detection so it works behind proxies too
-    const isHttpsLogin = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    // Set HTTP-only cookie — use HTTPS detection that works behind proxies
     res.cookie('auth_token', token, {
       httpOnly: true,
       path: '/',
-      secure: isHttpsLogin,
+      secure: isHttpsRequest(req),
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       sameSite: 'lax'
     });
@@ -1523,8 +1528,13 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
  * Log out current user
  */
 app.post("/api/auth/logout", apiLimiter, (req, res) => {
-  const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
-  res.clearCookie('auth_token', { path: '/', secure: isHttps, sameSite: 'lax', httpOnly: true });
+  // Clear cookie with IDENTICAL options to the cookie that was set, otherwise clearing fails
+  res.clearCookie('auth_token', {
+    path: '/',
+    secure: isHttpsRequest(req),
+    sameSite: 'lax',
+    httpOnly: true
+  });
   res.json({ success: true });
 });
 
@@ -6073,25 +6083,6 @@ async function handleStripeWebhookEvent(event) {
   }
 }
 
-// Sentry error handler must be registered after all controllers and before other error handlers
-if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
-  const Sentry = require('@sentry/node');
-  app.use(Sentry.Handlers.errorHandler());
-}
-
-// Global JSON error handler — ensures all unhandled Express errors return JSON, never HTML
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  const status = err.status || err.statusCode || 500;
-  const message = (process.env.NODE_ENV === 'production' && status === 500)
-    ? 'Internal server error'
-    : (err.message || 'Internal server error');
-  console.error('[Server] Unhandled error:', err);
-  if (!res.headersSent) {
-    res.status(status).json({ error: message });
-  }
-});
-
 // ============================================================================
 // HEARTBEAT – active user tracking
 // ============================================================================
@@ -6413,20 +6404,6 @@ function isAdmin(email) {
   return hardcoded !== '' && lc === hardcoded;
 }
 
-// Optional fallback error handler for non-Sentry errors
-// Note: 'next' parameter required for Express to recognize this as error handler
-app.use((err, req, res, next) => {
-  console.error('[Error Handler]', err.stack);
-  
-  // Only send response if headers haven't been sent yet
-  if (!res.headersSent) {
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: process.env.NODE_ENV === 'production' ? 'Something went wrong' : err.message
-    });
-  }
-});
-
 // Cleanup expired parties (Redis TTL handles expiration automatically)
 // This function now only cleans up local WebSocket state for expired parties
 function cleanupExpiredParties() {
@@ -6536,6 +6513,35 @@ function runCleanupJobs() {
 
 // Start cleanup interval
 let cleanupInterval;
+
+// ============================================================================
+// ERROR HANDLERS - Must be registered AFTER all routes
+// ============================================================================
+
+// Sentry error handler (if configured) - must come before custom error handler
+if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
+  const Sentry = require('@sentry/node');
+  app.use(Sentry.Handlers.errorHandler());
+}
+
+// Global JSON error handler — catches any unhandled errors and returns JSON
+// instead of Express's default HTML error page. Must be registered after all routes.
+// Express requires the 'next' parameter even though we may not call it for linting purposes.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('[Server] Unhandled error:', err);
+  const status = err.status || err.statusCode || 500;
+  const message = (process.env.NODE_ENV === 'production' && status === 500)
+    ? 'Internal server error'
+    : (err.message || 'Internal server error');
+
+  // If headers already sent, delegate to Express default error handler
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(status).json({ error: message });
+});
 
 // Start the HTTP server only if not imported as a module
 let server;
