@@ -43,10 +43,11 @@ function buildUrl(platform, inviteUrl) {
 
 class ReferralUI {
   constructor() {
-    this.stats       = null;
-    this._pollTimer  = null;
-    this._lastCount  = null;
-    this._nudgeShown = false;
+    this.stats        = null;
+    this._pollTimer   = null;
+    this._nudgeTimer  = null;
+    this._lastCount   = null;
+    this._nudgeShown  = false;
     this._init();
   }
 
@@ -352,10 +353,15 @@ class ReferralUI {
   startPolling(intervalMs = 10000) {
     this.loadStats();
     this._pollTimer = setInterval(() => this.loadStats(), intervalMs);
+    // Attempt to show the nudge now that the user is authenticated.
+    // Safe to call repeatedly — internally guarded by 'referral_nudge_shown' flag.
+    this._maybeShowNudge();
   }
 
   stopPolling() {
     if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
+    // Cancel any pending nudge timer so it doesn't fire after the session ends
+    if (this._nudgeTimer) { clearTimeout(this._nudgeTimer); this._nudgeTimer = null; }
   }
 
   // ─── Promo elements ────────────────────────────────────────────────────────
@@ -430,17 +436,32 @@ class ReferralUI {
 
   // ─── One-time nudge modal ──────────────────────────────────────────────────
 
+  /** Returns true when a logged-in user's session data exists in localStorage. */
+  _isAuthenticated() {
+    try {
+      return typeof localStorage !== 'undefined' &&
+             !!localStorage.getItem('syncspeaker_current_user');
+    } catch (_) { return false; }
+  }
+
   _maybeShowNudge() {
     // Only show once per browser
     if (typeof localStorage === 'undefined') return;
     if (localStorage.getItem('referral_nudge_shown')) return;
-    // Delay to avoid cluttering the first login moment
-    setTimeout(() => this._showNudge(), 3000);
+    // Only show to authenticated users — the nudge is about inviting friends after
+    // signup. Showing it on the landing page blocks the "GET STARTED" button.
+    if (!this._isAuthenticated()) return;
+    // Delay to avoid cluttering the first login moment; store the ID so
+    // stopPolling() can cancel it if the user logs out before it fires.
+    this._nudgeTimer = setTimeout(() => this._showNudge(), 3000);
   }
 
   _showNudge() {
+    this._nudgeTimer = null;
     if (typeof localStorage === 'undefined') return;
     if (localStorage.getItem('referral_nudge_shown')) return;
+    // Double-check auth state at display time (user may have logged out in the 3 s window)
+    if (!this._isAuthenticated()) return;
 
     const modal = document.getElementById('modalReferralNudge');
     if (!modal) return;
