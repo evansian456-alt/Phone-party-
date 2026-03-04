@@ -4783,6 +4783,12 @@ h2,h3{margin:0; font-weight:800}
   font-size: 14px;
 }
 
+.success {
+  background: rgba(30, 200, 90, 0.15);
+  color: #42ff7b;
+  border: 1px solid rgba(30, 200, 90, 0.5);
+}
+
 .auth-links {
   text-align: center;
   margin-top: 24px;

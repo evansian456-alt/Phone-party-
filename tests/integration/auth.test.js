@@ -81,7 +81,7 @@ describe('POST /api/auth/signup', () => {
 
     expect(res.status).toBe(409);
     expect(res.headers['content-type']).toMatch(/json/);
-    expect(res.body.error).toMatch(/email/i);
+    expect(res.body.error).toBe('Account already exists');
   });
 
   test('returns 400 with helpful message for too-short password', async () => {

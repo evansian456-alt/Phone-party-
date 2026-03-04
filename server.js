@@ -1390,7 +1390,7 @@ app.post("/api/auth/signup", authLimiter, async (req, res) => {
     );
 
     if (existingUser.rows.length > 0) {
-      return res.status(409).json({ error: 'Email already registered' });
+      return res.status(409).json({ error: 'Account already exists' });
     }
 
     // Hash password
@@ -1441,7 +1441,7 @@ app.post("/api/auth/signup", authLimiter, async (req, res) => {
     console.error('[Auth] Signup error:', error.code || error.message);
     // 23505 = Postgres unique-constraint violation (race condition: two concurrent signups)
     if (error.code === '23505') {
-      return res.status(409).json({ error: 'Email already exists' });
+      return res.status(409).json({ error: 'Account already exists' });
     }
     const requestId = require('crypto').randomUUID();
     res.status(500).json({ error: 'Failed to create account', requestId });

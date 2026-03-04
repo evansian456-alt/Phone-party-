@@ -145,4 +145,21 @@ test.describe('Auth flow', () => {
     // Acceptable: form hidden OR we navigated away from login
     expect(!visible || !page.url().includes('#login')).toBeTruthy();
   });
+
+  test('duplicate signup returns 409 with "Account already exists"', async ({ request }) => {
+    const user = makeUser();
+
+    // Create account
+    await request.post(`${BASE}/api/auth/signup`, {
+      data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
+    });
+
+    // Attempt duplicate signup
+    const dupRes = await request.post(`${BASE}/api/auth/signup`, {
+      data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
+    });
+    expect(dupRes.status()).toBe(409);
+    const dupBody = await dupRes.json();
+    expect(dupBody.error).toBe('Account already exists');
+  });
 });

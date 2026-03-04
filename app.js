@@ -9871,10 +9871,12 @@ async function handleSignup() {
       }
     } catch (_) { /* ignore localStorage errors */ }
 
+    // Show inline success message before navigating
+    errorEl.textContent = 'Welcome to the party 🥳';
+    errorEl.classList.remove('hidden');
+    errorEl.classList.add('success');
     const sessionOk = await initAuthFlow();
-    if (sessionOk) {
-      showToast('✅ Welcome to Phone Party! Account created successfully!');
-    } else {
+    if (!sessionOk) {
       // Signup API succeeded but session could not be confirmed — show visible error toast
       // (initAuthFlow already redirected to landing, so errorEl may be hidden)
       showToast('⚠️ Account created but session could not be verified. Please log in to continue.');
@@ -9882,20 +9884,20 @@ async function handleSignup() {
     }
   } else {
     if (result.status === 409) {
-      // Duplicate email — show message and a "Log in instead" link
-      errorEl.textContent = `${result.error}. `;
+      // Duplicate email — show "Account already exists" message and a "Log In Instead" link
+      errorEl.textContent = 'Account already exists. ';
       const loginLink = document.createElement('a');
       loginLink.href = '#';
       loginLink.id = 'signupLoginInstead';
       loginLink.style.cssText = 'color:inherit;text-decoration:underline';
-      loginLink.textContent = 'Log in instead';
+      loginLink.textContent = 'Log In Instead';
       loginLink.addEventListener('click', (e) => {
         e.preventDefault();
         setView('login');
       });
       errorEl.appendChild(loginLink);
     } else {
-      errorEl.textContent = result.error;
+      errorEl.textContent = result.error || `Signup failed (status ${result.status || 'unknown'})`;
     }
     errorEl.classList.remove('hidden');
   }

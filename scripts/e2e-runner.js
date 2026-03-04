@@ -28,7 +28,7 @@ const fs = require('fs');
 // ─── Configuration ─────────────────────────────────────────────────────────────
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const DATABASE_URL = process.env.DATABASE_URL || null;
+let DATABASE_URL = process.env.DATABASE_URL || null;
 const SERVER_PORT = process.env.SERVER_PORT || null; // null → pick a free port
 const POLL_INTERVAL_MS = 500;
 const REDIS_TIMEOUT_MS = 30_000;
@@ -45,6 +45,7 @@ const DEFAULT_TEST_JWT_SECRET = 'e2e-test-runner-secret-do-not-use-in-production
 
 let serverProcess = null;
 let redisContainerName = null;
+let pgContainerName = null;
 let shuttingDown = false;
 let serverLogStream = null;
 
@@ -76,6 +77,17 @@ function cleanup() {
     } catch (_) {}
     redisContainerName = null;
     console.log('[E2E] Redis container removed.');
+  }
+
+  if (pgContainerName) {
+    console.log(`[E2E] Stopping Postgres container: ${pgContainerName}`);
+    try {
+      execSync(`docker stop ${pgContainerName} && docker rm ${pgContainerName}`, {
+        stdio: 'ignore',
+      });
+    } catch (_) {}
+    pgContainerName = null;
+    console.log('[E2E] Postgres container removed.');
   }
 }
 
@@ -234,6 +246,70 @@ function startRedisViaDocker() {
 }
 
 /**
+ * Start a Postgres container via Docker and run schema migrations.
+ * Sets the module-level DATABASE_URL so the app server picks it up.
+ * Only called when DATABASE_URL is not already set in the environment.
+ */
+async function startPostgresViaDocker() {
+  const name = `e2e-postgres-${process.pid}`;
+  const pgPort = 15432; // use a non-standard port to avoid conflicts
+  const pgUser = 'e2e';
+  const pgPassword = 'e2e_pass';
+  const pgDb = 'houseparty_e2e';
+
+  console.log(`[E2E] Starting Postgres via Docker (container: ${name}, port: ${pgPort})…`);
+  execSync(
+    `docker run -d --name ${name} ` +
+    `-p ${pgPort}:5432 ` +
+    `-e POSTGRES_USER=${pgUser} ` +
+    `-e POSTGRES_PASSWORD=${pgPassword} ` +
+    `-e POSTGRES_DB=${pgDb} ` +
+    `postgres:16-alpine`,
+    { stdio: 'inherit' }
+  );
+  pgContainerName = name;
+
+  const connStr = `postgres://${pgUser}:${pgPassword}@localhost:${pgPort}/${pgDb}`;
+
+  // Wait for Postgres to be ready
+  process.stdout.write('[E2E] Waiting for Postgres to accept connections');
+  await pollUntil(async () => {
+    process.stdout.write('.');
+    const { Client } = require('pg');
+    const client = new Client({ connectionString: connStr, connectionTimeoutMillis: 2000 });
+    await client.connect();
+    await client.query('SELECT 1');
+    await client.end();
+    return true;
+  }, PG_TIMEOUT_MS, 'Postgres ready');
+  process.stdout.write('\n');
+  console.log('[E2E] ✅ Postgres is ready.');
+
+  // Run migrations
+  console.log('[E2E] Running database migrations…');
+  const { Client } = require('pg');
+  const schemaFile = path.resolve(__dirname, '..', 'db', 'schema.sql');
+  const migrationsDir = path.resolve(__dirname, '..', 'db', 'migrations');
+  const sqlParts = [];
+  if (fs.existsSync(schemaFile)) sqlParts.push(fs.readFileSync(schemaFile, 'utf8'));
+  if (fs.existsSync(migrationsDir)) {
+    const migrationFiles = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
+    for (const mf of migrationFiles) {
+      sqlParts.push(fs.readFileSync(path.join(migrationsDir, mf), 'utf8'));
+    }
+  }
+  const pgClient = new Client({ connectionString: connStr });
+  await pgClient.connect();
+  await pgClient.query(sqlParts.join('\n'));
+  await pgClient.end();
+  console.log('[E2E] ✅ Migrations applied.');
+
+  // Expose to the rest of the runner and to child processes
+  DATABASE_URL = connStr;
+  process.env.DATABASE_URL = connStr;
+}
+
+/**
  * Print server diagnostics: last N lines of server.log + listening ports.
  * Safe to call even if server.log does not exist.
  */
@@ -375,7 +451,16 @@ async function main() {
       return;
     }
   } else {
-    console.log(`\n[E2E] ${ts()} Step 2/5 – PostgreSQL (skipped — DATABASE_URL not set)`);
+    console.log(`\n[E2E] ${ts()} Step 2/5 – PostgreSQL (DATABASE_URL not set — starting via Docker…)`);
+    try {
+      await startPostgresViaDocker();
+      console.log(`[E2E] ${ts()} ✅ PostgreSQL container ready: ${DATABASE_URL.replace(/:[^:@]+@/, ':***@')}`);
+    } catch (e) {
+      console.error(`[E2E] ${ts()} ❌ Failed to start Postgres via Docker: ${e.message}`);
+      console.error('[E2E]    Fix: install Docker or set DATABASE_URL to an existing PostgreSQL instance.');
+      cleanupAndExit(1);
+      return;
+    }
   }
 
   // ── Step 3: App Server ───────────────────────────────────────────────────────
