@@ -14,6 +14,10 @@ const { defineConfig, devices } = require('@playwright/test');
 module.exports = defineConfig({
   testDir: './tests/e2e',
 
+  /* Global setup/teardown: starts Testcontainers (Postgres + Redis) */
+  globalSetup: './tests/setup/globalSetup.js',
+  globalTeardown: './tests/setup/globalTeardown.js',
+
   /* Sequential execution — tests share session cookies within a describe block */
   fullyParallel: false,
   workers: 1,

@@ -15,3 +15,7 @@ test-reports/
 server.log
 test-storage-tmp/
 dist/
+
+# Testcontainers state file (generated during tests)
+.e2e-container-state.json
+.env.test
