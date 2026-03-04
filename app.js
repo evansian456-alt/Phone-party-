@@ -38,7 +38,7 @@ const SYNC_QUALITY_POOR = "Poor";
 const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewAuthHome', 'viewParty', 'viewPayment', 'viewGuest', 
                    'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
                    'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile',
-                   'viewCompleteProfile'];
+                   'viewCompleteProfile', 'viewAdminDashboard'];
 
 // ============================================================
 // PROFILE SCHEMA (versioned localStorage helpers)
@@ -106,6 +106,7 @@ const VIEWS = {
   myProfile:       { id: 'viewMyProfile',        requiresAuth: true,  hash: 'my-profile' },
   completeProfile: { id: 'viewCompleteProfile',  requiresAuth: true,  hash: 'complete-profile', onEnter: () => initCompleteProfileView() },
   authHome:        { id: 'viewAuthHome',          requiresAuth: true,  hash: 'home',             onEnter: () => initPartyHomeView() },
+  adminDashboard:  { id: 'viewAdminDashboard',    requiresAuth: true,  hash: 'admin',            onEnter: () => initAdminDashboard() },
 };
 /* eslint-enable no-use-before-define */
 
@@ -6866,11 +6867,13 @@ async function initAuthFlow() {
     // Authenticated - show auth buttons
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     // Update state from server data
-    state.userTier = data.tier || USER_TIER.FREE;
+    state.userTier = data.effectiveTier || data.tier || USER_TIER.FREE;
     if (data.user && data.user.djName) {
       state.djName = data.user.djName;
       saveProfile({ djName: data.user.djName, email: data.user.email, tier: state.userTier });
     }
+    // Show admin nav if applicable
+    if (typeof setAdminNavVisible === 'function') setAdminNavVisible(!!data.isAdmin);
     // Redirect based on profileCompleted
     if (!data.user || !data.user.profileCompleted) {
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PROFILE_INCOMPLETE);
@@ -11235,11 +11238,124 @@ function escapeHtml(unsafe) {
     .replace(/'/g, "&#039;");
 }
 
+// ============================================================
+// ADMIN DASHBOARD
+// ============================================================
+let _adminRefreshInterval = null;
+
+async function loadAdminStats() {
+  const errorEl = document.getElementById('adminError');
+  try {
+    const res = await fetch('/api/admin/stats');
+    if (res.status === 401 || res.status === 403) {
+      // No longer admin — go back
+      if (errorEl) { errorEl.textContent = 'Admin access denied.'; errorEl.classList.remove('hidden'); }
+      return;
+    }
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (errorEl) errorEl.classList.add('hidden');
+
+    // Health
+    const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    setText('adminHealthDb',      data.health?.db || '—');
+    setText('adminHealthRedis',   data.health?.redis || '—');
+    const uptime = data.health?.uptimeSec;
+    setText('adminHealthUptime',  uptime != null ? Math.floor(uptime / 60) + 'm' : '—');
+    setText('adminHealthVersion', data.health?.version || '—');
+
+    // Users
+    setText('adminUsersTotal',    data.users?.total ?? '—');
+    setText('adminUsersProfiles', data.users?.profilesCompleted ?? '—');
+    setText('adminUsersNew24h',   data.users?.newLast24h ?? '—');
+    setText('adminUsersActive24h',data.users?.activeLast24h ?? '—');
+
+    // Live
+    setText('adminLiveOnline',  data.live?.onlineUsers ?? '—');
+    setText('adminLiveParties', data.live?.activeParties ?? '—');
+    setText('adminLiveHosts',   data.live?.activeHosts ?? '—');
+    setText('adminLiveGuests',  data.live?.activeGuests ?? '—');
+
+    // Tiers
+    setText('adminTierFree',      data.tiers?.FREE ?? '—');
+    setText('adminTierPartyPass', data.tiers?.PARTY_PASS ?? '—');
+    setText('adminTierPro',       data.tiers?.PRO ?? '—');
+
+    // Purchases
+    const p = data.purchases || {};
+    setText('adminPurchasesTiers',  p.tierPurchasesTotal ?? '—');
+    setText('adminPurchasesAddons', p.addonPurchasesTotal ?? '—');
+    const rev = p.revenueCentsLast30d != null ? '£' + (p.revenueCentsLast30d / 100).toFixed(2) : '—';
+    setText('adminPurchasesRevenue', rev);
+    const skuEl = document.getElementById('adminPurchasesBySku');
+    if (skuEl && p.bySku) {
+      const entries = Object.entries(p.bySku);
+      skuEl.innerHTML = entries.length
+        ? entries.map(([sku, cnt]) => `<span style="margin-right:12px">${escapeHtml(sku)}: <b>${cnt}</b></span>`).join('')
+        : '<span style="opacity:0.6">No purchases yet</span>';
+    }
+
+    const lastEl = document.getElementById('adminLastRefreshed');
+    if (lastEl) lastEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch (err) {
+    if (errorEl) { errorEl.textContent = 'Failed to load admin data.'; errorEl.classList.remove('hidden'); }
+  }
+}
+
+function initAdminDashboard() {
+  // Load once immediately
+  loadAdminStats();
+
+  // Auto-refresh every 10 seconds
+  if (_adminRefreshInterval) clearInterval(_adminRefreshInterval);
+  _adminRefreshInterval = setInterval(loadAdminStats, 10000);
+
+  const btnRefresh = document.getElementById('btnAdminRefresh');
+  if (btnRefresh) {
+    btnRefresh.onclick = loadAdminStats;
+  }
+
+  const btnBack = document.getElementById('btnBackFromAdmin');
+  if (btnBack) {
+    btnBack.onclick = () => {
+      if (_adminRefreshInterval) { clearInterval(_adminRefreshInterval); _adminRefreshInterval = null; }
+      setView('authHome');
+    };
+  }
+}
+
+function showAdminDashboard() {
+  setView('adminDashboard');
+}
+
+/**
+ * Wire up the admin nav button and show/hide based on isAdmin from /api/me.
+ * Called during initAuthFlow so the button appears right after login.
+ */
+function initAdminNavUI() {
+  const btnAdmin = document.getElementById('btnAdminDashboard');
+  if (btnAdmin) {
+    btnAdmin.addEventListener('click', showAdminDashboard);
+  }
+}
+
+/**
+ * Show or hide the admin nav button based on isAdmin flag from /api/me.
+ * @param {boolean} isAdmin
+ */
+function setAdminNavVisible(isAdmin) {
+  const btnAdmin = document.getElementById('btnAdminDashboard');
+  if (btnAdmin) {
+    btnAdmin.style.display = isAdmin ? '' : 'none';
+  }
+}
+
 // Initialize monetization UI when DOM is loaded
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', () => {
     initMonetizationUI();
     initLeaderboardProfileUI();
+    initAdminNavUI();
     
     // Initialize production upgrade modules
     initProductionUpgradeModules();
@@ -11252,6 +11368,7 @@ if (document.readyState === 'loading') {
 } else {
   initMonetizationUI();
   initLeaderboardProfileUI();
+  initAdminNavUI();
   
   // Initialize production upgrade modules
   initProductionUpgradeModules();
