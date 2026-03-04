@@ -87,6 +87,20 @@ jobs:
           path: playwright-report-tests/
           retention-days: 7
 
+      - name: Run stress tests
+        run: npm run test:stress
+        env:
+          STRESS_MAX_STAGE: "2"
+        continue-on-error: true
+
+      - name: Upload stress test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-test-reports
+          path: tests/stress/reports/
+          retention-days: 7
+
       - name: Run load tests (k6 — skipped if k6 not installed)
         run: npm run test:load
         continue-on-error: true

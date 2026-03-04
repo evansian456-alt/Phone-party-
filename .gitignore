@@ -19,3 +19,7 @@ dist/
 # Testcontainers state file (generated during tests)
 .e2e-container-state.json
 .env.test
+
+# Stress test reports (generated during test runs) and container state
+tests/stress/reports/*.json
+.stress-container-state.json
