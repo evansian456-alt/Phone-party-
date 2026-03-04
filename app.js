@@ -6936,6 +6936,7 @@ function initCompleteProfileView() {
     try {
       const resp = await fetch('/api/complete-profile', { 
         method: 'POST', 
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ djName })
       });
@@ -9627,12 +9628,19 @@ function showView(viewId) {
 function initializeAuth() {
   console.log('[Auth] Initializing authentication system');
   
-  // Check if user is logged in
-  const currentUser = getCurrentUser();
-  if (currentUser) {
-    console.log('[Auth] User logged in:', currentUser.email);
-    state.userTier = currentUser.tier;
-    updateUIForLoggedInUser(currentUser);
+  // Use synchronous cache; getCurrentUser() is async and would return a Promise here
+  const cachedData = getCachedUser();
+  if (cachedData) {
+    const userEmail = (cachedData.user && cachedData.user.email) || cachedData.email || '';
+    console.log('[Auth] User logged in:', userEmail);
+    state.userTier = cachedData.effectiveTier || cachedData.tier || USER_TIER.FREE;
+    // Build a flat user object compatible with updateUIForLoggedInUser
+    const flatUser = {
+      email: userEmail,
+      djName: (cachedData.user && cachedData.user.djName) || cachedData.djName || '',
+      tier: cachedData.effectiveTier || cachedData.tier || USER_TIER.FREE
+    };
+    updateUIForLoggedInUser(flatUser);
   } else {
     console.log('[Auth] No user logged in');
   }
@@ -9965,14 +9973,14 @@ function handlePasswordReset() {
 /**
  * Handle profile update
  */
-function handleProfileUpdate() {
+async function handleProfileUpdate() {
   const djName = document.getElementById('profileDjNameInput').value;
-  const guestName = document.getElementById('profileGuestNameInput').value;
   
-  const result = updateUserProfile({ djName, guestName });
+  const result = await updateUserProfile({ djName });
   
   if (result.success) {
-    updateUIForLoggedInUser(result.user);
+    // Refresh the profile view with updated data
+    showProfile();
     showToast('✅ Profile updated!');
   } else {
     showToast('❌ Failed to update profile');
@@ -9983,32 +9991,38 @@ function handleProfileUpdate() {
  * Show profile view
  */
 function showProfile() {
-  const user = getCurrentUser();
-  if (!user) {
+  const data = getCachedUser();
+  if (!data) {
     setView('login');
     return;
   }
-  
+
+  const userData = data.user || {};
+  const profile = data.profile || {};
+  const tier = data.effectiveTier || data.tier || 'FREE';
+
   // Update profile display
-  document.getElementById('profileAvatar').textContent = user.profile.avatar;
-  document.getElementById('profileDjName').textContent = user.djName || 'Set your DJ name';
-  document.getElementById('profileEmail').textContent = user.email;
-  
+  document.getElementById('profileAvatar').textContent = '🎧';
+  document.getElementById('profileDjName').textContent = userData.djName || 'Set your DJ name';
+  document.getElementById('profileEmail').textContent = userData.email || '';
+
   const tierBadge = document.getElementById('profileTierBadge');
-  tierBadge.textContent = user.tier;
-  tierBadge.className = 'tier-badge ' + user.tier;
-  
-  // Stats
-  document.getElementById('statTotalParties').textContent = user.profile.stats.totalParties;
-  document.getElementById('statTotalTracks').textContent = user.profile.stats.totalTracks;
-  document.getElementById('statTotalGuests').textContent = user.profile.stats.totalGuests;
-  
+  tierBadge.textContent = tier;
+  tierBadge.className = 'tier-badge ' + tier;
+
+  // Stats — not returned by /api/me; default to 0
+  document.getElementById('statTotalParties').textContent = 0;
+  document.getElementById('statTotalTracks').textContent = 0;
+  document.getElementById('statTotalGuests').textContent = 0;
+
   // DJ Rank
   const rankBadge = document.getElementById('profileRankBadge');
-  rankBadge.textContent = user.profile.djStats.rank;
-  
-  document.getElementById('profileScore').textContent = user.profile.djStats.score;
-  
+  const djRank = profile.djRank || 'BEGINNER';
+  const djScore = profile.djScore || 0;
+  rankBadge.textContent = djRank;
+
+  document.getElementById('profileScore').textContent = djScore;
+
   // Calculate rank progress
   const rankThresholds = {
     BEGINNER: 0,
@@ -10018,15 +10032,15 @@ function showProfile() {
     MASTER: 5000,
     LEGEND: 10000
   };
-  
-  const currentRank = user.profile.djStats.rank;
-  const score = user.profile.djStats.score;
+
+  const currentRank = djRank;
+  const score = djScore;
   const ranks = ['BEGINNER', 'INTERMEDIATE', 'ADVANCED', 'EXPERT', 'MASTER', 'LEGEND'];
   const currentIndex = ranks.indexOf(currentRank);
-  
+
   let progress = 0;
   let progressLabel = 'Keep hosting to rank up!';
-  
+
   if (currentIndex < ranks.length - 1) {
     const nextRank = ranks[currentIndex + 1];
     const currentThreshold = rankThresholds[currentRank];
@@ -10037,14 +10051,14 @@ function showProfile() {
     progress = 100;
     progressLabel = 'Maximum rank achieved!';
   }
-  
+
   document.getElementById('profileRankProgress').style.width = progress + '%';
   document.getElementById('profileRankLabel').textContent = progressLabel;
-  
+
   // Form inputs
-  document.getElementById('profileDjNameInput').value = user.djName || '';
-  document.getElementById('profileGuestNameInput').value = user.guestName || '';
-  
+  document.getElementById('profileDjNameInput').value = userData.djName || '';
+  document.getElementById('profileGuestNameInput').value = '';
+
   showView('viewProfile');
 }
 
@@ -10056,19 +10070,20 @@ function showProfile() {
  * Load monetization state from localStorage
  */
 function loadMonetizationState() {
-  const user = getCurrentUser();
-  if (!user) return;
+  const data = getCachedUser();
+  if (!data) return;
   
-  const saved = localStorage.getItem(`monetization_${user.email}`);
+  const email = (data.user && data.user.email) || data.email || '';
+  const saved = localStorage.getItem(`monetization_${email}`);
   if (saved) {
-    const data = JSON.parse(saved);
-    monetizationState.ownedVisualPacks = data.ownedVisualPacks || [];
-    monetizationState.ownedTitles = data.ownedTitles || [];
-    monetizationState.ownedProfileUpgrades = data.ownedProfileUpgrades || [];
-    monetizationState.activeVisualPack = data.activeVisualPack || null;
-    monetizationState.activeTitle = data.activeTitle || null;
-    monetizationState.proSubscriptionActive = data.proSubscriptionActive || false;
-    monetizationState.proSubscriptionEndDate = data.proSubscriptionEndDate || null;
+    const savedData = JSON.parse(saved);
+    monetizationState.ownedVisualPacks = savedData.ownedVisualPacks || [];
+    monetizationState.ownedTitles = savedData.ownedTitles || [];
+    monetizationState.ownedProfileUpgrades = savedData.ownedProfileUpgrades || [];
+    monetizationState.activeVisualPack = savedData.activeVisualPack || null;
+    monetizationState.activeTitle = savedData.activeTitle || null;
+    monetizationState.proSubscriptionActive = savedData.proSubscriptionActive || false;
+    monetizationState.proSubscriptionEndDate = savedData.proSubscriptionEndDate || null;
   }
 }
 
@@ -10076,10 +10091,11 @@ function loadMonetizationState() {
  * Save monetization state to localStorage
  */
 function saveMonetizationState() {
-  const user = getCurrentUser();
-  if (!user) return;
+  const data = getCachedUser();
+  if (!data) return;
   
-  const data = {
+  const email = (data.user && data.user.email) || data.email || '';
+  const stateData = {
     ownedVisualPacks: monetizationState.ownedVisualPacks,
     ownedTitles: monetizationState.ownedTitles,
     ownedProfileUpgrades: monetizationState.ownedProfileUpgrades,
@@ -10089,7 +10105,7 @@ function saveMonetizationState() {
     proSubscriptionEndDate: monetizationState.proSubscriptionEndDate
   };
   
-  localStorage.setItem(`monetization_${user.email}`, JSON.stringify(data));
+  localStorage.setItem(`monetization_${email}`, JSON.stringify(stateData));
 }
 
 /**
@@ -11044,8 +11060,8 @@ function showEndOfPartyUpsell() {
  * Add upgrade button to profile page
  */
 function addProfileUpgradeButton() {
-  const user = getCurrentUser();
-  if (!user) return;
+  const data = getCachedUser();
+  if (!data) return;
   
   if (!monetizationState.proSubscriptionActive) {
     // Add upgrade button to profile if not already present

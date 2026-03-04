@@ -1721,6 +1721,37 @@ app.post("/api/complete-profile", apiLimiter, authMiddleware.requireAuth, async 
 });
 
 /**
+ * POST /api/profile/update
+ * Update the logged-in user's DJ name.
+ */
+const DJ_NAME_MAX_LENGTH = 50;
+
+app.post("/api/profile/update", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { djName } = req.body;
+
+    const trimmed = typeof djName === 'string' ? djName.trim() : '';
+    if (!trimmed) {
+      return res.status(400).json({ error: 'DJ name is required' });
+    }
+    if (trimmed.length > DJ_NAME_MAX_LENGTH) {
+      return res.status(400).json({ error: `DJ name must be ${DJ_NAME_MAX_LENGTH} characters or fewer` });
+    }
+
+    await db.query(
+      'UPDATE users SET dj_name = $2 WHERE id = $1',
+      [userId, trimmed]
+    );
+
+    res.json({ success: true, djName: trimmed });
+  } catch (error) {
+    console.error('[Auth] Profile update error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+/**
  * GET /api/store
  * Get store catalog
  */

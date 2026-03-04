@@ -214,11 +214,46 @@ function isLoggedIn() {
 }
 
 /**
- * Update user profile (not implemented yet - kept for compatibility)
+ * Update user profile (DJ name)
  */
 async function updateUserProfile(updates) {
-  console.warn('[Auth] updateUserProfile not yet implemented');
-  return { success: false, error: 'Not implemented' };
+  try {
+    const response = await fetch('/api/profile/update', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ djName: updates.djName })
+    });
+
+    let data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = {};
+    }
+
+    if (!response.ok) {
+      return { success: false, error: data.error || 'Failed to update profile' };
+    }
+
+    // Update cached user data with the new DJ name without an extra round-trip
+    try {
+      const cached = localStorage.getItem(CURRENT_USER_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.user) parsed.user.djName = data.djName;
+        localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(parsed));
+      }
+    } catch (_) { /* non-fatal */ }
+
+    return { success: true, djName: data.djName };
+  } catch (error) {
+    console.error('[Auth] Update profile error:', error);
+    return { success: false, error: 'Network error. Please try again.' };
+  }
 }
 
 /**
