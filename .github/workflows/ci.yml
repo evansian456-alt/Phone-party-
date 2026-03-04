@@ -67,7 +67,7 @@ jobs:
         run: npm run db:migrate
 
       - name: Run unit tests
-        run: npm test -- --passWithNoTests --testPathIgnorePatterns='e2e-tests|tests/e2e' --forceExit
+        run: npm test -- --passWithNoTests --forceExit
 
       - name: Run integration tests
         run: npm run test:integration

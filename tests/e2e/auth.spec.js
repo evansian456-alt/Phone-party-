@@ -33,31 +33,35 @@ test.describe('Auth flow', () => {
     const user = makeUser();
     await page.goto(BASE);
 
-    // Navigate to signup
-    const signupBtn = page.locator('button, a').filter({ hasText: /sign up|register|create account/i }).first();
-    if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await signupBtn.click();
-    } else {
-      await page.goto(`${BASE}/#signup`);
-    }
+    // Wait for the landing page to fully render (app init completes, initAuthFlow finishes)
+    // before navigating to signup — avoids the race where initAuthFlow overrides the view.
+    const landingSignupBtn = page.locator('#btnLandingSignup');
+    await landingSignupBtn.waitFor({ state: 'visible', timeout: 10000 });
+    await landingSignupBtn.click();
 
-    // Fill signup form
-    await page.locator('input[type="email"]').first().fill(user.email);
-    const passwordFields = page.locator('input[type="password"]');
-    await passwordFields.first().fill(user.password);
-    // Some forms have a confirm-password field
-    if ((await passwordFields.count()) > 1) {
-      await passwordFields.nth(1).fill(user.password);
-    }
-    const djNameField = page.locator('input[name="djName"], input[id="signupDjName"]').first();
+    // Wait for the signup form to appear
+    const emailField = page.locator('#signupEmail');
+    await emailField.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Fill signup form using form-specific IDs to avoid hidden inputs from other sections
+    await emailField.fill(user.email);
+    await page.locator('#signupPassword').fill(user.password);
+    const djNameField = page.locator('#signupDjName');
     if (await djNameField.isVisible({ timeout: 2000 }).catch(() => false)) {
       await djNameField.fill(user.djName);
     }
 
-    await page.locator('button[type="submit"], button').filter({ hasText: /sign up|register|create/i }).first().click();
+    const termsCheckbox = page.locator('#signupTermsAccept');
+    if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (!(await termsCheckbox.isChecked())) {
+        await termsCheckbox.check();
+      }
+    }
+
+    await page.locator('#formSignup button[type="submit"]').click();
 
     // After signup the UI should leave the signup view
-    await expect(page.locator('body')).not.toContainText('Sign up', { timeout: 10000 }).catch(() => {});
+    await expect(page.locator('body')).not.toContainText('Create Account', { timeout: 10000 }).catch(() => {});
   });
 
   test('login succeeds and /api/me returns authenticated user', async ({ page, request }) => {
@@ -114,28 +118,30 @@ test.describe('Auth flow', () => {
     expect(meRes.status()).toBe(401);
   });
 
-  test('UI transitions to authenticated view after login', async ({ page }) => {
+  test('UI transitions to authenticated view after login', async ({ page, request }) => {
     const user = makeUser();
 
-    // Pre-create account
-    const req = page.context().request;
-    await req.post(`${BASE}/api/auth/signup`, {
+    // Pre-create account via the isolated request fixture (does NOT share cookies with page)
+    await request.post(`${BASE}/api/auth/signup`, {
       data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
     });
 
     await page.goto(BASE);
 
-    // Find and click login button/link
-    const loginLink = page.locator('button, a').filter({ hasText: /log in|sign in/i }).first();
-    if (await loginLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await loginLink.click();
-    } else {
-      await page.goto(`${BASE}/#login`);
-    }
+    // Wait for the landing page to fully render before navigating — avoids the race where
+    // initAuthFlow completes after the hash change and overrides the login view.
+    const landingLoginBtn = page.locator('#btnLandingLogin');
+    await landingLoginBtn.waitFor({ state: 'visible', timeout: 10000 });
+    await landingLoginBtn.click();
 
-    await page.locator('input[type="email"]').first().fill(user.email);
-    await page.locator('input[type="password"]').first().fill(user.password);
-    await page.locator('button[type="submit"], button').filter({ hasText: /log in|sign in/i }).first().click();
+    // Wait for the login form to appear
+    const loginEmailField = page.locator('#loginEmail');
+    await loginEmailField.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Fill login form using form-specific IDs to avoid hidden inputs from other sections
+    await loginEmailField.fill(user.email);
+    await page.locator('#loginPassword').fill(user.password);
+    await page.locator('#formLogin button[type="submit"]').click();
 
     // After login the app should no longer show the login form
     await page.waitForTimeout(2000);
