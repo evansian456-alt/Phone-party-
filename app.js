@@ -7199,6 +7199,9 @@ async function handleBillingReturn() {
   // Initialize music player
   initializeMusicPlayer();
 
+  // Set up auth form submit handlers and navigation links
+  setupAuthEventListeners();
+
   // LANDING PAGE BUTTONS (for logged-out users)
   const btnLandingSignup = el("btnLandingSignup");
   const btnLandingLogin = el("btnLandingLogin");
@@ -7206,7 +7209,7 @@ async function handleBillingReturn() {
   if (btnLandingSignup) {
     btnLandingSignup.onclick = () => {
       console.log("[UI] Landing signup clicked");
-      showView('viewSignup');
+      setView('signup');
     };
   }
 
@@ -9734,7 +9737,7 @@ function setupAuthEventListeners() {
   // Close profile
   const btnCloseProfile = document.getElementById('btnCloseProfile');
   if (btnCloseProfile) {
-    btnCloseProfile.addEventListener('click', () => setView('landing'));
+    btnCloseProfile.addEventListener('click', () => setView('authHome'));
   }
   
   // Navigation links
@@ -11323,14 +11326,14 @@ function initLeaderboardProfileUI() {
   const btnBackFromLeaderboard = document.getElementById('btnBackFromLeaderboard');
   if (btnBackFromLeaderboard) {
     btnBackFromLeaderboard.addEventListener('click', () => {
-      showView('viewLanding');
+      setView('landing');
     });
   }
   
   const btnBackFromProfile = document.getElementById('btnBackFromProfile');
   if (btnBackFromProfile) {
     btnBackFromProfile.addEventListener('click', () => {
-      showView('viewLanding');
+      setView('authHome');
     });
   }
 }
