@@ -6883,7 +6883,7 @@ async function initAuthFlow() {
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
       setView('landing', { fromHash: true });
-      return;
+      return false;
     }
     const data = await response.json();
     // Authenticated - show auth buttons
@@ -6906,11 +6906,13 @@ async function initAuthFlow() {
       // Start referral polling now that user is authenticated
       if (window._referralUI) window._referralUI.startPolling();
     }
+    return true;
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
     window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
     setView('landing', { fromHash: true });
+    return false;
   }
 }
 
@@ -9810,8 +9812,14 @@ async function handleLogin() {
       state.userTier = result.user.tier;
       saveProfile({ djName: result.user.djName, email: result.user.email, tier: result.user.tier });
     }
-    showToast('✅ Welcome back!');
-    await initAuthFlow();
+    const sessionOk = await initAuthFlow();
+    if (sessionOk) {
+      showToast('✅ Welcome back!');
+    } else {
+      // Login API succeeded but session could not be confirmed — show visible error toast
+      // (initAuthFlow already redirected to landing, so errorEl may be hidden)
+      showToast('⚠️ Login succeeded but session could not be verified. Please try again or clear your cookies.');
+    }
   } else {
     errorEl.textContent = result.error;
     errorEl.classList.remove('hidden');
@@ -9845,8 +9853,6 @@ async function handleSignup() {
   const result = await signUp(email, password, djName, termsAccepted);
   
   if (result.success) {
-    showToast('✅ Welcome to Phone Party! Account created successfully!');
-
     // Attempt to register referral if the user arrived via an invite link
     try {
       const refCode = localStorage.getItem('referral_code');
@@ -9862,7 +9868,15 @@ async function handleSignup() {
       }
     } catch (_) { /* ignore localStorage errors */ }
 
-    await initAuthFlow();
+    const sessionOk = await initAuthFlow();
+    if (sessionOk) {
+      showToast('✅ Welcome to Phone Party! Account created successfully!');
+    } else {
+      // Signup API succeeded but session could not be confirmed — show visible error toast
+      // (initAuthFlow already redirected to landing, so errorEl may be hidden)
+      showToast('⚠️ Account created but session could not be verified. Please log in to continue.');
+      setView('login');
+    }
   } else {
     errorEl.textContent = result.error;
     errorEl.classList.remove('hidden');
