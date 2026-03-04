@@ -1393,20 +1393,23 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
       [user.id]
     );
 
-    // Admin bootstrap: promote user on first successful login if email matches
-    const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL
+    // Admin bootstrap: promote user on first successful login if email is in ADMIN_EMAILS allowlist
+    // or legacy ADMIN_BOOTSTRAP_EMAIL env var (kept for backwards compatibility)
+    const isAdminByAllowlist = authMiddleware.isAdminEmail(user.email);
+    const legacyBootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL
       ? process.env.ADMIN_BOOTSTRAP_EMAIL.toLowerCase()
       : null;
-    if (bootstrapEmail && user.email === bootstrapEmail && !user.is_admin) {
+    const shouldBeAdmin = isAdminByAllowlist || (legacyBootstrapEmail && user.email === legacyBootstrapEmail);
+    if (shouldBeAdmin && !user.is_admin) {
       await db.query('UPDATE users SET is_admin = TRUE WHERE id = $1', [user.id]);
       user.is_admin = true;
-      console.log('[AdminBootstrap] Promoted user to admin:', user.email, '(id:', user.id + ')');
     }
 
-    // Generate JWT token
+    // Generate JWT token — include isAdmin so requireAdmin middleware works without a DB query
     const token = authMiddleware.generateToken({
       userId: user.id,
-      email: user.email
+      email: user.email,
+      isAdmin: user.is_admin || false
     });
 
     // Set HTTP-only cookie
@@ -1453,7 +1456,7 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     const userResult = await db.query(
       `SELECT id, email, dj_name, created_at, profile_completed,
               tier, subscription_status, current_period_end,
-              stripe_customer_id, stripe_subscription_id
+              stripe_customer_id, stripe_subscription_id, is_admin
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -1463,6 +1466,12 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     }
 
     const user = userResult.rows[0];
+
+    // Refresh presence TTL in Redis (120s) so admin live-user count is accurate
+    try {
+      const presenceKey = `presence:user:${userId}`;
+      await redis.set(presenceKey, JSON.stringify({ lastSeen: Date.now(), tier: user.tier || 'FREE' }), 'EX', 120);
+    } catch (_) { /* non-fatal */ }
 
     // Get DJ profile
     const profileResult = await db.query(
@@ -1523,6 +1532,10 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
       tier = 'PRO';
     }
 
+    // Admin users get effective PRO tier and bypass all paywalls
+    const isAdmin = user.is_admin || req.user.isAdmin || false;
+    const effectiveTier = isAdmin ? 'PRO' : tier;
+
     res.json({
       user: {
         id: user.id,
@@ -1531,7 +1544,9 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
         createdAt: user.created_at,
         profileCompleted: user.profile_completed || false
       },
+      isAdmin,
       tier,
+      effectiveTier,
       upgrades: {
         partyPass: {
           expiresAt: upgrades.party_pass_expires_at
@@ -1543,8 +1558,8 @@ app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
         }
       },
       entitlements: {
-        hasPartyPass: hasPartyPass || tier === 'PRO',
-        hasPro: hasPro || tier === 'PRO'
+        hasPartyPass: isAdmin || hasPartyPass || tier === 'PRO',
+        hasPro: isAdmin || hasPro || tier === 'PRO'
       },
       billing: {
         tier: user.tier || 'FREE',
@@ -5003,6 +5018,156 @@ app.get("/admin/metrics", rateLimit({ windowMs: 60000, max: 30 }), authMiddlewar
 // ============================================================================
 // REFERRAL ENDPOINTS
 // ============================================================================
+
+/**
+ * GET /api/admin/stats
+ * Live admin dashboard stats — protected with requireAdmin middleware.
+ */
+app.get("/api/admin/stats", rateLimit({ windowMs: 60000, max: 60 }), authMiddleware.requireAdmin, async (req, res) => {
+  const startTime = Date.now();
+  let dbHealth = 'ok';
+  let redisHealth = 'ok';
+
+  try {
+    // DB health ping
+    try { await db.query('SELECT 1'); } catch (_) { dbHealth = 'down'; }
+
+    // Redis health ping
+    try { await redis.ping(); } catch (_) { redisHealth = 'down'; }
+
+    // ── User stats ──────────────────────────────────────────────────────────
+    const usersResult = await db.query(`
+      SELECT
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE profile_completed = true) AS profiles_completed,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') AS new_last_24h,
+        COUNT(*) FILTER (WHERE last_login > NOW() - INTERVAL '24 hours') AS active_last_24h
+      FROM users
+    `);
+    const ur = usersResult.rows[0];
+
+    // ── Tier breakdown ──────────────────────────────────────────────────────
+    const tiersResult = await db.query(`
+      SELECT tier, COUNT(*) AS cnt FROM users GROUP BY tier
+    `);
+    const tiers = { FREE: 0, PARTY_PASS: 0, PRO: 0 };
+    for (const row of tiersResult.rows) {
+      const k = row.tier || 'FREE';
+      tiers[k] = (tiers[k] || 0) + parseInt(row.cnt, 10);
+    }
+
+    // ── Purchases ───────────────────────────────────────────────────────────
+    let purchasesData = {
+      tierPurchasesTotal: 0,
+      addonPurchasesTotal: 0,
+      bySku: {},
+      revenueCentsLast30d: 0
+    };
+    try {
+      const purchResult = await db.query(`
+        SELECT
+          COALESCE(type, purchase_kind) AS ptype,
+          COALESCE(sku, item_key) AS psku,
+          COUNT(*) AS cnt,
+          COALESCE(SUM(CASE WHEN created_at > NOW() - INTERVAL '30 days' THEN amount_cents ELSE 0 END), 0) AS rev30d
+        FROM purchases
+        GROUP BY 1, 2
+      `);
+      for (const row of purchResult.rows) {
+        const cnt = parseInt(row.cnt, 10);
+        const sku = row.psku || 'unknown';
+        purchasesData.bySku[sku] = (purchasesData.bySku[sku] || 0) + cnt;
+        purchasesData.revenueCentsLast30d += parseInt(row.rev30d, 10) || 0;
+        if (row.ptype === 'tier') purchasesData.tierPurchasesTotal += cnt;
+        else purchasesData.addonPurchasesTotal += cnt;
+      }
+    } catch (_) { /* purchases table may have different schema */ }
+
+    // ── Live presence (Redis) ───────────────────────────────────────────────
+    let onlineUsers = 0;
+    let activeParties = 0;
+    let activeHosts = 0;
+    let activeGuests = 0;
+    try {
+      // Use SCAN instead of KEYS to avoid blocking Redis in production
+      const presenceKeys = [];
+      let cursor = '0';
+      do {
+        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', 'presence:user:*', 'COUNT', 100);
+        cursor = nextCursor;
+        presenceKeys.push(...keys);
+      } while (cursor !== '0');
+
+      onlineUsers = presenceKeys.length;
+      const partyCodes = new Set();
+      for (const k of presenceKeys) {
+        try {
+          const raw = await redis.get(k);
+          if (raw) {
+            const data = JSON.parse(raw);
+            if (data.partyCode) {
+              partyCodes.add(data.partyCode);
+              if (data.isHost) activeHosts++;
+              else activeGuests++;
+            }
+          }
+        } catch (_) { /* skip bad keys */ }
+      }
+      activeParties = partyCodes.size;
+    } catch (_) { /* Redis may be unavailable */ }
+
+    return res.json({
+      serverTime: new Date().toISOString(),
+      users: {
+        total: parseInt(ur.total, 10),
+        profilesCompleted: parseInt(ur.profiles_completed, 10),
+        newLast24h: parseInt(ur.new_last_24h, 10),
+        activeLast24h: parseInt(ur.active_last_24h, 10)
+      },
+      live: {
+        onlineUsers,
+        activeParties,
+        activeHosts,
+        activeGuests
+      },
+      tiers,
+      purchases: purchasesData,
+      health: {
+        db: dbHealth,
+        redis: redisHealth,
+        uptimeSec: Math.floor(process.uptime()),
+        version: APP_VERSION
+      }
+    });
+  } catch (error) {
+    console.error('[Admin] Error getting stats:', error.message);
+    return res.status(500).json({ error: 'Failed to retrieve admin stats' });
+  }
+});
+
+/**
+ * GET /api/admin/recent
+ * Recent signups and logins — protected with requireAdmin middleware.
+ * Returns only non-PII data (user IDs and timestamps, no emails).
+ */
+app.get("/api/admin/recent", rateLimit({ windowMs: 60000, max: 60 }), authMiddleware.requireAdmin, async (req, res) => {
+  try {
+    const signupsResult = await db.query(
+      `SELECT id, created_at FROM users ORDER BY created_at DESC LIMIT 25`
+    );
+    const loginsResult = await db.query(
+      `SELECT id, last_login AS last_login_at FROM users WHERE last_login IS NOT NULL ORDER BY last_login DESC LIMIT 25`
+    );
+
+    return res.json({
+      signups: signupsResult.rows.map(r => ({ id: r.id, createdAt: r.created_at })),
+      logins: loginsResult.rows.map(r => ({ id: r.id, lastLoginAt: r.last_login_at }))
+    });
+  } catch (error) {
+    console.error('[Admin] Error getting recent activity:', error.message);
+    return res.status(500).json({ error: 'Failed to retrieve recent activity' });
+  }
+});
 
 // Get user's referral stats and invite link
 app.get("/api/referral/stats", apiLimiter, authMiddleware.requireAuth, async (req, res) => {

@@ -61,6 +61,7 @@
       <button class="btn-leaderboard post-auth-only nav-hidden" id="btnLeaderboard" title="Leaderboard">🏆</button>
       <button class="btn-profile post-auth-only nav-hidden" id="btnProfile" title="My Profile">👤</button>
       <button class="btn-upgrade post-auth-only nav-hidden" id="btnUpgradeHub" title="Upgrade" aria-label="Upgrade options">⭐</button>
+      <button class="btn-admin admin-only nav-hidden" id="btnAdminDashboard" title="Admin Dashboard" style="display:none">🛡️</button>
       <button class="btn-account" id="btnAccount" title="Account">🔑</button>
       <button class="btn-logout" id="btnLogout" title="Log out">🚪</button>
       <div class="pill" id="planPill">Free · 2 phones</div>
@@ -2333,7 +2334,67 @@
     <button class="btn" id="btnBackFromProfile">Back</button>
   </section>
 
-  <!-- SCREEN 6: Checkout Flow -->
+  <!-- ADMIN DASHBOARD -->
+  <section class="card hidden" id="viewAdminDashboard">
+    <h1>🛡️ Admin Dashboard</h1>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
+      <button class="btn" id="btnAdminRefresh" style="padding:6px 14px;font-size:13px">🔄 Refresh</button>
+      <span id="adminLastRefreshed" style="font-size:12px;opacity:0.6"></span>
+    </div>
+    <div id="adminError" class="error-state hidden">Failed to load admin data.</div>
+    <div id="adminDashboardContent">
+      <!-- Health -->
+      <div class="profile-section">
+        <h3>⚙️ Health</h3>
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-label">DB</div><div class="stat-value" id="adminHealthDb">—</div></div>
+          <div class="stat-item"><div class="stat-label">Redis</div><div class="stat-value" id="adminHealthRedis">—</div></div>
+          <div class="stat-item"><div class="stat-label">Uptime</div><div class="stat-value" id="adminHealthUptime">—</div></div>
+          <div class="stat-item"><div class="stat-label">Version</div><div class="stat-value" id="adminHealthVersion">—</div></div>
+        </div>
+      </div>
+      <!-- Users -->
+      <div class="profile-section">
+        <h3>👥 Users</h3>
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-label">Total</div><div class="stat-value" id="adminUsersTotal">—</div></div>
+          <div class="stat-item"><div class="stat-label">Profiles Done</div><div class="stat-value" id="adminUsersProfiles">—</div></div>
+          <div class="stat-item"><div class="stat-label">New (24h)</div><div class="stat-value" id="adminUsersNew24h">—</div></div>
+          <div class="stat-item"><div class="stat-label">Active (24h)</div><div class="stat-value" id="adminUsersActive24h">—</div></div>
+        </div>
+      </div>
+      <!-- Live -->
+      <div class="profile-section">
+        <h3>🟢 Live</h3>
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-label">Online Users</div><div class="stat-value" id="adminLiveOnline">—</div></div>
+          <div class="stat-item"><div class="stat-label">Active Parties</div><div class="stat-value" id="adminLiveParties">—</div></div>
+          <div class="stat-item"><div class="stat-label">Hosts</div><div class="stat-value" id="adminLiveHosts">—</div></div>
+          <div class="stat-item"><div class="stat-label">Guests</div><div class="stat-value" id="adminLiveGuests">—</div></div>
+        </div>
+      </div>
+      <!-- Tiers -->
+      <div class="profile-section">
+        <h3>💳 Tiers</h3>
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-label">FREE</div><div class="stat-value" id="adminTierFree">—</div></div>
+          <div class="stat-item"><div class="stat-label">PARTY_PASS</div><div class="stat-value" id="adminTierPartyPass">—</div></div>
+          <div class="stat-item"><div class="stat-label">PRO</div><div class="stat-value" id="adminTierPro">—</div></div>
+        </div>
+      </div>
+      <!-- Purchases -->
+      <div class="profile-section">
+        <h3>🛒 Purchases</h3>
+        <div class="stats-grid">
+          <div class="stat-item"><div class="stat-label">Tier Purchases</div><div class="stat-value" id="adminPurchasesTiers">—</div></div>
+          <div class="stat-item"><div class="stat-label">Add-on Purchases</div><div class="stat-value" id="adminPurchasesAddons">—</div></div>
+          <div class="stat-item"><div class="stat-label">Revenue (30d)</div><div class="stat-value" id="adminPurchasesRevenue">—</div></div>
+        </div>
+        <div id="adminPurchasesBySku" style="margin-top:8px;font-size:13px"></div>
+      </div>
+    </div>
+    <button class="btn" id="btnBackFromAdmin">Back</button>
+  </section>
   <div class="modal hidden" id="modalCheckout">
     <div class="modal-content checkout-modal">
       <!-- Step 1: Confirmation -->
