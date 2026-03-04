@@ -1413,13 +1413,13 @@ app.post("/api/auth/signup", authLimiter, async (req, res) => {
     });
 
     // Set HTTP-only cookie
+    const isHttps_signup = req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.cookie('auth_token', token, {
       httpOnly: true,
       path: '/',
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps_signup,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      sameSite: 'lax',
-      path: '/'
+      sameSite: 'lax'
     });
 
     res.status(201).json({
@@ -1494,13 +1494,13 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
     });
 
     // Set HTTP-only cookie
+    const isHttps_login = req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.cookie('auth_token', token, {
       httpOnly: true,
       path: '/',
-      secure: process.env.NODE_ENV === 'production',
+      secure: isHttps_login,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      sameSite: 'lax',
-      path: '/'
+      sameSite: 'lax'
     });
 
     res.json({
@@ -1523,7 +1523,8 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
  * Log out current user
  */
 app.post("/api/auth/logout", apiLimiter, (req, res) => {
-  res.clearCookie('auth_token', { path: '/' });
+  const isHttps_logout = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.clearCookie('auth_token', { path: '/', httpOnly: true, sameSite: 'lax', secure: isHttps_logout });
   res.json({ success: true });
 });
 
@@ -6522,6 +6523,18 @@ function runCleanupJobs() {
 
 // Start cleanup interval
 let cleanupInterval;
+
+// Global JSON error handler — catches any unhandled errors and returns JSON
+// instead of Express's default HTML error page. Must be registered after all routes.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('[Server] Unhandled error:', err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({
+    error: err.message || 'Internal server error',
+    requestId: req.headers['x-request-id'] || req.id || undefined
+  });
+});
 
 // Start the HTTP server only if not imported as a module
 let server;

@@ -71,7 +71,17 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
       })
     });
     
-    const data = await response.json();
+    let data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      if (!response.ok) {
+        return { success: false, error: `Server returned non-JSON error (status ${response.status}): ${text.slice(0, 200)}` };
+      }
+      data = {};
+    }
     
     if (!response.ok) {
       return { success: false, error: data.error || 'Signup failed' };
@@ -111,7 +121,17 @@ async function logIn(email, password) {
       })
     });
     
-    const data = await response.json();
+    let data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      const text = await response.text();
+      if (!response.ok) {
+        return { success: false, error: `Server returned non-JSON error (status ${response.status}): ${text.slice(0, 200)}` };
+      }
+      data = {};
+    }
     
     if (!response.ok) {
       return { success: false, error: data.error || 'Login failed' };
