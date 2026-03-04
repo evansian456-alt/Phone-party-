@@ -30,7 +30,7 @@
     "cap:ios": "npx cap open ios",
     "cap:run:android": "npx cap run android",
     "cap:run:ios": "npx cap run ios",
-    "test:integration": "jest tests/integration/ --testPathPattern=tests/integration/",
+    "test:integration": "jest --config=jest.integration.config.js",
     "test:stress": "jest --config=jest.stress.config.js --testTimeout=120000"
   },
   "dependencies": {

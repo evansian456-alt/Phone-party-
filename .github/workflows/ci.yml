@@ -69,6 +69,11 @@ jobs:
       - name: Run unit tests
         run: npm test -- --passWithNoTests --testPathIgnorePatterns='e2e-tests' --forceExit
 
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          ADMIN_EMAILS: ianevans2023@outlook.com
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
