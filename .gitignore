@@ -8,6 +8,7 @@ uploads-temp/
 test-results/
 playwright-report/
 playwright-report-tests/
+playwright-audit-report/
 e2e-tests/screenshots/
 e2e-tests/videos/
 e2e-tests/logs/

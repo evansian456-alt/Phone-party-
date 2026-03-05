@@ -85,10 +85,12 @@ test.describe('Auth data-testid attributes', () => {
 // ─── Auth error handling ──────────────────────────────────────────────────────
 
 test.describe('Auth error flow', () => {
-  test('login with wrong password shows error in auth-error-box', async ({ page }) => {
+  test('login with wrong password shows error in auth-error-box', async ({ page, request }) => {
     const user = makeUser();
-    // Pre-create user
-    const signupRes = await page.request.post(`${BASE}/api/auth/signup`, {
+    // Pre-create user using the standalone request fixture (NOT page.request)
+    // to avoid setting an auth cookie on the page context which would cause
+    // the app to start in authenticated state, hiding the landing/login view.
+    const signupRes = await request.post(`${BASE}/api/auth/signup`, {
       data: { email: user.email, password: user.password, djName: user.djName, termsAccepted: true },
     });
     expect(signupRes.ok()).toBeTruthy();
