@@ -45,6 +45,7 @@ const paymentProvider = require('./payment-provider');
 // Import sync engine for advanced multi-device synchronization
 // Removed P2PNetwork import - unused class (only SyncEngine is used)
 const { SyncEngine } = require('./sync-engine');
+const { SYNC_TEST_MODE } = require('./sync-config');
 
 // Import event replay system for reliable message delivery
 const { EventReplayManager, MessagePriority } = require('./event-replay');
@@ -2682,6 +2683,29 @@ app.get("/api/debug/party/:code", async (req, res) => {
     console.error("[debug/party] Error:", error);
     res.status(500).json({ error: "Failed to get party info", details: error.message });
   }
+});
+
+// GET /api/sync/metrics - Sync metrics snapshot for a party (test mode only)
+// Returns enhanced per-client metrics for the Playwright harness and dashboard.
+// Enabled in SYNC_TEST_MODE or DEBUG mode; returns 404 in production.
+app.get("/api/sync/metrics", async (req, res) => {
+  if (!SYNC_TEST_MODE && process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const partyId = req.query.partyId || req.query.code;
+  if (!partyId) {
+    return res.status(400).json({ error: 'partyId query parameter required' });
+  }
+  const code = partyId.trim().toUpperCase();
+  const syncEngine = partySyncEngines.get(code);
+  if (!syncEngine) {
+    return res.status(404).json({ error: 'No sync engine found for party', code });
+  }
+  const stats = syncEngine.getEnhancedStats(code);
+  if (SYNC_TEST_MODE) {
+    console.log(`[SyncMetrics] ${JSON.stringify(stats)}`);
+  }
+  return res.json(stats);
 });
 
 // Generate party codes (6 chars, uppercase letters/numbers)

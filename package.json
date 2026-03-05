@@ -20,6 +20,8 @@
     "test:e2e:auto": "node e2e-workflow/cli.js",
     "test:e2e:workflow": "node e2e-workflow/cli.js",
     "test:e2e:new": "node ./scripts/e2e-runner.js --config=playwright.tests.config.js",
+    "sync:longtest": "SYNC_LONGTEST=true npm run test:e2e",
+    "sync:summarize": "node scripts/sync-summarize.js",
     "test:load": "k6 run tests/load/core-load.k6.js || echo '[Load] k6 not installed — skipping load tests'",
     "db:migrate": "node ./scripts/db-migrate.js",
     "validate:pwa": "node validate-pwa.js",

@@ -50,8 +50,12 @@ describe('SyncClient', () => {
       client.updateClockSync(sentTime, serverNowMs, receivedTime);
 
       // Latency = 50ms
-      // Clock offset = (1000 + 50) - 1000 = 50
-      expect(client.clockOffset).toBe(50);
+      expect(client.latency).toBe(50);
+
+      // With EMA smoothing (alpha=0.15) starting from 0:
+      // rawOffset = (1000 + 50) - 1000 = 50
+      // emaOffset = 0 * (1-0.15) + 50 * 0.15 = 7.5
+      expect(client.clockOffset).toBeCloseTo(7.5, 1);
     });
 
     test('should handle negative clock offset', () => {
@@ -62,8 +66,9 @@ describe('SyncClient', () => {
       client.updateClockSync(sentTime, serverNowMs, receivedTime);
 
       // Latency = 50ms
-      // Clock offset = (1000 + 50) - 1100 = -50
-      expect(client.clockOffset).toBe(-50);
+      // rawOffset = (1000 + 50) - 1100 = -50
+      // emaOffset = 0 * 0.85 + (-50) * 0.15 = -7.5
+      expect(client.clockOffset).toBeCloseTo(-7.5, 1);
     });
 
     test('should track latency history', () => {
@@ -184,11 +189,11 @@ describe('SyncClient', () => {
       const serverNowMs = 1050;
       const receivedTime = 999; // Invalid: before sent time
 
-      // Should still calculate, but latency will be negative
+      // New behavior: negative RTT is clamped to 0 (so latency = 0)
       client.updateClockSync(sentTime, serverNowMs, receivedTime);
       
-      // Latency would be negative, which is invalid
-      expect(client.latency).toBe(-0.5);
+      // RTT is clamped to max(0, -1) = 0, so latency = 0
+      expect(client.latency).toBe(0);
       
       // Clock offset calculation should still work
       expect(typeof client.clockOffset).toBe('number');

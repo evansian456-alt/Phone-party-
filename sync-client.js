@@ -3,9 +3,11 @@
  * 
  * Client-side implementation for high-precision multi-device synchronization
  * Features:
- * - Clock synchronization with server
- * - Timestamped playback scheduling
- * - Drift correction via playback rate adjustment
+ * - Monotonic clock using performance.now() to avoid wall-clock jumps
+ * - Clock synchronization with server using NTP-style rolling window
+ * - Timestamped playback scheduling (near-target rAF loop)
+ * - PLL drift correction via playback rate adjustment
+ * - Hard-seek resync support (server-directed)
  * - Rolling buffer management
  * - Playback feedback loop
  * - Network-aware sync (adaptive thresholds for mobile)
@@ -18,6 +20,7 @@
 const {
   CLOCK_SYNC_INTERVAL_MS,
   PLAYBACK_FEEDBACK_INTERVAL_MS,
+  SYNC_TEST_FEEDBACK_INTERVAL_MS,
   ROLLING_BUFFER_MS,
   PLAYBACK_RATE_MIN,
   PLAYBACK_RATE_MAX,
@@ -28,8 +31,35 @@ const {
   MOBILE_SOFT_CORRECTION_MS,
   MAX_RECONNECT_ATTEMPTS,
   RECONNECT_DELAY_MS,
-  MAX_RECONNECT_DELAY_MS
+  MAX_RECONNECT_DELAY_MS,
+  SYNC_TEST_MODE,
+  TEST_AUDIO_PATH,
 } = require('./sync-config');
+
+// ============================================================
+// Monotonic clock (client-side)
+// ============================================================
+
+/**
+ * Build a monotonic time source anchored to performance.now().
+ * Avoids wall-clock jumps from NTP corrections on the device.
+ * Falls back to Date.now() in environments without performance.now().
+ * @returns {function(): number} nowMs() – current time in ms
+ */
+function buildClientClock() {
+  // In Node.js test environments performance may not exist
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    const baseWall = Date.now();
+    const basePerf = performance.now();
+    return function nowMs() {
+      return baseWall + (performance.now() - basePerf);
+    };
+  }
+  return function nowMs() { return Date.now(); };
+}
+
+/** Global monotonic clock for this client instance */
+const _clientClock = buildClientClock();
 
 // ============================================================
 // Utility Functions
@@ -244,11 +274,11 @@ class ClientSyncEngine {
   }
 
   /**
-   * Get server time adjusted for clock offset
+   * Get server time adjusted for clock offset (using monotonic clock)
    * @returns {number} Server time in milliseconds
    */
   getServerTime() {
-    return Date.now() - this.clockOffset;
+    return _clientClock() - this.clockOffset;
   }
 
   /**
@@ -282,7 +312,8 @@ class ClientSyncEngine {
       return;
     }
 
-    const clientNowMs = Date.now();
+    // Use monotonic clock for sync-critical timestamps
+    const clientNowMs = _clientClock();
     const pingMessage = {
       t: 'CLOCK_PING',
       clientNowMs: clientNowMs,
@@ -297,20 +328,21 @@ class ClientSyncEngine {
    * @param {object} msg - Pong message from server
    */
   handleClockPong(msg) {
-    const receivedTime = Date.now();
+    // Use monotonic clock for receive timestamp
+    const receivedTime = _clientClock();
     const sentTime = msg.clientSentTime || msg.clientNowMs;
     const serverNowMs = msg.serverNowMs;
 
     // Calculate round-trip latency
     const roundTripMs = receivedTime - sentTime;
-    this.latency = roundTripMs / 2;
+    this.latency = Math.max(0, roundTripMs) / 2;
 
     // Calculate clock offset
-    // Server time at midpoint = serverNowMs + (latency)
+    // Server time at midpoint = serverNowMs + latency
     // Client time at midpoint = sentTime + latency
     // Offset = client time - server time
     this.clockOffset = (sentTime + this.latency) - serverNowMs;
-    this.lastSyncTime = Date.now();
+    this.lastSyncTime = _clientClock();
 
     console.log(`[Sync] Clock synced - Offset: ${this.clockOffset.toFixed(2)}ms, Latency: ${this.latency.toFixed(2)}ms`);
   }
@@ -457,7 +489,8 @@ class ClientSyncEngine {
       position: position,
       trackStart: trackStart,
       playbackRate: this.playbackRate,
-      timestamp: Date.now()
+      // Use monotonic clock for feedback timestamp
+      timestamp: _clientClock()
     };
 
     if (this.ws.readyState === WebSocket.OPEN) {
@@ -471,32 +504,45 @@ class ClientSyncEngine {
   }
 
   /**
-   * Handle drift correction from server
+   * Handle drift correction from server.
+   * Supports both legacy (adjustment) and new (mode/rateDelta/seekToSec) fields.
    * @param {object} correction - Drift correction data
    */
   handleDriftCorrection(correction) {
-    const adjustment = correction.adjustment || 0;
     const drift = correction.drift || 0;
+    const mode = correction.mode || 'rate'; // backward compat: default to rate
 
-    console.log(`[Sync] Drift correction - Drift: ${drift.toFixed(2)}ms, Adjustment: ${adjustment.toFixed(4)}`);
+    // Phase 5: Hard seek resync (mode='seek')
+    if (mode === 'seek' && correction.seekToSec != null && this.audioElement) {
+      const seekTarget = correction.seekToSec;
+      console.log(`[Sync] Hard seek resync - drift: ${drift.toFixed(2)}ms, seekTo: ${seekTarget.toFixed(3)}s`);
+      // Clamp seek target to valid range
+      const duration = this.audioElement.duration || Infinity;
+      const clamped = Math.max(0, Math.min(seekTarget, duration > 0.25 ? duration - 0.25 : 0));
+      this.audioElement.currentTime = clamped;
+      this.playbackRate = 1.0;
+      this.audioElement.playbackRate = 1.0;
+      if (this.videoElement) this.videoElement.playbackRate = 1.0;
+      if (this.onDriftCorrection) this.onDriftCorrection(drift, 1.0);
+      return;
+    }
 
-    // Apply micro-adjustment to playback rate
-    const newRate = 1.0 + adjustment;
-    
-    // Clamp to safe range (0.95 - 1.05)
-    this.playbackRate = Math.max(0.95, Math.min(1.05, newRate));
+    // Rate correction: prefer new rateDelta, fall back to legacy adjustment
+    const rateDelta = (correction.rateDelta !== undefined) ? correction.rateDelta : (correction.adjustment || 0);
+    const newRate = 1.0 + rateDelta;
 
-    // Apply to audio element
+    console.log(`[Sync] Drift correction - Drift: ${drift.toFixed(2)}ms, rateDelta: ${rateDelta.toFixed(4)}`);
+
+    // Clamp to safe range
+    this.playbackRate = Math.max(PLAYBACK_RATE_MIN, Math.min(PLAYBACK_RATE_MAX, newRate));
+
     if (this.audioElement) {
       this.audioElement.playbackRate = this.playbackRate;
     }
-
-    // Apply to video element if available
     if (this.videoElement) {
       this.videoElement.playbackRate = this.playbackRate;
     }
 
-    // Callback for drift correction
     if (this.onDriftCorrection) {
       this.onDriftCorrection(drift, this.playbackRate);
     }

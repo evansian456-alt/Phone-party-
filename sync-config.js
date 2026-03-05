@@ -13,12 +13,31 @@
  */
 
 // ============================================================
+// Test / Debug Mode
+// ============================================================
+
+/** Enable deterministic sync-test mode (set SYNC_TEST_MODE=true in env) */
+const SYNC_TEST_MODE = process.env.SYNC_TEST_MODE === 'true';
+/** URL path for the built-in test audio file (served from /public) */
+const TEST_AUDIO_PATH = '/test-audio.wav';
+
+// ============================================================
 // Clock Synchronization Constants
 // ============================================================
 
 const CLOCK_SYNC_INTERVAL_MS = 5000;        // Base interval for clock sync (5s)
 const CLOCK_SYNC_MIN_INTERVAL_MS = 3000;    // Minimum sync interval (3s)
 const CLOCK_SYNC_MAX_INTERVAL_MS = 7000;    // Maximum sync interval (7s)
+
+// Phase 2: Robust NTP-style clock offset estimation
+/** Number of ping-pong samples kept in rolling window */
+const CLOCK_SYNC_SAMPLES = 15;
+/** Fraction of highest-RTT samples to discard as outliers (0–1) */
+const CLOCK_SYNC_OUTLIER_TRIM = 0.2;
+/** EMA smoothing factor for clock offset (lower = smoother, slower) */
+const CLOCK_SYNC_EMA_ALPHA = 0.15;
+/** Polling interval used in SYNC_TEST_MODE (ms) */
+const SYNC_TEST_FEEDBACK_INTERVAL_MS = 500;
 
 // ============================================================
 // Playback and Feedback Constants
@@ -38,7 +57,33 @@ const PLAYBACK_RATE_MIN = 0.95;             // Minimum playback rate
 const PLAYBACK_RATE_MAX = 1.05;             // Maximum playback rate
 
 // ============================================================
-// Drift Detection and Correction Constants
+// Phase 3: PLL-style drift correction
+// ============================================================
+
+/** Drift below this value is ignored (dead-band), ms */
+const DRIFT_IGNORE_MS = 40;
+/** Drift below this triggers soft (rate) correction, ms */
+const DRIFT_SOFT_MS = 120;
+/** Drift at or above this triggers a hard seek resync, ms */
+const DRIFT_HARD_RESYNC_MS = 200;
+/** Time horizon over which drift is corrected via rate change, seconds */
+const PLL_HORIZON_SEC = 4;
+/** Maximum rate delta applied on stable networks (fraction of 1.0) */
+const MAX_RATE_DELTA_STABLE = 0.01;
+/** Maximum rate delta applied on unstable networks (fraction of 1.0) */
+const MAX_RATE_DELTA_UNSTABLE = 0.02;
+/** EMA alpha for smoothing playback-rate changes (lower = smoother) */
+const PLAYBACK_RATE_SMOOTH_ALPHA = 0.2;
+
+// ============================================================
+// Phase 4: Hard resync (seek) cooldown
+// ============================================================
+
+/** Minimum time between consecutive hard-seek resyncs, ms */
+const HARD_RESYNC_COOLDOWN_MS = 15000;
+
+// ============================================================
+// Drift Detection and Correction Constants (legacy / fallback)
 // ============================================================
 
 const DRIFT_THRESHOLD_MS = 50;              // Ignore drift below 50ms (server-side)
@@ -69,27 +114,58 @@ const RECONNECT_DELAY_MS = 1000;            // Initial reconnection delay (ms)
 const MAX_RECONNECT_DELAY_MS = 30000;       // Maximum reconnection delay (30s)
 
 // ============================================================
+// Phase 6: Per-device output latency compensation (gated)
+// ============================================================
+
+/** Enable learned audio-output latency compensation (test mode only) */
+const AUDIO_LATENCY_COMP_ENABLED = SYNC_TEST_MODE;
+/** Maximum magnitude of learned compensation, ms */
+const AUDIO_LATENCY_COMP_MAX_MS = 80;
+/** EMA alpha for slowly learning the compensation bias */
+const AUDIO_LATENCY_COMP_ALPHA = 0.02;
+
+// ============================================================
 // Exports
 // ============================================================
 
 module.exports = {
+  // Test mode
+  SYNC_TEST_MODE,
+  TEST_AUDIO_PATH,
+  SYNC_TEST_FEEDBACK_INTERVAL_MS,
+
   // Clock sync
   CLOCK_SYNC_INTERVAL_MS,
   CLOCK_SYNC_MIN_INTERVAL_MS,
   CLOCK_SYNC_MAX_INTERVAL_MS,
-  
+  CLOCK_SYNC_SAMPLES,
+  CLOCK_SYNC_OUTLIER_TRIM,
+  CLOCK_SYNC_EMA_ALPHA,
+
   // Playback and feedback
   PLAYBACK_FEEDBACK_INTERVAL_MS,
   DRIFT_CORRECTION_INTERVAL_MS,
   ROLLING_BUFFER_MS,
   DEFAULT_START_DELAY_MS,
   LATE_PLAYBACK_THRESHOLD_MS,
-  
+
   // Playback rate
   PLAYBACK_RATE_MIN,
   PLAYBACK_RATE_MAX,
-  
-  // Drift detection
+
+  // PLL drift correction
+  DRIFT_IGNORE_MS,
+  DRIFT_SOFT_MS,
+  DRIFT_HARD_RESYNC_MS,
+  PLL_HORIZON_SEC,
+  MAX_RATE_DELTA_STABLE,
+  MAX_RATE_DELTA_UNSTABLE,
+  PLAYBACK_RATE_SMOOTH_ALPHA,
+
+  // Hard resync cooldown
+  HARD_RESYNC_COOLDOWN_MS,
+
+  // Legacy drift detection (kept for backward compat)
   DRIFT_THRESHOLD_MS,
   DESYNC_THRESHOLD_MS,
   PREDICTION_FACTOR,
@@ -97,13 +173,18 @@ module.exports = {
   DESKTOP_SOFT_CORRECTION_MS,
   MOBILE_IGNORE_DRIFT_MS,
   MOBILE_SOFT_CORRECTION_MS,
-  
+
   // Network stability
   NETWORK_STABILITY_SAMPLES,
   NETWORK_STABILITY_NORMALIZATION_FACTOR,
-  
+
   // WebSocket reconnection
   MAX_RECONNECT_ATTEMPTS,
   RECONNECT_DELAY_MS,
-  MAX_RECONNECT_DELAY_MS
+  MAX_RECONNECT_DELAY_MS,
+
+  // Audio latency compensation
+  AUDIO_LATENCY_COMP_ENABLED,
+  AUDIO_LATENCY_COMP_MAX_MS,
+  AUDIO_LATENCY_COMP_ALPHA,
 };
