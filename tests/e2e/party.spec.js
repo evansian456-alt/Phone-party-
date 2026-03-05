@@ -1,5 +1,6 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
+const { makeUser, apiSignup, apiLogin, BASE } = require('./helpers/auth');
 
 /**
  * E2E — Party System
@@ -13,44 +14,14 @@ const { test, expect } = require('@playwright/test');
  *  - Invalid party code returns 404 / exists=false
  */
 
-const BASE = process.env.BASE_URL || 'http://localhost:8080';
-
-function uid() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function makeUser(prefix = 'party') {
-  const id = uid();
-  return {
-    email: `e2e_${prefix}_${id}@test.invalid`,
-    password: 'PartyTest123!',
-    djName: `DJ_${prefix}_${id}`.slice(0, 30),
-  };
-}
-
-async function apiSignup(request, user) {
-  return request.post(`${BASE}/api/auth/signup`, {
-    data: {
-      email: user.email,
-      password: user.password,
-      djName: user.djName,
-      termsAccepted: true,
-    },
-  });
-}
-
-async function apiLogin(request, user) {
-  return request.post(`${BASE}/api/auth/login`, {
-    data: { email: user.email, password: user.password },
-  });
-}
-
 // ─── API-level party tests ────────────────────────────────────────────────────
 
 test.describe('Party creation (API)', () => {
+  // Each test gets its own authenticated user via beforeEach so the
+  // Playwright `request` fixture is used only in the correct (test) scope.
   let host;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     host = makeUser('host');
     await apiSignup(request, host);
     await apiLogin(request, host);
@@ -65,12 +36,16 @@ test.describe('Party creation (API)', () => {
     expect(body).toHaveProperty('code');
     expect(typeof body.code).toBe('string');
     expect(body.code.length).toBeGreaterThan(0);
-    host.partyCode = body.code;
   });
 
   test('GET /api/party returns party info for a valid code', async ({ request }) => {
-    if (!host.partyCode) test.skip();
-    const res = await request.get(`${BASE}/api/party?code=${host.partyCode}`);
+    // Create a party within the test to avoid cross-test state dependencies
+    const createRes = await request.post(`${BASE}/api/create-party`, {
+      data: { djName: host.djName },
+    });
+    const { code } = await createRes.json();
+
+    const res = await request.get(`${BASE}/api/party?code=${code}`);
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.exists).toBe(true);

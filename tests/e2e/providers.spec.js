@@ -1,5 +1,6 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
+const { makeUser, apiSignup, apiLogin, BASE } = require('./helpers/auth');
 
 /**
  * E2E — Music Providers
@@ -8,42 +9,10 @@ const { test, expect } = require('@playwright/test');
  *  - Provider logos (YouTube, Spotify, SoundCloud) are in the DOM
  *  - Provider cards have correct data-testid attributes
  *  - Provider use-buttons are present (locked for free tier, unlocked for paid)
- *  - Streaming API returns 401 for unauthenticated users
+ *  - Streaming API returns 401 or 403 for unauthenticated users
  *  - Streaming API returns 403 for free-tier users
  *  - No console errors from provider-related elements
  */
-
-const BASE = process.env.BASE_URL || 'http://localhost:8080';
-
-function uid() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function makeUser(prefix = 'prov') {
-  const id = uid();
-  return {
-    email: `e2e_${prefix}_${id}@test.invalid`,
-    password: 'ProvTest123!',
-    djName: `DJ_${prefix}_${id}`.slice(0, 30),
-  };
-}
-
-async function apiSignup(request, user) {
-  return request.post(`${BASE}/api/auth/signup`, {
-    data: {
-      email: user.email,
-      password: user.password,
-      djName: user.djName,
-      termsAccepted: true,
-    },
-  });
-}
-
-async function apiLogin(request, user) {
-  return request.post(`${BASE}/api/auth/login`, {
-    data: { email: user.email, password: user.password },
-  });
-}
 
 // ─── Provider DOM presence ────────────────────────────────────────────────────
 
@@ -122,19 +91,19 @@ test.describe('Music provider use-buttons', () => {
 // ─── Streaming API paywall (unauthenticated) ──────────────────────────────────
 
 test.describe('Streaming API — unauthenticated paywall', () => {
-  test('GET /api/streaming/providers returns 401 without auth', async ({ request }) => {
+  test('GET /api/streaming/providers returns 401 or 403 without auth', async ({ request }) => {
     const res = await request.get(`${BASE}/api/streaming/providers`);
     expect([401, 403]).toContain(res.status());
   });
 
-  test('POST /api/streaming/select-track returns 401 without auth', async ({ request }) => {
+  test('POST /api/streaming/select-track returns 401 or 403 without auth', async ({ request }) => {
     const res = await request.post(`${BASE}/api/streaming/select-track`, {
       data: { partyCode: 'ABC123', provider: 'youtube', trackId: 'dQw4w9WgXcQ' },
     });
     expect([401, 403]).toContain(res.status());
   });
 
-  test('GET /api/streaming/access returns 401 without auth', async ({ request }) => {
+  test('GET /api/streaming/access returns 401 or 403 without auth', async ({ request }) => {
     const res = await request.get(`${BASE}/api/streaming/access`);
     expect([401, 403]).toContain(res.status());
   });
@@ -143,15 +112,13 @@ test.describe('Streaming API — unauthenticated paywall', () => {
 // ─── Streaming API paywall (free-tier authenticated) ─────────────────────────
 
 test.describe('Streaming API — free-tier paywall', () => {
-  let freeUser;
-
-  test.beforeAll(async ({ request }) => {
-    freeUser = makeUser('freetier');
+  // Setup is done per-test so `request` is used only in test scope,
+  // not in beforeAll (which can cause fixture-scope issues).
+  test('GET /api/streaming/providers returns 403 for free-tier user', async ({ request }) => {
+    const freeUser = makeUser('freetier');
     await apiSignup(request, freeUser);
     await apiLogin(request, freeUser);
-  });
 
-  test('GET /api/streaming/providers returns 403 for free-tier user', async ({ request }) => {
     const res = await request.get(`${BASE}/api/streaming/providers`);
     // Free users cannot access streaming providers
     expect([401, 403]).toContain(res.status());

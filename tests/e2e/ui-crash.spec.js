@@ -1,5 +1,6 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
+const { makeUser, apiSignup, apiLogin, BASE } = require('./helpers/auth');
 
 /**
  * E2E — UI Crash & Error Monitoring
@@ -13,38 +14,6 @@ const { test, expect } = require('@playwright/test');
  *
  * This is the "click everything" safety net test.
  */
-
-const BASE = process.env.BASE_URL || 'http://localhost:8080';
-
-function uid() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function makeUser(prefix = 'crash') {
-  const id = uid();
-  return {
-    email: `e2e_${prefix}_${id}@test.invalid`,
-    password: 'CrashTest123!',
-    djName: `DJ_${prefix}_${id}`.slice(0, 30),
-  };
-}
-
-async function apiSignup(request, user) {
-  return request.post(`${BASE}/api/auth/signup`, {
-    data: {
-      email: user.email,
-      password: user.password,
-      djName: user.djName,
-      termsAccepted: true,
-    },
-  });
-}
-
-async function apiLogin(request, user) {
-  return request.post(`${BASE}/api/auth/login`, {
-    data: { email: user.email, password: user.password },
-  });
-}
 
 // ─── Page load without crashes ────────────────────────────────────────────────
 
@@ -161,15 +130,14 @@ test.describe('UI Crash — navigation clicks', () => {
 // ─── Authenticated UI clicks ──────────────────────────────────────────────────
 
 test.describe('UI Crash — authenticated clicks', () => {
-  let user;
+  // Create a fresh user per test so `request` is used only in test scope,
+  // not in beforeAll (which can cause fixture-scope issues).
 
-  test.beforeAll(async ({ request }) => {
-    user = makeUser('authclick');
+  test('auth home renders without JavaScript errors after login', async ({ page, request }) => {
+    const user = makeUser('authclick');
     await apiSignup(request, user);
     await apiLogin(request, user);
-  });
 
-  test('all visible buttons in auth home do not crash the page', async ({ page, request }) => {
     const errors = [];
     page.on('pageerror', (err) => errors.push(err.message));
 

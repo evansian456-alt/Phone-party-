@@ -1,5 +1,6 @@
 // @ts-check
 const { test, expect } = require('@playwright/test');
+const { makeUser, apiSignup, apiLogin, BASE } = require('./helpers/auth');
 
 /**
  * E2E — Chat System
@@ -10,38 +11,6 @@ const { test, expect } = require('@playwright/test');
  *  - Chat-related DOM elements are attached
  *  - Party state reflects active party for chat context
  */
-
-const BASE = process.env.BASE_URL || 'http://localhost:8080';
-
-function uid() {
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function makeUser(prefix = 'chat') {
-  const id = uid();
-  return {
-    email: `e2e_${prefix}_${id}@test.invalid`,
-    password: 'ChatTest123!',
-    djName: `DJ_${prefix}_${id}`.slice(0, 30),
-  };
-}
-
-async function apiSignup(request, user) {
-  return request.post(`${BASE}/api/auth/signup`, {
-    data: {
-      email: user.email,
-      password: user.password,
-      djName: user.djName,
-      termsAccepted: true,
-    },
-  });
-}
-
-async function apiLogin(request, user) {
-  return request.post(`${BASE}/api/auth/login`, {
-    data: { email: user.email, password: user.password },
-  });
-}
 
 // ─── Chat UI element presence ────────────────────────────────────────────────
 
@@ -71,22 +40,21 @@ test.describe('Chat UI elements', () => {
 // ─── Party chat context (API-level) ─────────────────────────────────────────
 
 test.describe('Chat context via party (API)', () => {
-  let host;
+  // Each test creates its own authenticated user and party so there
+  // is no cross-test state and the `request` fixture is used only in
+  // test bodies (test scope), not in beforeAll.
 
-  test.beforeAll(async ({ request }) => {
-    host = makeUser('chathost');
+  test('active party is retrievable (chat operates in party context)', async ({ request }) => {
+    const host = makeUser('chathost');
     await apiSignup(request, host);
     await apiLogin(request, host);
+
     const createRes = await request.post(`${BASE}/api/create-party`, {
       data: { djName: host.djName },
     });
-    const body = await createRes.json();
-    host.partyCode = body.code;
-  });
+    const { code } = await createRes.json();
 
-  test('active party is retrievable (chat operates in party context)', async ({ request }) => {
-    if (!host.partyCode) test.skip();
-    const res = await request.get(`${BASE}/api/party?code=${host.partyCode}`);
+    const res = await request.get(`${BASE}/api/party?code=${code}`);
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.exists).toBe(true);
@@ -94,8 +62,16 @@ test.describe('Chat context via party (API)', () => {
   });
 
   test('party-state endpoint returns party data', async ({ request }) => {
-    if (!host.partyCode) test.skip();
-    const res = await request.get(`${BASE}/api/party-state?code=${host.partyCode}`);
+    const host = makeUser('chatstate');
+    await apiSignup(request, host);
+    await apiLogin(request, host);
+
+    const createRes = await request.post(`${BASE}/api/create-party`, {
+      data: { djName: host.djName },
+    });
+    const { code } = await createRes.json();
+
+    const res = await request.get(`${BASE}/api/party-state?code=${code}`);
     // Should return party state data (200) or 404 if in-memory only
     expect([200, 404]).toContain(res.status());
   });
