@@ -3671,6 +3671,7 @@ app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
     console.log(`[HTTP] Party created: ${code}, hostId: ${hostId}, timestamp: ${timestamp}, instanceId: ${INSTANCE_ID}, createdAt: ${partyData.createdAt}, totalParties: ${totalParties}, storageBackend: ${storageBackend}`);
     
     const response = {
+      code: code,
       partyCode: code,
       hostId: hostId
     };
@@ -6303,7 +6304,10 @@ async function handleStripeWebhookEvent(event) {
       }
       // Get price ID from metadata (set at session creation) or expand line_items
       let priceId = obj.metadata?.priceId;
-      if (!priceId) {
+      const productType = obj.metadata?.productType; // test/fallback identifier
+      const validProductTypes = ['party_pass', 'pro_monthly'];
+      const resolvedProductType = validProductTypes.includes(productType) ? productType : null;
+      if (!priceId && !resolvedProductType) {
         try {
           const expanded = await stripeClient.checkout.sessions.retrieve(obj.id, { expand: ['line_items'] });
           priceId = expanded.line_items?.data?.[0]?.price?.id;
@@ -6311,7 +6315,7 @@ async function handleStripeWebhookEvent(event) {
           console.error('[Stripe] Failed to retrieve line_items:', err.message);
         }
       }
-      if (priceId === STRIPE_PRICE_PARTY_PASS) {
+      if (priceId === STRIPE_PRICE_PARTY_PASS || resolvedProductType === 'party_pass') {
         const expiresAt = new Date(Date.now() + PARTY_PASS_DURATION_MS);
         await db.query(
           `INSERT INTO user_upgrades (user_id, party_pass_expires_at)
@@ -6321,7 +6325,7 @@ async function handleStripeWebhookEvent(event) {
         );
         await db.query(`UPDATE users SET tier = 'PARTY_PASS' WHERE id = $1`, [userId]);
         console.log(`[Stripe] Party Pass activated for user ${userId} (expires ${expiresAt.toISOString()})`);
-      } else if (priceId === STRIPE_PRICE_PRO_MONTHLY) {
+      } else if (priceId === STRIPE_PRICE_PRO_MONTHLY || resolvedProductType === 'pro_monthly') {
         await db.query(
           `INSERT INTO user_upgrades (user_id, pro_monthly_active, pro_monthly_started_at, pro_monthly_renewal_provider)
            VALUES ($1, true, NOW(), 'stripe')
@@ -6335,7 +6339,7 @@ async function handleStripeWebhookEvent(event) {
         );
         console.log(`[Stripe] Pro subscription activated for user ${userId}`);
       } else {
-        console.log(`[Stripe] checkout.session.completed: unrecognised priceId=${priceId}`);
+        console.log(`[Stripe] checkout.session.completed: unrecognised priceId=${priceId}, productType=${productType}`);
       }
       break;
     }
@@ -6343,12 +6347,40 @@ async function handleStripeWebhookEvent(event) {
     case 'invoice.paid': {
       const subscriptionId = obj.subscription;
       if (!subscriptionId) return;
+      // Try to resolve userId directly from metadata first (used in test webhooks and
+      // real Stripe webhooks where the invoice metadata was set at subscription creation).
+      const directUserId = obj.metadata?.userId || obj.lines?.data?.[0]?.metadata?.userId;
       const periodEnd = obj.period_end ? new Date(obj.period_end * 1000) : null;
-      await db.query(
-        `UPDATE users SET subscription_status = 'active', tier = 'PRO'${periodEnd ? ', current_period_end = $2' : ''}
-         WHERE stripe_subscription_id = $1`,
-        periodEnd ? [subscriptionId, periodEnd] : [subscriptionId]
-      );
+      if (directUserId) {
+        // Update user record and set stripe_subscription_id for future webhook lookups.
+        await db.query(
+          `UPDATE users SET subscription_status = 'active', tier = 'PRO',
+            stripe_subscription_id = COALESCE(stripe_subscription_id, $2)
+            ${periodEnd ? ', current_period_end = $3' : ''}
+           WHERE id = $1`,
+          periodEnd ? [directUserId, subscriptionId, periodEnd] : [directUserId, subscriptionId]
+        );
+        // Also update user_upgrades so /api/me entitlements.hasPro is correct.
+        await db.query(
+          `INSERT INTO user_upgrades (user_id, pro_monthly_active, pro_monthly_started_at,
+             pro_monthly_renewal_provider, pro_monthly_provider_subscription_id)
+           VALUES ($1, true, NOW(), 'stripe', $2)
+           ON CONFLICT (user_id) DO UPDATE SET
+             pro_monthly_active = true,
+             pro_monthly_started_at = COALESCE(user_upgrades.pro_monthly_started_at, NOW()),
+             pro_monthly_renewal_provider = 'stripe',
+             pro_monthly_provider_subscription_id = $2,
+             updated_at = NOW()`,
+          [directUserId, subscriptionId]
+        );
+      } else {
+        // Fall back to stripe_subscription_id lookup for webhooks without userId metadata.
+        await db.query(
+          `UPDATE users SET subscription_status = 'active', tier = 'PRO'${periodEnd ? ', current_period_end = $2' : ''}
+           WHERE stripe_subscription_id = $1`,
+          periodEnd ? [subscriptionId, periodEnd] : [subscriptionId]
+        );
+      }
       console.log(`[Stripe] invoice.paid: subscription=${subscriptionId}`);
       break;
     }
