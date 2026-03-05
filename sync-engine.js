@@ -3,11 +3,12 @@
  * 
  * High-precision multi-device audio/video synchronization system
  * Features:
- * - NTP-like clock synchronization
- * - Predictive drift compensation
- * - Rolling buffer management
- * - Real-time latency compensation
- * - Multi-device feedback loop
+ * - Monotonic server clock (process.hrtime.bigint-based)
+ * - NTP-style rolling-window clock offset estimation with outlier rejection + EMA
+ * - PLL-style drift correction (deadband, horizon, rate smoothing, caps)
+ * - Safe hard resync (seek) with cooldown protection
+ * - Per-device learned audio latency compensation (test-mode gated)
+ * - Per-party sync metrics collection
  */
 
 // ============================================================
@@ -18,6 +19,9 @@ const {
   CLOCK_SYNC_INTERVAL_MS,
   CLOCK_SYNC_MIN_INTERVAL_MS,
   CLOCK_SYNC_MAX_INTERVAL_MS,
+  CLOCK_SYNC_SAMPLES,
+  CLOCK_SYNC_OUTLIER_TRIM,
+  CLOCK_SYNC_EMA_ALPHA,
   PLAYBACK_FEEDBACK_INTERVAL_MS,
   DRIFT_CORRECTION_INTERVAL_MS,
   ROLLING_BUFFER_MS,
@@ -26,169 +30,239 @@ const {
   DRIFT_THRESHOLD_MS,
   DESYNC_THRESHOLD_MS,
   PREDICTION_FACTOR,
+  DRIFT_IGNORE_MS,
+  DRIFT_SOFT_MS,
+  DRIFT_HARD_RESYNC_MS,
+  PLL_HORIZON_SEC,
+  MAX_RATE_DELTA_STABLE,
+  MAX_RATE_DELTA_UNSTABLE,
+  PLAYBACK_RATE_SMOOTH_ALPHA,
+  HARD_RESYNC_COOLDOWN_MS,
+  AUDIO_LATENCY_COMP_MAX_MS,
+  AUDIO_LATENCY_COMP_LEARN_ALPHA,
   NETWORK_STABILITY_SAMPLES,
   NETWORK_STABILITY_NORMALIZATION_FACTOR,
-  DEFAULT_START_DELAY_MS
+  DEFAULT_START_DELAY_MS,
+  SYNC_TEST_MODE
 } = require('./sync-config');
+
+// ============================================================
+// Monotonic clock (Phase 1)
+// ============================================================
+
+function createMonotonicClock() {
+  const baseWall = Date.now();
+  const baseMono = process.hrtime.bigint();
+  return function nowMs() {
+    const deltaNs = process.hrtime.bigint() - baseMono;
+    return baseWall + Number(deltaNs) / 1e6;
+  };
+}
+
+// ============================================================
+// NTP math helpers (Phase 2)
+// ============================================================
+
+function computeBestOffset(samples) {
+  if (!samples || samples.length === 0) return null;
+  if (samples.length === 1) return samples[0].offset;
+  const sorted = [...samples].sort((a, b) => a.rtt - b.rtt);
+  const keepCount = Math.max(1, Math.ceil(sorted.length * (1 - CLOCK_SYNC_OUTLIER_TRIM)));
+  const kept = sorted.slice(0, keepCount);
+  return kept[0].offset;
+}
+
+function computeP95(arr) {
+  if (!arr || arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const idx = Math.floor(sorted.length * 0.95);
+  return sorted[Math.min(idx, sorted.length - 1)];
+}
+
+function computeMedian(arr) {
+  if (!arr || arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+function computeStdDev(arr) {
+  if (!arr || arr.length < 2) return 0;
+  const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+  const variance = arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length;
+  return Math.sqrt(variance);
+}
 
 // ============================================================
 // Client Metadata Structure
 // ============================================================
 
-/**
- * Represents a connected client in the sync system
- * Tracks clock synchronization, network metrics, and playback state
- * 
- * @class SyncClient
- * @property {WebSocket} ws - WebSocket connection to the client
- * @property {string} clientId - Unique identifier for the client
- * @property {number} clockOffset - Client clock offset from server (ms)
- * @property {number} latency - Round-trip network latency (ms)
- * @property {number} lastDrift - Most recent measured drift (ms)
- * @property {Array<{time: number, drift: number}>} driftHistory - Historical drift measurements
- * @property {string|null} peerId - P2P peer ID for WebRTC connections
- * @property {number|null} lastPingTime - Timestamp of last clock sync
- * @property {number} networkStability - Network stability score (0-1, higher is better)
- * @property {Array<number>} latencyHistory - Recent latency measurements
- * @property {number} playbackRate - Current playback rate adjustment factor
- * @property {number|null} lastFeedbackTime - Timestamp of last playback feedback
- * @property {number} playbackPosition - Current playback position (seconds)
- * @property {number} predictedDrift - Predicted future drift (ms)
- */
 class SyncClient {
-  /**
-   * Create a new sync client
-   * @param {WebSocket} ws - WebSocket connection
-   * @param {string} clientId - Unique client identifier
-   */
   constructor(ws, clientId) {
     this.ws = ws;
     this.clientId = clientId;
-    this.clockOffset = 0;           // Client clock offset from server (ms)
-    this.latency = 0;               // Round-trip latency (ms)
-    this.lastDrift = 0;             // Last measured drift (ms)
-    this.driftHistory = [];         // Drift history for prediction
-    this.peerId = null;             // P2P peer ID (for WebRTC)
-    this.lastPingTime = null;       // Last ping timestamp
-    this.networkStability = 1.0;    // Network stability score (0-1)
-    this.latencyHistory = [];       // Latency history for stability calculation
-    this.playbackRate = 1.0;        // Current playback rate adjustment
-    this.lastFeedbackTime = null;   // Last playback feedback timestamp
-    this.playbackPosition = 0;      // Current playback position (seconds)
-    this.predictedDrift = 0;        // Predicted drift for proactive correction
+    this.clockOffset = 0;
+    this.latency = 0;
+    this.lastDrift = 0;
+    this.driftHistory = [];
+    this.peerId = null;
+    this.lastPingTime = null;
+    this.networkStability = 1.0;
+    this.latencyHistory = [];
+    this.playbackRate = 1.0;
+    this.lastFeedbackTime = null;
+    this.playbackPosition = 0;
+    this.predictedDrift = 0;
+
+    // Phase 2: Rolling-window NTP
+    this._clockSamples = [];
+    this._clockOffsetEmaInit = false;
+
+    // Phase 3: PLL state
+    this._playbackRateEma = 1.0;
+    this._lastRateFlipTime = 0;
+
+    // Phase 4: Hard-resync state
+    this.lastHardResync = 0;
+    this.hardResyncCount = 0;
+
+    // Phase 6: Learned audio latency compensation
+    this.audioLatencyCompMs = 0;
+    this._driftBiasSum = 0;
+    this._driftBiasCount = 0;
+
+    // Metrics
+    this.correctionCount = 0;
+    this._rttHistory = [];
   }
 
-  /**
-   * Update clock offset based on ping/pong exchange
-   * @param {number} sentTime - Client timestamp when ping was sent
-   * @param {number} serverNowMs - Server timestamp when pong was sent
-   * @param {number} receivedTime - Client timestamp when pong was received
-   */
   updateClockSync(sentTime, serverNowMs, receivedTime) {
-    // Calculate round-trip latency
     const roundTripMs = receivedTime - sentTime;
     this.latency = roundTripMs / 2;
+    const rawOffset = sentTime + this.latency - serverNowMs;
 
-    // Store latency history for stability calculation
     this.latencyHistory.push(this.latency);
     if (this.latencyHistory.length > NETWORK_STABILITY_SAMPLES) {
       this.latencyHistory.shift();
     }
 
-    // Calculate network stability (inverse of latency variance)
+    this._rttHistory.push(roundTripMs);
+    if (this._rttHistory.length > CLOCK_SYNC_SAMPLES) {
+      this._rttHistory.shift();
+    }
+
     if (this.latencyHistory.length >= 3) {
       const mean = this.latencyHistory.reduce((a, b) => a + b, 0) / this.latencyHistory.length;
       const variance = this.latencyHistory.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / this.latencyHistory.length;
       const stdDev = Math.sqrt(variance);
-      // Stability is inversely proportional to standard deviation (normalized to 0-1)
       this.networkStability = Math.max(0, 1 - (stdDev / NETWORK_STABILITY_NORMALIZATION_FACTOR));
     }
 
-    // Calculate clock offset: client time = server time + offset
-    // offset = (sentTime + latency) - serverNowMs
-    this.clockOffset = sentTime + this.latency - serverNowMs;
+    this._clockSamples.push({ rtt: roundTripMs, offset: rawOffset });
+    if (this._clockSamples.length > CLOCK_SYNC_SAMPLES) {
+      this._clockSamples.shift();
+    }
+
+    const bestOffset = computeBestOffset(this._clockSamples);
+
+    if (!this._clockOffsetEmaInit) {
+      this.clockOffset = bestOffset !== null ? bestOffset : rawOffset;
+      this._clockOffsetEmaInit = true;
+    } else {
+      this.clockOffset = CLOCK_SYNC_EMA_ALPHA * (bestOffset !== null ? bestOffset : rawOffset)
+        + (1 - CLOCK_SYNC_EMA_ALPHA) * this.clockOffset;
+    }
+
     this.lastPingTime = Date.now();
   }
 
-  /**
-   * Get adaptive sync interval based on network stability
-   * More stable network = longer interval (less frequent syncs)
-   */
   getAdaptiveSyncInterval() {
     const baseInterval = CLOCK_SYNC_INTERVAL_MS;
     const stabilityFactor = this.networkStability || 1.0;
-    // Higher stability allows longer intervals
     const interval = baseInterval + (stabilityFactor * 2000);
     return Math.min(Math.max(interval, CLOCK_SYNC_MIN_INTERVAL_MS), CLOCK_SYNC_MAX_INTERVAL_MS);
   }
 
-  /**
-   * Update drift measurement and prediction
-   * @param {number} drift - Measured drift in milliseconds
-   */
   updateDrift(drift) {
     this.lastDrift = drift;
-    
-    // Store drift history for prediction
     this.driftHistory.push({ time: Date.now(), drift });
     if (this.driftHistory.length > 20) {
       this.driftHistory.shift();
     }
-
-    // Calculate predicted drift using linear regression
     if (this.driftHistory.length >= 3) {
       this.predictedDrift = this.calculatePredictedDrift();
     }
+    if (SYNC_TEST_MODE) {
+      this._driftBiasSum += drift;
+      this._driftBiasCount++;
+    }
   }
 
-  /**
-   * Calculate predicted drift using simple linear regression
-   * @returns {number} Predicted drift in milliseconds
-   */
   calculatePredictedDrift() {
     const n = this.driftHistory.length;
     if (n < 3) return this.lastDrift;
-
-    // Simple moving average with recent samples weighted more
     let weightedSum = 0;
     let weightSum = 0;
     for (let i = 0; i < n; i++) {
-      const weight = (i + 1) / n; // More recent samples have higher weight
+      const weight = (i + 1) / n;
       weightedSum += this.driftHistory[i].drift * weight;
       weightSum += weight;
     }
-
     const avgDrift = weightedSum / weightSum;
-    
-    // Blend current drift with historical trend
     return this.lastDrift * 0.7 + avgDrift * 0.3;
   }
 
-  /**
-   * Calculate drift correction adjustment
-   * @returns {number} Adjustment factor for playback rate
-   */
   calculateDriftCorrection() {
-    if (Math.abs(this.lastDrift) < DRIFT_THRESHOLD_MS) {
-      return 0; // No correction needed
+    const absDrift = Math.abs(this.lastDrift);
+    if (absDrift < DRIFT_IGNORE_MS) {
+      return 0;
     }
-
-    // Use predictive drift for proactive correction
-    const driftToCorrect = this.lastDrift * (1 - PREDICTION_FACTOR) + this.predictedDrift * PREDICTION_FACTOR;
-    
-    // Calculate adjustment: negative drift speeds up, positive drift slows down
-    const adjustment = -driftToCorrect * 0.01;
-    
-    return adjustment;
+    if (absDrift >= DRIFT_HARD_RESYNC_MS) {
+      return 0;
+    }
+    const driftSec = this.lastDrift / 1000;
+    let rateDelta = -(driftSec / PLL_HORIZON_SEC);
+    const maxDelta = this.networkStability >= 0.6
+      ? MAX_RATE_DELTA_STABLE
+      : MAX_RATE_DELTA_UNSTABLE;
+    rateDelta = Math.max(-maxDelta, Math.min(maxDelta, rateDelta));
+    const now = Date.now();
+    const prevSign = Math.sign(this._playbackRateEma - 1.0);
+    const newSign = Math.sign(rateDelta);
+    if (prevSign !== 0 && newSign !== prevSign && (now - this._lastRateFlipTime) < 2000) {
+      rateDelta *= 0.5;
+    } else if (prevSign !== newSign) {
+      this._lastRateFlipTime = now;
+    }
+    const targetRate = 1.0 + rateDelta;
+    this._playbackRateEma = PLAYBACK_RATE_SMOOTH_ALPHA * targetRate
+      + (1 - PLAYBACK_RATE_SMOOTH_ALPHA) * this._playbackRateEma;
+    return this._playbackRateEma - 1.0;
   }
 
-  /**
-   * Update playback rate based on drift correction
-   * @param {number} adjustment - Adjustment factor
-   */
   updatePlaybackRate(adjustment) {
     const newRate = 1.0 + adjustment;
     this.playbackRate = Math.max(PLAYBACK_RATE_MIN, Math.min(PLAYBACK_RATE_MAX, newRate));
+  }
+
+  getRttP95() { return computeP95(this._rttHistory); }
+  getRttMedian() { return computeMedian(this._rttHistory); }
+  getClockOffsetStdDev() {
+    return computeStdDev(this._clockSamples.map(s => s.offset));
+  }
+
+  updateAudioLatencyComp() {
+    if (!SYNC_TEST_MODE || this._driftBiasCount < 10) return;
+    const avgBias = this._driftBiasSum / this._driftBiasCount;
+    const delta = AUDIO_LATENCY_COMP_LEARN_ALPHA * avgBias;
+    this.audioLatencyCompMs = Math.max(
+      -AUDIO_LATENCY_COMP_MAX_MS,
+      Math.min(AUDIO_LATENCY_COMP_MAX_MS, this.audioLatencyCompMs + delta)
+    );
+    this._driftBiasSum = 0;
+    this._driftBiasCount = 0;
   }
 }
 
@@ -196,29 +270,13 @@ class SyncClient {
 // Track Metadata Structure
 // ============================================================
 
-/**
- * Represents metadata for a music track in the sync system
- * 
- * @class TrackInfo
- * @property {string} trackId - Unique identifier for the track
- * @property {number} duration - Track duration in seconds
- * @property {number} startTimestamp - Master clock timestamp when track started (ms)
- * @property {number} startPositionSec - Starting position in track for seek/resume (seconds)
- * @property {string} status - Current playback status ('preparing', 'playing', 'paused', 'stopped')
- */
 class TrackInfo {
-  /**
-   * Create track metadata
-   * @param {string} trackId - Unique track identifier
-   * @param {number} duration - Track duration in seconds
-   * @param {number} startTimestamp - Master clock start timestamp (ms)
-   */
   constructor(trackId, duration, startTimestamp) {
     this.trackId = trackId;
-    this.duration = duration;          // Track duration in seconds
-    this.startTimestamp = startTimestamp; // Master clock start timestamp (ms)
-    this.startPositionSec = 0;         // Starting position in track (for seek/resume)
-    this.status = 'preparing';         // 'preparing', 'playing', 'paused', 'stopped'
+    this.duration = duration;
+    this.startTimestamp = startTimestamp;
+    this.startPositionSec = 0;
+    this.status = 'preparing';
   }
 }
 
@@ -226,71 +284,39 @@ class TrackInfo {
 // Sync Engine
 // ============================================================
 
-/**
- * High-precision multi-device audio synchronization engine
- * Manages clock synchronization, drift correction, and playback coordination
- * across multiple connected clients
- * 
- * @class SyncEngine
- * @property {Map<string, SyncClient>} clients - Map of client IDs to SyncClient instances
- * @property {TrackInfo|null} currentTrack - Currently playing track metadata
- * @property {Map} p2pNetwork - Session-based P2P network connections
- * @property {Function} masterClock - Master clock function (returns current time in ms)
- */
 class SyncEngine {
-  /**
-   * Create a new sync engine instance
-   */
   constructor() {
-    this.clients = new Map();        // clientId -> SyncClient
-    this.currentTrack = null;        // Current playing track (TrackInfo)
-    this.p2pNetwork = new Map();     // Session-based P2P connections
-    this.masterClock = () => Date.now(); // Master clock function
+    this.clients = new Map();
+    this.currentTrack = null;
+    this.p2pNetwork = new Map();
+    this.masterClock = createMonotonicClock();
+    this._metrics = {
+      partyStartMs: Date.now(),
+      correctionCount: 0,
+      hardResyncCount: 0,
+      driftSamples: [],
+      rateChanges: []
+    };
   }
 
-  /**
-   * Add a new client to the sync engine
-   * @param {WebSocket} ws - WebSocket connection
-   * @param {string} clientId - Unique client identifier
-   * @returns {SyncClient} Created sync client
-   */
   addClient(ws, clientId) {
     const client = new SyncClient(ws, clientId);
     this.clients.set(clientId, client);
     return client;
   }
 
-  /**
-   * Remove a client from the sync engine
-   * @param {string} clientId - Client identifier
-   */
   removeClient(clientId) {
     this.clients.delete(clientId);
   }
 
-  /**
-   * Get a client by ID
-   * @param {string} clientId - Client identifier
-   * @returns {SyncClient|null}
-   */
   getClient(clientId) {
     return this.clients.get(clientId) || null;
   }
 
-  /**
-   * Handle clock sync ping from client
-   * @param {string} clientId - Client identifier
-   * @param {number} clientNowMs - Client timestamp
-   * @returns {object} Pong response data
-   */
   handleClockPing(clientId, clientNowMs) {
     const client = this.getClient(clientId);
-    if (!client) {
-      return null;
-    }
-
+    if (!client) return null;
     const serverNowMs = this.masterClock();
-    
     return {
       t: 'TIME_PONG',
       clientSentTime: clientNowMs,
@@ -299,52 +325,78 @@ class SyncEngine {
     };
   }
 
-  /**
-   * Process clock sync pong response on client side
-   * @param {string} clientId - Client identifier
-   * @param {number} sentTime - Original client timestamp when ping was sent
-   * @param {number} serverNowMs - Server timestamp from pong
-   */
   processClockPong(clientId, sentTime, serverNowMs) {
     const client = this.getClient(clientId);
     if (!client) return;
-
     const receivedTime = this.masterClock();
     client.updateClockSync(sentTime, serverNowMs, receivedTime);
   }
 
-  /**
-   * Handle playback position feedback from client
-   * @param {string} clientId - Client identifier
-   * @param {number} position - Current playback position (seconds)
-   * @param {number} trackStart - Track start timestamp (ms)
-   * @returns {object|null} Drift correction if needed
-   */
   handlePlaybackFeedback(clientId, position, trackStart) {
     const client = this.getClient(clientId);
-    if (!client || !this.currentTrack) {
-      return null;
-    }
+    if (!client || !this.currentTrack) return null;
 
     client.playbackPosition = position;
     client.lastFeedbackTime = this.masterClock();
 
-    // Calculate drift: actual position vs. expected position
     const elapsedMs = this.masterClock() - trackStart;
     const expectedPosition = (elapsedMs / 1000) + (this.currentTrack.startPositionSec || 0);
-    const drift = (position - expectedPosition) * 1000; // Convert to ms
+    const drift = (position - expectedPosition) * 1000;
 
-    // Update client drift
     client.updateDrift(drift);
 
-    // Calculate correction adjustment
+    this._metrics.driftSamples.push({ ts: Date.now(), clientId, driftMs: drift });
+    if (this._metrics.driftSamples.length > 500) {
+      this._metrics.driftSamples.shift();
+    }
+
+    const absDrift = Math.abs(drift);
+    const now = Date.now();
+
+    if (absDrift >= DRIFT_HARD_RESYNC_MS) {
+      const cooldownElapsed = (now - client.lastHardResync) >= HARD_RESYNC_COOLDOWN_MS;
+      if (cooldownElapsed) {
+        client.lastHardResync = now;
+        client.hardResyncCount++;
+        this._metrics.hardResyncCount++;
+        const elapsedSec = (this.masterClock() - trackStart) / 1000;
+        const seekToSec = (this.currentTrack.startPositionSec || 0) + elapsedSec;
+        if (SYNC_TEST_MODE) {
+          console.log(JSON.stringify({ level: 'info', event: 'hard_resync', clientId, driftMs: drift, seekToSec }));
+        }
+        return {
+          t: 'DRIFT_CORRECTION',
+          mode: 'seek',
+          seekToSec: seekToSec,
+          drift: drift,
+          adjustment: 0,
+          playbackRate: 1.0,
+          predictedDrift: client.predictedDrift
+        };
+      }
+    }
+
     const adjustment = client.calculateDriftCorrection();
     client.updatePlaybackRate(adjustment);
 
-    // Return correction if significant
-    if (Math.abs(drift) > DRIFT_THRESHOLD_MS) {
+    if (SYNC_TEST_MODE) {
+      client.updateAudioLatencyComp();
+    }
+
+    if (absDrift >= DRIFT_IGNORE_MS) {
+      client.correctionCount++;
+      this._metrics.correctionCount++;
+      this._metrics.rateChanges.push({ ts: now, clientId, rate: client.playbackRate });
+      if (this._metrics.rateChanges.length > 500) {
+        this._metrics.rateChanges.shift();
+      }
+      if (SYNC_TEST_MODE) {
+        console.log(JSON.stringify({ level: 'info', event: 'drift_correction', clientId, driftMs: drift, playbackRate: client.playbackRate, adjustment }));
+      }
       return {
         t: 'DRIFT_CORRECTION',
+        mode: 'rate',
+        rateDelta: adjustment,
         adjustment: adjustment,
         drift: drift,
         playbackRate: client.playbackRate,
@@ -355,14 +407,6 @@ class SyncEngine {
     return null;
   }
 
-  /**
-   * Broadcast track with precise timestamp
-   * @param {string} trackId - Track identifier
-   * @param {number} duration - Track duration in seconds
-   * @param {number} startDelay - Delay before playback starts (ms)
-   * @param {object} additionalData - Additional track data (url, title, etc.)
-   * @returns {object} Broadcast message
-   */
   broadcastTrack(trackId, duration, startDelay = DEFAULT_START_DELAY_MS, additionalData = {}) {
     const masterTimestamp = this.masterClock();
     const playAt = masterTimestamp + startDelay;
@@ -379,32 +423,24 @@ class SyncEngine {
       ...additionalData
     };
 
-    // Add per-client clock offset for accurate scheduling
     const clientBroadcasts = new Map();
     this.clients.forEach((client, clientId) => {
+      const latencyComp = SYNC_TEST_MODE ? (client.audioLatencyCompMs || 0) : 0;
       clientBroadcasts.set(clientId, {
         ...broadcast,
         clockOffset: client.clockOffset,
-        playAtClient: playAt - client.clockOffset
+        playAtClient: playAt - client.clockOffset - latencyComp
       });
     });
 
     return { broadcast, clientBroadcasts };
   }
 
-  /**
-   * Get sync statistics for monitoring
-   * @returns {object} Sync statistics
-   */
   getSyncStats() {
-    const stats = {
-      totalClients: this.clients.size,
-      clients: []
-    };
-
+    const stats = { totalClients: this.clients.size, clients: [] };
     this.clients.forEach((client, clientId) => {
       stats.clients.push({
-        clientId: clientId,
+        clientId,
         clockOffset: client.clockOffset,
         latency: client.latency,
         lastDrift: client.lastDrift,
@@ -414,61 +450,75 @@ class SyncEngine {
         playbackPosition: client.playbackPosition
       });
     });
-
     return stats;
   }
 
-  /**
-   * Detect clients with significant desync
-   * @returns {Array} Array of desynced client IDs
-   */
+  getPartyMetrics() {
+    const now = Date.now();
+    const allDriftMs = this._metrics.driftSamples.map(s => s.driftMs);
+    const clientMetrics = [];
+    this.clients.forEach((client, clientId) => {
+      const clientDrifts = this._metrics.driftSamples
+        .filter(s => s.clientId === clientId)
+        .map(s => s.driftMs);
+      clientMetrics.push({
+        clientId,
+        rttMedianMs: client.getRttMedian(),
+        rttP95Ms: client.getRttP95(),
+        clockOffsetMs: client.clockOffset,
+        clockOffsetStdDev: client.getClockOffsetStdDev(),
+        lastDriftMs: client.lastDrift,
+        driftP50Ms: computeMedian(clientDrifts.map(Math.abs)),
+        driftP95Ms: computeP95(clientDrifts.map(Math.abs)),
+        playbackRate: client.playbackRate,
+        correctionCount: client.correctionCount,
+        hardResyncCount: client.hardResyncCount,
+        networkStability: client.networkStability,
+        audioLatencyCompMs: client.audioLatencyCompMs
+      });
+    });
+    const driftAbs = allDriftMs.map(Math.abs);
+    return {
+      snapshotTs: now,
+      uptimeSec: (now - this._metrics.partyStartMs) / 1000,
+      totalClients: this.clients.size,
+      totalCorrectionCount: this._metrics.correctionCount,
+      totalHardResyncCount: this._metrics.hardResyncCount,
+      driftP50Ms: computeMedian(driftAbs),
+      driftP95Ms: computeP95(driftAbs),
+      maxDriftMs: driftAbs.length > 0 ? Math.max(...driftAbs) : 0,
+      clients: clientMetrics
+    };
+  }
+
   getDesyncedClients() {
     const desynced = [];
-    
     this.clients.forEach((client, clientId) => {
       if (Math.abs(client.lastDrift) > DESYNC_THRESHOLD_MS) {
         desynced.push({
-          clientId: clientId,
+          clientId,
           drift: client.lastDrift,
           severity: Math.abs(client.lastDrift) > 200 ? 'critical' : 'warning'
         });
       }
     });
-
     return desynced;
   }
 
-  /**
-   * Calculate adaptive lead time based on network conditions (Phase 9)
-   * Uses p90 of time_to_ready + jitter margin, clamped to 1500-5000ms
-   * @param {number} p90Ms - P90 of time_to_ready from metrics (ms)
-   * @returns {number} Calculated lead time in milliseconds
-   */
   calculateAdaptiveLeadTime(p90Ms = 0) {
-    // Base lead time on p90 of time_to_ready
     let leadTime = p90Ms;
-    
-    // Add jitter margin (20% of p90, minimum 300ms)
     const jitterMargin = Math.max(300, leadTime * 0.2);
     leadTime += jitterMargin;
-    
-    // Factor in network stability of connected clients
     let avgNetworkStability = 1.0;
     if (this.clients.size > 0) {
       const totalStability = Array.from(this.clients.values())
         .reduce((sum, client) => sum + client.networkStability, 0);
       avgNetworkStability = totalStability / this.clients.size;
     }
-    
-    // Adjust for poor network stability (lower stability = higher lead time)
     if (avgNetworkStability < 0.7) {
-      const stabilityBoost = (1.0 - avgNetworkStability) * 1000; // Up to 1000ms boost
-      leadTime += stabilityBoost;
+      leadTime += (1.0 - avgNetworkStability) * 1000;
     }
-    
-    // Clamp to 1500-5000ms range as specified
     leadTime = Math.max(1500, Math.min(5000, leadTime));
-    
     return Math.round(leadTime);
   }
 }
@@ -479,68 +529,37 @@ class SyncEngine {
 
 class P2PNetwork {
   constructor() {
-    this.peers = new Map();          // peerId -> peer connection info
-    this.sessions = new Map();       // sessionId -> Set of peerIds
+    this.peers = new Map();
+    this.sessions = new Map();
   }
 
-  /**
-   * Discover peers for a session
-   * @param {string} sessionId - Session identifier
-   * @returns {Array} Available peer IDs
-   */
   discoverPeers(sessionId) {
     const peers = this.sessions.get(sessionId);
     return peers ? Array.from(peers) : [];
   }
 
-  /**
-   * Add peer to session
-   * @param {string} sessionId - Session identifier
-   * @param {string} peerId - Peer identifier
-   */
   addPeerToSession(sessionId, peerId) {
     if (!this.sessions.has(sessionId)) {
       this.sessions.set(sessionId, new Set());
     }
     this.sessions.get(sessionId).add(peerId);
-    
-    this.peers.set(peerId, {
-      sessionId: sessionId,
-      latency: 0,
-      lastSeen: Date.now(),
-      status: 'connected'
-    });
+    this.peers.set(peerId, { sessionId, latency: 0, lastSeen: Date.now(), status: 'connected' });
   }
 
-  /**
-   * Remove peer from session
-   * @param {string} sessionId - Session identifier
-   * @param {string} peerId - Peer identifier
-   */
   removePeerFromSession(sessionId, peerId) {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.delete(peerId);
-      if (session.size === 0) {
-        this.sessions.delete(sessionId);
-      }
+      if (session.size === 0) this.sessions.delete(sessionId);
     }
     this.peers.delete(peerId);
   }
 
-  /**
-   * Select optimal peer based on latency
-   * @param {string} sessionId - Session identifier
-   * @returns {string|null} Optimal peer ID
-   */
   selectOptimalPeer(sessionId) {
     const peers = this.discoverPeers(sessionId);
     if (peers.length === 0) return null;
-
-    // Select peer with lowest latency
     let optimalPeer = peers[0];
     let minLatency = this.peers.get(optimalPeer)?.latency || Infinity;
-
     peers.forEach(peerId => {
       const peer = this.peers.get(peerId);
       if (peer && peer.latency < minLatency) {
@@ -548,7 +567,6 @@ class P2PNetwork {
         optimalPeer = peerId;
       }
     });
-
     return optimalPeer;
   }
 }
@@ -561,5 +579,10 @@ module.exports = {
   SyncEngine,
   SyncClient,
   TrackInfo,
-  P2PNetwork
+  P2PNetwork,
+  computeBestOffset,
+  computeP95,
+  computeMedian,
+  computeStdDev,
+  createMonotonicClock
 };

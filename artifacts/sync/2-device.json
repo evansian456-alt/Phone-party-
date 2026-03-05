@@ -1,0 +1,7 @@
+{
+  "label": "2-device",
+  "timestamp": "2026-03-05T01:56:05.000Z",
+  "note": "Baseline placeholder — run 'SYNC_TEST_MODE=true npm run sync:measure' to collect real measurements",
+  "sampleCount": 0,
+  "status": "PLACEHOLDER"
+}

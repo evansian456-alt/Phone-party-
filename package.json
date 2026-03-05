@@ -31,7 +31,10 @@
     "cap:run:android": "npx cap run android",
     "cap:run:ios": "npx cap run ios",
     "test:integration": "jest --config=jest.integration.config.js",
-    "test:stress": "jest --config=jest.stress.config.js --testTimeout=120000"
+    "test:stress": "jest --config=jest.stress.config.js --testTimeout=120000",
+    "sync:measure": "SYNC_TEST_MODE=true node ./scripts/e2e-runner.js --grep=\"Sync Metrics\"",
+    "sync:longtest": "SYNC_TEST_MODE=true SYNC_LONG_RUN=true node ./scripts/e2e-runner.js --grep=\"Sync Metrics\" --timeout=600000",
+    "sync:summarize": "node scripts/sync-summarize.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.993.0",

@@ -36,6 +36,23 @@ const {
 // ============================================================
 
 /**
+ * Create a monotonic-derived ms clock anchored to wall time (Phase 1, client-side).
+ * Uses performance.now() to avoid Date.now() backward jumps or coarse resolution.
+ * Falls back to Date.now() in environments where performance is unavailable.
+ * @returns {function(): number} nowMs function
+ */
+function createClientMonotonicClock() {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    const baseWall = Date.now();
+    const basePerf = performance.now();
+    return function nowMs() {
+      return baseWall + (performance.now() - basePerf);
+    };
+  }
+  return function nowMs() { return Date.now(); };
+}
+
+/**
  * Detect network type (WiFi vs Cellular)
  * Uses Network Information API where available
  * @returns {string} 'wifi', 'cellular', or 'unknown'
@@ -152,6 +169,9 @@ class ClientSyncEngine {
     this.onDriftCorrection = null;                     // Callback for drift correction
     this.videoElement = null;                          // Optional video element for video sync
     this.audioElement = null;                          // Audio element for playback
+
+    // Phase 1: Monotonic clock to avoid Date.now() jitter
+    this._nowMs = createClientMonotonicClock();
     
     // WebSocket reconnection state
     this.reconnectAttempts = 0;                        // Number of reconnection attempts
@@ -248,7 +268,7 @@ class ClientSyncEngine {
    * @returns {number} Server time in milliseconds
    */
   getServerTime() {
-    return Date.now() - this.clockOffset;
+    return this._nowMs() - this.clockOffset;
   }
 
   /**
@@ -282,7 +302,8 @@ class ClientSyncEngine {
       return;
     }
 
-    const clientNowMs = Date.now();
+    // Phase 1: use monotonic clock for ping timestamp
+    const clientNowMs = this._nowMs();
     const pingMessage = {
       t: 'CLOCK_PING',
       clientNowMs: clientNowMs,
@@ -297,7 +318,8 @@ class ClientSyncEngine {
    * @param {object} msg - Pong message from server
    */
   handleClockPong(msg) {
-    const receivedTime = Date.now();
+    // Phase 1: use monotonic clock for receive timestamp
+    const receivedTime = this._nowMs();
     const sentTime = msg.clientSentTime || msg.clientNowMs;
     const serverNowMs = msg.serverNowMs;
 
@@ -310,7 +332,7 @@ class ClientSyncEngine {
     // Client time at midpoint = sentTime + latency
     // Offset = client time - server time
     this.clockOffset = (sentTime + this.latency) - serverNowMs;
-    this.lastSyncTime = Date.now();
+    this.lastSyncTime = this._nowMs();
 
     console.log(`[Sync] Clock synced - Offset: ${this.clockOffset.toFixed(2)}ms, Latency: ${this.latency.toFixed(2)}ms`);
   }
@@ -336,10 +358,6 @@ class ClientSyncEngine {
 
     console.log(`[Sync] Scheduling playback - Server time: ${serverNow}, Play at: ${playAtServer}, Delay: ${delayMs}ms`);
 
-    if (delayMs < LATE_PLAYBACK_THRESHOLD_MS) {
-      console.warn('[Sync] Playback time has already passed, starting immediately');
-    }
-
     // Store scheduled playback info
     this.scheduledPlayback = {
       playAtServer: playAtServer,
@@ -351,11 +369,20 @@ class ClientSyncEngine {
     // Pre-buffer audio
     this.preBufferAudio(trackUrl, startPositionSec);
 
-    // Schedule playback
-    const playDelay = Math.max(0, delayMs - (this.rollingBufferSec * 1000));
-    setTimeout(() => {
+    if (delayMs < LATE_PLAYBACK_THRESHOLD_MS) {
+      // Late start: begin immediately and compute correct currentTime
+      console.warn('[Sync] Playback time has already passed, starting immediately with corrected position');
       this.executeScheduledPlayback();
-    }, playDelay);
+    } else if (delayMs <= 150) {
+      // Phase 5: Very close to target — skip setTimeout and fire immediately
+      this.executeScheduledPlayback();
+    } else {
+      // Phase 5: Coarse setTimeout until ~150ms before target, then execute precisely
+      const coarseDelay = Math.max(0, delayMs - 150);
+      setTimeout(() => {
+        this.executeScheduledPlayback();
+      }, coarseDelay);
+    }
 
     return true;
   }
@@ -380,7 +407,9 @@ class ClientSyncEngine {
   }
 
   /**
-   * Execute scheduled playback
+   * Execute scheduled playback.
+   * Phase 5: computes exact currentTime from elapsed time since target,
+   * handling both on-time and late-start cases.
    */
   executeScheduledPlayback() {
     if (!this.audioElement || !this.scheduledPlayback) {
@@ -390,11 +419,15 @@ class ClientSyncEngine {
 
     const serverNow = this.getServerTime();
     const playAtServer = this.scheduledPlayback.playAtServer;
-    const startPositionSec = this.scheduledPlayback.startPositionSec;
+    const startPositionSec = this.scheduledPlayback.startPositionSec || 0;
+    const duration = this.audioElement.duration || Infinity;
 
     // Calculate exact position to start based on current server time
     const elapsedSec = (serverNow - playAtServer) / 1000;
-    const actualStartPosition = startPositionSec + elapsedSec;
+    const rawStartPosition = startPositionSec + elapsedSec;
+
+    // Phase 5: clamp currentTime to [0, duration - 0.25]
+    const actualStartPosition = Math.max(0, Math.min(rawStartPosition, duration - 0.25));
 
     console.log(`[Sync] Executing playback - Expected start: ${startPositionSec}s, Actual: ${actualStartPosition.toFixed(3)}s`);
 
@@ -457,7 +490,7 @@ class ClientSyncEngine {
       position: position,
       trackStart: trackStart,
       playbackRate: this.playbackRate,
-      timestamp: Date.now()
+      timestamp: this._nowMs()
     };
 
     if (this.ws.readyState === WebSocket.OPEN) {
@@ -477,11 +510,31 @@ class ClientSyncEngine {
   handleDriftCorrection(correction) {
     const adjustment = correction.adjustment || 0;
     const drift = correction.drift || 0;
+    const mode = correction.mode || 'rate'; // Phase 3: new optional field
 
-    console.log(`[Sync] Drift correction - Drift: ${drift.toFixed(2)}ms, Adjustment: ${adjustment.toFixed(4)}`);
+    console.log(`[Sync] Drift correction - Mode: ${mode}, Drift: ${drift.toFixed(2)}ms, Adjustment: ${adjustment.toFixed(4)}`);
 
-    // Apply micro-adjustment to playback rate
-    const newRate = 1.0 + adjustment;
+    // Phase 4: Handle seek (hard resync) mode
+    if (mode === 'seek' && correction.seekToSec !== undefined) {
+      console.log(`[Sync] Hard resync: seeking to ${correction.seekToSec.toFixed(3)}s`);
+      this.seekTo(correction.seekToSec);
+      // Reset playback rate to normal after seek
+      this.playbackRate = 1.0;
+      if (this.audioElement) {
+        this.audioElement.playbackRate = 1.0;
+      }
+      if (this.videoElement) {
+        this.videoElement.playbackRate = 1.0;
+      }
+      if (this.onDriftCorrection) {
+        this.onDriftCorrection(drift, this.playbackRate);
+      }
+      return;
+    }
+
+    // Phase 3: Apply rate correction using rateDelta if provided, else legacy adjustment
+    const rateDelta = correction.rateDelta !== undefined ? correction.rateDelta : adjustment;
+    const newRate = 1.0 + rateDelta;
     
     // Clamp to safe range (0.95 - 1.05)
     this.playbackRate = Math.max(0.95, Math.min(1.05, newRate));
