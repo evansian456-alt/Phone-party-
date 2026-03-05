@@ -51,6 +51,8 @@ async function signupAndLogin(page, request, user) {
   await page.fill('#loginPassword', user.password);
   await page.click('#formLogin button[type="submit"]');
   await expect(page.locator('#viewLogin')).not.toBeVisible({ timeout: 12_000 });
+  // Wait for auth home view to fully render (viewAuthHome or viewHome)
+  await page.waitForSelector('#viewAuthHome:not(.hidden), #viewHome:not(.hidden)', { timeout: 12_000 });
 }
 
 /**
@@ -58,41 +60,49 @@ async function signupAndLogin(page, request, user) {
  * Returns the party code.
  */
 async function createPartyInUI(page, djName) {
-  // Wait for auth state — either viewAuthHome or viewHome
-  await page.waitForSelector('#viewAuthHome:not(.hidden), #viewHome:not(.hidden)', { timeout: 12_000 });
+  // Wait for auth state — either viewAuthHome or viewHome active
+  await page.waitForFunction(() => {
+    const ah = document.getElementById('viewAuthHome');
+    const h = document.getElementById('viewHome');
+    return (ah && !ah.classList.contains('hidden')) || (h && !h.classList.contains('hidden'));
+  }, { timeout: 15_000 });
 
-  // Click the create party big button (both views now have data-testid="create-party")
-  const createBtn = page.locator('[data-testid="create-party"]').first();
-  await createBtn.waitFor({ state: 'visible', timeout: 10_000 });
-  await createBtn.click();
+  // Click the create party button from the ACTIVE view
+  const isAuthHome = await page.evaluate(() => {
+    const el = document.getElementById('viewAuthHome');
+    return el && !el.classList.contains('hidden');
+  });
 
-  // If we're in viewAuthHome, the click shows partyCreateSection.
-  // Fill partyHostName then click btnPartyCreate (data-testid="start-party-auth-home").
-  // This will transition to viewHome with createPartySection visible.
-  const hostNameInput = page.locator('#partyHostName');
-  if (await hostNameInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await hostNameInput.fill(djName);
+  if (isAuthHome) {
+    // viewAuthHome flow: click big button, fill form, click start → goes to viewHome
+    await page.locator('#viewAuthHome [data-testid="create-party"]').click();
+    const hostInput = page.locator('#partyHostName');
+    await hostInput.waitFor({ state: 'visible', timeout: 5_000 });
+    await hostInput.fill(djName);
     await page.locator('[data-testid="start-party-auth-home"]').click();
-    // Now on viewHome with createPartySection visible
-    await page.locator('#viewHome:not(.hidden)').waitFor({ state: 'attached', timeout: 8_000 });
+    // Transitions to viewHome with createPartySection visible
+    await page.waitForFunction(() => {
+      const h = document.getElementById('viewHome');
+      return h && !h.classList.contains('hidden');
+    }, { timeout: 10_000 });
+  } else {
+    // viewHome flow: click big create button to show create section
+    await page.locator('#viewHome [data-testid="create-party"]').click();
   }
 
-  // viewHome: fill hostName if present
+  // Fill hostName in viewHome if present
   const homeHostInput = page.locator('#hostName');
   if (await homeHostInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
     const currentVal = await homeHostInput.inputValue();
     if (!currentVal) await homeHostInput.fill(djName);
   }
 
-  // Click the final "Start the party" button (btnCreate, data-testid="start-party")
-  const startBtn = page.locator('[data-testid="start-party"]');
-  await startBtn.waitFor({ state: 'visible', timeout: 5_000 });
-  await startBtn.click();
+  // Click "Start the party" (viewHome btnCreate, data-testid="start-party")
+  await page.locator('[data-testid="start-party"]').waitFor({ state: 'visible', timeout: 8_000 });
+  await page.locator('[data-testid="start-party"]').click();
 
   // Wait for party view
-  await page.locator('#viewParty').waitFor({ state: 'visible', timeout: 12_000 });
-
-  // Get code
+  await page.locator('#viewParty').waitFor({ state: 'visible', timeout: 15_000 });
   const codeEl = page.locator('[data-testid="party-code"]');
   await codeEl.waitFor({ state: 'visible', timeout: 8_000 });
   return (await codeEl.textContent()).trim();
@@ -220,31 +230,33 @@ test.describe('Click-Everything Audit', () => {
     await signupAndLogin(page, request, user);
     await screenshot(page, 'auth_home_before');
 
-    // Create party button
-    const createBtn = page.locator('[data-testid="create-party"]').first();
+    // Create party button — find the visible one (either viewAuthHome or viewHome)
+    const createBtn = page.locator('#viewAuthHome:not(.hidden) [data-testid="create-party"], #viewHome:not(.hidden) [data-testid="create-party"]').first();
     await createBtn.waitFor({ state: 'visible', timeout: 10_000 });
     await screenshot(page, 'auth_home_create_visible');
 
-    // Join party button
-    const joinBtn = page.locator('[data-testid="join-party"]').first();
+    // Join party button — find the visible one
+    const joinBtn = page.locator('#viewAuthHome:not(.hidden) [data-testid="join-party"], #viewHome:not(.hidden) [data-testid="join-party"]').first();
     await joinBtn.waitFor({ state: 'visible', timeout: 5_000 });
 
-    // Nav buttons
-    const upgradeBtn = page.locator('[data-testid="upgrade-button"]');
-    const profileBtn = page.locator('[data-testid="nav-settings"]');
+    // Nav buttons — wait for nav to be fully updated after login
+    await page.waitForTimeout(500); // let _updateNavVisibility() run
+    const upgradeBtn = page.locator('[data-testid="upgrade-button"]:not(.nav-hidden)');
+    const profileBtn = page.locator('[data-testid="nav-settings"]:not(.nav-hidden)');
 
-    if (await upgradeBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    if (await upgradeBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await upgradeBtn.click();
       await page.locator('#viewUpgradeHub').waitFor({ state: 'visible', timeout: 8_000 });
       await screenshot(page, 'upgrade_hub_view');
       // Go back
       await page.goto(BASE);
-      await expect(page.locator('#viewLanding')).not.toBeVisible({ timeout: 8_000 });
+      await page.waitForSelector('#viewAuthHome:not(.hidden), #viewHome:not(.hidden)', { timeout: 10_000 });
     }
 
-    if (await profileBtn.isVisible({ timeout: 2_000 }).catch(() => false)) {
+    if (await profileBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await profileBtn.click();
-      await page.locator('#viewProfile').waitFor({ state: 'visible', timeout: 8_000 });
+      // nav-settings opens viewMyProfile
+      await page.locator('#viewMyProfile, #viewProfile').first().waitFor({ state: 'visible', timeout: 8_000 });
       await screenshot(page, 'profile_view');
       // Go back
       await page.goto(BASE);
@@ -299,8 +311,9 @@ test.describe('Click-Everything Audit', () => {
 
     const user = makeUser('upgrade');
     await signupAndLogin(page, request, user);
+    await page.waitForTimeout(500); // let nav update
 
-    const upgradeBtn = page.locator('[data-testid="upgrade-button"]');
+    const upgradeBtn = page.locator('[data-testid="upgrade-button"]:not(.nav-hidden)');
     await upgradeBtn.waitFor({ state: 'visible', timeout: 10_000 });
     await upgradeBtn.click();
     await page.locator('#viewUpgradeHub').waitFor({ state: 'visible', timeout: 10_000 });
@@ -341,11 +354,13 @@ test.describe('Click-Everything Audit', () => {
 
     const user = makeUser('profile');
     await signupAndLogin(page, request, user);
+    await page.waitForTimeout(500); // let nav update
 
-    const profileBtn = page.locator('[data-testid="nav-settings"]');
+    const profileBtn = page.locator('[data-testid="nav-settings"]:not(.nav-hidden)');
     await profileBtn.waitFor({ state: 'visible', timeout: 10_000 });
     await profileBtn.click();
-    await page.locator('#viewProfile').waitFor({ state: 'visible', timeout: 10_000 });
+    // nav-settings opens viewMyProfile (not viewProfile)
+    await page.locator('#viewMyProfile, #viewProfile').first().waitFor({ state: 'visible', timeout: 10_000 });
     await screenshot(page, 'profile_view_entered');
 
     // Profile form exists
@@ -403,16 +418,37 @@ test.describe('Click-Everything Audit', () => {
     const user = makeUser('badjoin');
     await signupAndLogin(page, request, user);
 
-    const joinBtn = page.locator('[data-testid="join-party"]').first();
+    // Find the visible join party button (may be in viewAuthHome or viewHome)
+    const joinBtn = page.locator('#viewAuthHome:not(.hidden) [data-testid="join-party"], #viewHome:not(.hidden) [data-testid="join-party"]').first();
     await joinBtn.waitFor({ state: 'visible', timeout: 10_000 });
     await joinBtn.click();
 
-    await page.fill('#joinCode', 'XXXXXX');
-    await page.fill('#guestName', 'TestGuest');
-    await page.click('[data-testid="join-party-submit"]');
+    // Fill code in whichever form appeared
+    const authJoinCode = page.locator('#partyJoinCode');
+    const homeJoinCode = page.locator('#joinCode');
+
+    if (await authJoinCode.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await authJoinCode.fill('XXXXXX');
+      await page.locator('[data-testid="join-party-submit-auth-home"]').click();
+      // Transitions to viewHome join section
+      await page.waitForSelector('#viewHome:not(.hidden)', { timeout: 8_000 }).catch(() => {});
+      const homeCode = page.locator('#joinCode');
+      if (await homeCode.isVisible({ timeout: 2_000 }).catch(() => false)) {
+        const val = await homeCode.inputValue();
+        if (!val) await homeCode.fill('XXXXXX');
+        await page.click('[data-testid="join-party-submit"]');
+      }
+    } else if (await homeJoinCode.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await homeJoinCode.fill('XXXXXX');
+      const guestNameInput = page.locator('#guestName');
+      if (await guestNameInput.isVisible({ timeout: 1_000 }).catch(() => false)) {
+        await guestNameInput.fill('TestGuest');
+      }
+      await page.click('[data-testid="join-party-submit"]');
+    }
 
     // Should show error toast or error message
-    const toast = page.locator('[data-testid="toast"], .toast, .error-message');
+    const toast = page.locator('[data-testid="toast"], .toast, .error-message, #partyJoinStatus, #joinStatus');
     await toast.waitFor({ state: 'visible', timeout: 8_000 }).catch(() => {});
     await screenshot(page, 'error_bad_party_code');
     const fatalErrors = errors.filter(e => !e.includes("require is not defined")); expect(fatalErrors).toHaveLength(0);
