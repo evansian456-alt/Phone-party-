@@ -51,7 +51,7 @@ jobs:
       ALLOW_LOCAL_DISK_IN_PROD: "true"
       PUBLIC_BASE_URL: http://localhost:8080
       BASE_URL: http://localhost:8080
-      ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS || 'ianevans2023@outlook.com' }}
+      ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS || 'admin@example.invalid' }}
 
     steps:
       - name: Checkout
