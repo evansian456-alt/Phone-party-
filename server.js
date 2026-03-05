@@ -135,6 +135,53 @@ const DEBUG_MODE = process.env.DEBUG === 'true' || process.env.NODE_ENV === 'dev
 // Feature flags for phased rollout
 const ENABLE_PUBSUB = process.env.ENABLE_PUBSUB !== 'false'; // Default ON
 const ENABLE_REACTION_HISTORY = process.env.ENABLE_REACTION_HISTORY !== 'false'; // Default ON
+const STREAMING_PARTY_ENABLED = process.env.STREAMING_PARTY_ENABLED === 'true'; // Default OFF — must be explicitly enabled
+
+/**
+ * Returns true if the Streaming Party feature flag is enabled.
+ * @returns {boolean}
+ */
+function isStreamingPartyEnabled() {
+  return STREAMING_PARTY_ENABLED;
+}
+
+/**
+ * Express middleware — rejects with 503 if Streaming Party feature flag is off.
+ */
+function requireStreamingEnabled(req, res, next) {
+  if (!isStreamingPartyEnabled()) {
+    return res.status(503).json({
+      error: 'Streaming Party is not available at this time.',
+      featureDisabled: true
+    });
+  }
+  next();
+}
+
+/**
+ * Express middleware — rejects with 403 if the authenticated user does not have
+ * Party Pass or Pro entitlements.  Must be used after requireAuth.
+ */
+async function requireStreamingEntitled(req, res, next) {
+  try {
+    const userId = req.user && req.user.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required.' });
+    }
+    const upgrades = await db.getOrCreateUserUpgrades(userId);
+    const { hasPartyPass, hasPro } = db.resolveEntitlements(upgrades);
+    const userObj = { entitlements: { hasPartyPass, hasPro } };
+    if (!hasStreamingAccess(userObj)) {
+      return res.status(403).json({
+        error: 'Streaming Party requires Party Pass or Pro.',
+        upgradeRequired: true
+      });
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
 
 // Helper function to classify Redis error types
 function getRedisErrorType(errorMessage) {
@@ -1549,6 +1596,17 @@ app.post("/api/auth/logout", apiLimiter, (req, res) => {
     httpOnly: true
   });
   res.json({ success: true });
+});
+
+/**
+ * GET /api/feature-flags
+ * Returns public feature flag values for the client to use.
+ * No authentication required — flag values are not secrets.
+ */
+app.get('/api/feature-flags', apiLimiter, (req, res) => {
+  return res.json({
+    STREAMING_PARTY_ENABLED: isStreamingPartyEnabled()
+  });
 });
 
 /**
@@ -5584,22 +5642,10 @@ app.post('/api/referral/track', apiLimiter, authMiddleware.requireAuth, async (r
 /**
  * GET /api/streaming/providers
  * Returns the list of supported streaming providers.
- * Requires Party Pass or Pro tier — returns 403 for FREE users.
+ * Requires: feature flag ON + Party Pass or Pro tier.
  */
-app.get('/api/streaming/providers', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+app.get('/api/streaming/providers', apiLimiter, requireStreamingEnabled, authMiddleware.requireAuth, requireStreamingEntitled, async (req, res) => {
   try {
-    const userId = req.user.userId;
-    const upgrades = await db.getOrCreateUserUpgrades(userId);
-    const { hasPartyPass, hasPro } = db.resolveEntitlements(upgrades);
-    const userObj = { entitlements: { hasPartyPass, hasPro } };
-
-    if (!hasStreamingAccess(userObj)) {
-      return res.status(403).json({
-        error: 'Streaming Party requires Party Pass or Pro.',
-        upgradeRequired: true
-      });
-    }
-
     return res.json({
       providers: [
         {
@@ -5607,7 +5653,8 @@ app.get('/api/streaming/providers', apiLimiter, authMiddleware.requireAuth, asyn
           name: 'YouTube',
           description: 'Playback starts together using party clock.',
           deepLinkTemplate: 'https://www.youtube.com/watch?v={id}',
-          accuracy: '40–150ms'
+          accuracy: '40–150ms',
+          syncBadge: 'In-app Sync'
         },
         {
           id: 'spotify',
@@ -5615,14 +5662,16 @@ app.get('/api/streaming/providers', apiLimiter, authMiddleware.requireAuth, asyn
           description: 'Playback occurs in the Spotify app. The app will guide synchronization.',
           deepLinkTemplate: 'spotify:track:{id}',
           webFallback: 'https://open.spotify.com/track/{id}',
-          accuracy: 'variable'
+          accuracy: 'variable',
+          syncBadge: 'External (Best effort)'
         },
         {
           id: 'soundcloud',
           name: 'SoundCloud',
           description: 'Direct streams behave similar to uploads.',
           deepLinkTemplate: '{url}',
-          accuracy: '40–150ms'
+          accuracy: '40–150ms',
+          syncBadge: 'In-app Sync'
         }
       ]
     });
@@ -5635,24 +5684,12 @@ app.get('/api/streaming/providers', apiLimiter, authMiddleware.requireAuth, asyn
 /**
  * POST /api/streaming/select-track
  * Host selects a track from a streaming provider.
- * Requires Party Pass or Pro tier — returns 403 for FREE users.
+ * Requires: feature flag ON + Party Pass or Pro tier.
  *
  * Body: { partyCode, provider, trackId, title?, artist?, artwork? }
  */
-app.post('/api/streaming/select-track', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+app.post('/api/streaming/select-track', apiLimiter, requireStreamingEnabled, authMiddleware.requireAuth, requireStreamingEntitled, async (req, res) => {
   try {
-    const userId = req.user.userId;
-    const upgrades = await db.getOrCreateUserUpgrades(userId);
-    const { hasPartyPass, hasPro } = db.resolveEntitlements(upgrades);
-    const userObj = { entitlements: { hasPartyPass, hasPro } };
-
-    if (!hasStreamingAccess(userObj)) {
-      return res.status(403).json({
-        error: 'Streaming Party requires Party Pass or Pro.',
-        upgradeRequired: true
-      });
-    }
-
     const { partyCode, provider, trackId, title, artist, artwork } = req.body;
 
     if (!partyCode || !provider || !trackId) {
@@ -5694,18 +5731,27 @@ app.post('/api/streaming/select-track', apiLimiter, authMiddleware.requireAuth, 
 /**
  * GET /api/streaming/access
  * Check if the authenticated user has Streaming Party access.
+ * Returns featureEnabled flag and entitlement status.
  */
 app.get('/api/streaming/access', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
   try {
+    const featureEnabled = isStreamingPartyEnabled();
     const userId = req.user.userId;
     const upgrades = await db.getOrCreateUserUpgrades(userId);
     const { hasPartyPass, hasPro } = db.resolveEntitlements(upgrades);
     const userObj = { entitlements: { hasPartyPass, hasPro } };
-    const allowed = hasStreamingAccess(userObj);
+    const entitled = hasStreamingAccess(userObj);
+    const allowed = featureEnabled && entitled;
 
     return res.json({
       allowed,
-      reason: allowed ? null : 'Streaming Party requires Party Pass or Pro.'
+      featureEnabled,
+      entitled,
+      reason: !featureEnabled
+        ? 'Streaming Party is not available at this time.'
+        : !entitled
+          ? 'Streaming Party requires Party Pass or Pro.'
+          : null
     });
   } catch (error) {
     console.error('[StreamingParty] Access check error:', error.message);

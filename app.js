@@ -123,6 +123,28 @@ const HASH_TO_VIEW = Object.fromEntries(
 // ============================================================
 let _currentViewName = null;
 
+// Feature flags — loaded from /api/feature-flags at startup
+let _featureFlags = {
+  STREAMING_PARTY_ENABLED: false // Conservative default — updated after fetch
+};
+
+/**
+ * Fetch feature flags from the server and store them in _featureFlags.
+ * Safe to call without authentication (flags are public).
+ * @returns {Promise<void>}
+ */
+async function fetchFeatureFlags() {
+  try {
+    const res = await fetch('/api/feature-flags');
+    if (res.ok) {
+      const data = await res.json();
+      _featureFlags = Object.assign(_featureFlags, data);
+    }
+  } catch (_e) {
+    // Non-fatal — flags remain at conservative defaults
+  }
+}
+
 /**
  * Navigate to a named view.
  * @param {string} viewName  - Key from VIEWS registry
@@ -5039,9 +5061,10 @@ function updatePartyPassUI() {
   }
 
   // Streaming Party: show paid section to host when paid, show paywall to free users
+  // Only shown when the STREAMING_PARTY_ENABLED feature flag is on.
   const officialAppSyncSection = el("officialAppSyncSection");
   const streamingPartyPaywall = el("streamingPartyPaywall");
-  if (state.isHost) {
+  if (state.isHost && _featureFlags.STREAMING_PARTY_ENABLED) {
     const isPaid = hasPartyPassEntitlement() || hasProTierEntitlement();
     if (officialAppSyncSection) {
       officialAppSyncSection.classList[isPaid ? 'remove' : 'add']('hidden');
@@ -5050,7 +5073,7 @@ function updatePartyPassUI() {
       streamingPartyPaywall.classList[isPaid ? 'add' : 'remove']('hidden');
     }
   } else {
-    // Guests: hide both streaming party sections
+    // Guests, or feature flag off: hide both streaming party sections
     if (officialAppSyncSection) officialAppSyncSection.classList.add('hidden');
     if (streamingPartyPaywall) streamingPartyPaywall.classList.add('hidden');
   }
@@ -7169,6 +7192,9 @@ async function handleBillingReturn() {
 }
 
 (async function init(){
+  // Fetch feature flags early — used to gate UI sections
+  await fetchFeatureFlags();
+
   // Connect WebSocket for real-time party sync, DJ authority, and guest updates
   try {
     await connectWS();
