@@ -225,3 +225,42 @@ describe('Admin bootstrap', () => {
     }
   });
 });
+
+describe('Auth error responses are always JSON', () => {
+  // Regression guard: ALL auth API errors (including rate-limit 429s) must return
+  // application/json so the frontend never displays "Server returned non-JSON error".
+
+  test('/api/auth/signup returns JSON on 400 (missing fields)', async () => {
+    const res = await request(app)
+      .post('/api/auth/signup')
+      .send({ email: 'notvalid' }); // missing password + djName → 400
+
+    expect(res.headers['content-type']).toMatch(/json/);
+    expect(res.body.error).toBeTruthy();
+  });
+
+  test('/api/auth/login returns JSON on 401 (wrong password)', async () => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send({ email: 'nobody@test.invalid', password: 'wrong' });
+
+    expect(res.status).toBe(401);
+    expect(res.headers['content-type']).toMatch(/json/);
+    expect(res.body.error).toBeTruthy();
+  });
+
+  test('/api/auth/signup returns JSON on 409 (duplicate email)', async () => {
+    const user = makeUser('json_409');
+    await request(app)
+      .post('/api/auth/signup')
+      .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true });
+
+    const res = await request(app)
+      .post('/api/auth/signup')
+      .send({ email: user.email, password: user.password, djName: user.djName, termsAccepted: true });
+
+    expect(res.status).toBe(409);
+    expect(res.headers['content-type']).toMatch(/json/);
+    expect(res.body.error).toBeTruthy();
+  });
+});

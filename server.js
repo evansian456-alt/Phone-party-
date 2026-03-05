@@ -1355,15 +1355,22 @@ app.get("/api/routes", (req, res) => {
 // ============================================================================
 
 // Rate limiter for auth endpoints (stricter)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 requests per windowMs (allows for typos)
-  message: 'Too many authentication attempts, please try again later',
-  standardHeaders: true,
-  legacyHeaders: false,
-  // Disable rate limiting in test mode so integration tests can call /signup freely
-  skip: () => process.env.NODE_ENV === 'test',
-});
+// Returns JSON so the frontend can display a proper error message (not "Server returned non-JSON error").
+// Bypassed in test mode (NODE_ENV=test) and when DISABLE_RATE_LIMIT=true (CI/E2E audit).
+const authLimiter = (process.env.NODE_ENV === 'test' || process.env.DISABLE_RATE_LIMIT === 'true')
+  ? (req, res, next) => next() // Bypass in test/CI mode
+  : rateLimit({
+      windowMs: 15 * 60 * 1000, // 15 minutes
+      max: 10, // Limit each IP to 10 requests per windowMs (allows for typos)
+      // JSON message so clients always get a parseable error body
+      message: { error: 'Too many authentication attempts, please try again later' },
+      standardHeaders: true,
+      legacyHeaders: false,
+      // Ensure response is always application/json regardless of Accept header
+      handler(req, res, next, options) {
+        res.status(options.statusCode).json(options.message);
+      },
+    });
 
 // Rate limiter for general API endpoints
 const apiLimiter = rateLimit({

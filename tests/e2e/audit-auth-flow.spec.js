@@ -132,6 +132,80 @@ test.describe('Auth error flow', () => {
   });
 });
 
+// ─── Full UI signup → logout → login flow (no API shortcuts) ─────────────────
+//
+// Requirement: users must be able to sign up from the FIRST PAGE via the UI.
+// This test validates the entire journey in a real Chromium browser.
+
+test.describe('Full UI signup → logout → login journey', () => {
+  test('user can sign up, log out, and log back in from the landing page', async ({ page }) => {
+    const user = makeUser('ui_signup');
+
+    // ── Step 1: Open landing page ──────────────────────────────────────────
+    await page.goto(BASE);
+    await expect(page.locator('[data-testid="signup-button"]')).toBeVisible({ timeout: 10000 });
+
+    // ── Step 2: Navigate to Create Account view ───────────────────────────
+    await page.locator('[data-testid="signup-button"]').click();
+    await page.locator('#viewSignup').waitFor({ state: 'visible', timeout: 5000 });
+
+    // ── Step 3: Fill in signup form ────────────────────────────────────────
+    await page.locator('#signupEmail').fill(user.email);
+    await page.locator('#signupPassword').fill(user.password);
+    await page.locator('#signupDjName').fill(user.djName);
+
+    const terms = page.locator('#signupTermsAccept');
+    if (!(await terms.isChecked())) await terms.check();
+
+    // ── Step 4: Submit ─────────────────────────────────────────────────────
+    await page.locator('[data-testid="signup-form"] button[type="submit"]').click();
+
+    // ── Step 5: Verify no 429 error and authenticated view shown ──────────
+    // The signup success message ("Welcome to the party 🥳") is transient;
+    // immediately after it initAuthFlow() transitions to the authenticated home view.
+    await page.waitForFunction(() => {
+      const errEl = document.getElementById('signupError');
+      const has429 = errEl && errEl.textContent && errEl.textContent.includes('429');
+      if (has429) throw new Error('429 rate-limit error shown during signup');
+      // Check we are on an authenticated view
+      const authHome = document.getElementById('viewAuthHome');
+      const home = document.getElementById('viewHome');
+      return (
+        (authHome && !authHome.classList.contains('hidden')) ||
+        (home && !home.classList.contains('hidden'))
+      );
+    }, { timeout: 15000 });
+
+    // ── Step 6: Log out ────────────────────────────────────────────────────
+    const logoutBtn = page.locator('[data-testid="logout-button"]').first();
+    await expect(logoutBtn).toBeVisible({ timeout: 8000 });
+    await logoutBtn.click();
+
+    // After logout the landing / unauthenticated view should be visible
+    await page.waitForFunction(() => {
+      const landing = document.getElementById('viewLanding');
+      return landing && !landing.classList.contains('hidden');
+    }, { timeout: 10000 });
+
+    // ── Step 7: Log back in with the same credentials ─────────────────────
+    await page.locator('[data-testid="login-button"]').click();
+    await page.locator('#loginEmail').waitFor({ state: 'visible', timeout: 5000 });
+    await page.locator('#loginEmail').fill(user.email);
+    await page.locator('#loginPassword').fill(user.password);
+    await page.locator('[data-testid="login-form"] button[type="submit"]').click();
+
+    // Authenticated view must appear again
+    await page.waitForFunction(() => {
+      const authHome = document.getElementById('viewAuthHome');
+      const home = document.getElementById('viewHome');
+      return (
+        (authHome && !authHome.classList.contains('hidden')) ||
+        (home && !home.classList.contains('hidden'))
+      );
+    }, { timeout: 12000 });
+  });
+});
+
 // ─── Logout flow ─────────────────────────────────────────────────────────────
 
 test.describe('Logout flow', () => {

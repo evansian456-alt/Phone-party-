@@ -13,19 +13,21 @@ const { isProduction: isProductionEnv, isTest: isTestEnv } = require('./env-vali
 // Loaded from ADMIN_EMAILS env var (comma-separated list).
 // Comparison is always trim + lowercase — no hardcoded emails.
 // ============================================================================
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
-  .split(',')
-  .map(s => s.trim().toLowerCase())
-  .filter(Boolean);
 
 /**
  * Returns true if the given email is in the ADMIN_EMAILS allowlist.
+ * Reads process.env.ADMIN_EMAILS at call time so that tests can modify
+ * the env var after module load without requiring a module cache reset.
  * @param {string} email
  * @returns {boolean}
  */
 function isAdminEmail(email) {
   if (!email) return false;
-  return ADMIN_EMAILS.includes(email.trim().toLowerCase());
+  const adminEmails = (process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+  return adminEmails.includes(email.trim().toLowerCase());
 }
 
 // JWT_SECRET is REQUIRED in production-like environments. Use the same production
