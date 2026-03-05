@@ -1,0 +1,153 @@
+// @ts-check
+const { test, expect } = require('@playwright/test');
+
+/**
+ * E2E — Party System
+ *
+ * Covers:
+ *  - Create party (via API + UI)
+ *  - Party code is returned and is non-empty
+ *  - Party details retrievable via GET /api/party
+ *  - Join-party button present after login
+ *  - End party via API
+ *  - Invalid party code returns 404 / exists=false
+ */
+
+const BASE = process.env.BASE_URL || 'http://localhost:8080';
+
+function uid() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function makeUser(prefix = 'party') {
+  const id = uid();
+  return {
+    email: `e2e_${prefix}_${id}@test.invalid`,
+    password: 'PartyTest123!',
+    djName: `DJ_${prefix}_${id}`.slice(0, 30),
+  };
+}
+
+async function apiSignup(request, user) {
+  return request.post(`${BASE}/api/auth/signup`, {
+    data: {
+      email: user.email,
+      password: user.password,
+      djName: user.djName,
+      termsAccepted: true,
+    },
+  });
+}
+
+async function apiLogin(request, user) {
+  return request.post(`${BASE}/api/auth/login`, {
+    data: { email: user.email, password: user.password },
+  });
+}
+
+// ─── API-level party tests ────────────────────────────────────────────────────
+
+test.describe('Party creation (API)', () => {
+  let host;
+
+  test.beforeAll(async ({ request }) => {
+    host = makeUser('host');
+    await apiSignup(request, host);
+    await apiLogin(request, host);
+  });
+
+  test('POST /api/create-party returns a party code', async ({ request }) => {
+    const res = await request.post(`${BASE}/api/create-party`, {
+      data: { djName: host.djName },
+    });
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body).toHaveProperty('code');
+    expect(typeof body.code).toBe('string');
+    expect(body.code.length).toBeGreaterThan(0);
+    host.partyCode = body.code;
+  });
+
+  test('GET /api/party returns party info for a valid code', async ({ request }) => {
+    if (!host.partyCode) test.skip();
+    const res = await request.get(`${BASE}/api/party?code=${host.partyCode}`);
+    expect(res.ok()).toBeTruthy();
+    const body = await res.json();
+    expect(body.exists).toBe(true);
+    expect(body.party).toBeDefined();
+    expect(body.party.djName).toBe(host.djName);
+  });
+
+  test('GET /api/party returns exists=false for invalid code', async ({ request }) => {
+    const res = await request.get(`${BASE}/api/party?code=INVALID_CODE_XXXX`);
+    const body = await res.json();
+    expect(body.exists).toBe(false);
+  });
+
+  test('POST /api/end-party ends the party', async ({ request }) => {
+    const createRes = await request.post(`${BASE}/api/create-party`, {
+      data: { djName: host.djName },
+    });
+    const { code } = await createRes.json();
+
+    const endRes = await request.post(`${BASE}/api/end-party`, {
+      data: { code },
+    });
+    expect(endRes.ok()).toBeTruthy();
+
+    // Party should no longer exist
+    const checkRes = await request.get(`${BASE}/api/party?code=${code}`);
+    const checkBody = await checkRes.json();
+    expect(checkBody.exists).toBe(false);
+  });
+});
+
+// ─── UI party element presence tests ─────────────────────────────────────────
+
+test.describe('Party UI elements', () => {
+  test('create-party data-testid button is present after login', async ({ page, request }) => {
+    const user = makeUser('uiparty');
+    await apiSignup(request, user);
+    await apiLogin(request, user);
+
+    await page.goto(BASE);
+    await page.locator('#viewLanding').waitFor({ state: 'visible', timeout: 12_000 });
+    await page.locator('[data-testid="login-button"]').click();
+    await page.locator('#viewLogin').waitFor({ state: 'visible', timeout: 8_000 });
+    await page.fill('#loginEmail', user.email);
+    await page.fill('#loginPassword', user.password);
+    await page.click('#formLogin button[type="submit"]');
+    await expect(page.locator('#viewLogin')).not.toBeVisible({ timeout: 12_000 });
+
+    // Wait for auth home or home view
+    await page.waitForFunction(
+      () => {
+        const ah = document.getElementById('viewAuthHome');
+        const h = document.getElementById('viewHome');
+        return (
+          (ah && !ah.classList.contains('hidden')) ||
+          (h && !h.classList.contains('hidden'))
+        );
+      },
+      { timeout: 12_000 }
+    );
+
+    await expect(page.locator('[data-testid="create-party"]')).toBeVisible();
+    await expect(page.locator('[data-testid="join-party"]')).toBeVisible();
+  });
+
+  test('party-code element is attached in the DOM', async ({ page }) => {
+    await page.goto(BASE);
+    await expect(page.locator('[data-testid="party-code"]')).toBeAttached();
+  });
+
+  test('end-party button is attached in the DOM', async ({ page }) => {
+    await page.goto(BASE);
+    await expect(page.locator('[data-testid="end-party"]')).toBeAttached();
+  });
+
+  test('start-party button is attached in the DOM', async ({ page }) => {
+    await page.goto(BASE);
+    await expect(page.locator('[data-testid="start-party"]')).toBeAttached();
+  });
+});

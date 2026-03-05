@@ -1,0 +1,141 @@
+name: App Health Monitor
+
+on:
+  push:
+    branches: ["main", "copilot/**"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    # Run every day at 06:00 UTC to catch regressions
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: Application Health Check
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: houseparty_test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/houseparty_test
+      JWT_SECRET: health-monitor-ci-secret-not-used-in-production
+      REDIS_URL: redis://localhost:6379
+      ALLOW_LOCAL_DISK_IN_PROD: "true"
+      PUBLIC_BASE_URL: http://localhost:8080
+      BASE_URL: http://localhost:8080
+      ADMIN_EMAILS: ${{ vars.ADMIN_EMAILS || 'ianevans2023@outlook.com' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Apply database migrations
+        run: npm run db:migrate
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Start application server
+        run: |
+          node server.js &
+          echo "APP_PID=$!" >> "$GITHUB_ENV"
+          # Wait for server to be ready (up to 30 seconds)
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/ > /dev/null 2>&1; then
+              echo "Server is ready after ${i}s"
+              break
+            fi
+            echo "Waiting for server... attempt $i"
+            sleep 1
+          done
+
+      - name: Verify server is healthy
+        run: curl -f http://localhost:8080/ || (echo "Server health check failed" && exit 1)
+
+      - name: Run Playwright health tests
+        run: npx playwright test --config=playwright.tests.config.js
+        env:
+          BASE_URL: http://localhost:8080
+        continue-on-error: false
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-playwright-report
+          path: playwright-report-tests/
+          retention-days: 14
+
+      - name: Upload Playwright screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-playwright-screenshots
+          path: test-results/**/screenshot*.png
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload Playwright traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-playwright-traces
+          path: test-results/**/*.zip
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload Playwright video recordings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: health-playwright-videos
+          path: test-results/**/*.webm
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Stop application server
+        if: always()
+        run: |
+          if [ -n "$APP_PID" ]; then
+            kill "$APP_PID" 2>/dev/null || true
+          fi
