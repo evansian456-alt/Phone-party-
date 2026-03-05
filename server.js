@@ -2537,6 +2537,23 @@ app.get("/api/track/:trackId", async (req, res) => {
   }
 });
 
+// Sync metrics endpoint — enabled only in SYNC_TEST_MODE
+// Returns a live metrics snapshot for a party (Playwright harness + manual testing)
+app.get("/api/sync/metrics", (req, res) => {
+  if (process.env.SYNC_TEST_MODE !== 'true') {
+    return res.status(404).json({ error: 'Not available outside test mode' });
+  }
+  const partyId = req.query.partyId;
+  if (!partyId) {
+    return res.status(400).json({ error: 'partyId query parameter required' });
+  }
+  const syncEngine = partySyncEngines.get(partyId);
+  if (!syncEngine) {
+    return res.status(404).json({ error: 'Party not found or no sync engine' });
+  }
+  return res.json(syncEngine.getPartyMetrics());
+});
+
 // Debug endpoint to list active parties
 // WARNING: This endpoint is for debugging purposes only and should be
 // protected by authentication or disabled in production environments
