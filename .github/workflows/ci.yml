@@ -69,6 +69,10 @@ jobs:
       - name: Run unit tests
         run: npm test -- --passWithNoTests --forceExit
 
+      - name: Run performance smoke test
+        run: npm run perf:smoke
+        continue-on-error: true
+
       - name: Run integration tests
         run: npm run test:integration
         env:

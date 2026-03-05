@@ -31,7 +31,9 @@
     "cap:run:android": "npx cap run android",
     "cap:run:ios": "npx cap run ios",
     "test:integration": "jest --config=jest.integration.config.js",
-    "test:stress": "jest --config=jest.stress.config.js --testTimeout=120000"
+    "test:stress": "jest --config=jest.stress.config.js --testTimeout=120000",
+    "perf:smoke": "node ./scripts/perf-smoke.js",
+    "perf:baseline": "PERF_WRITE_BASELINE=1 node ./scripts/perf-smoke.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.993.0",

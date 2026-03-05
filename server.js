@@ -6725,7 +6725,9 @@ async function startServer() {
     const clientId = nextWsClientId++;
     clients.set(ws, { id: clientId, party: null });
     
-    console.log(`[WS] Client ${clientId} connected`);
+    if (process.env.DEBUG === 'true') {
+      console.log(`[WS] Client ${clientId} connected`);
+    }
     
     // Set up heartbeat for this connection
     ws.isAlive = true;
@@ -6756,7 +6758,9 @@ async function startServer() {
         const client = clients.get(ws);
         if (!client) return;
         const maskedPartyCode = client.party ? maskPartyCode(client.party) : 'none';
-        console.log(`[WS] Client ${clientId} sent type: ${msg.t}, partyCode: ${maskedPartyCode}, size: ${data.length}b`);
+        if (process.env.DEBUG === 'true') {
+          console.log(`[WS] Client ${clientId} sent type: ${msg.t}, partyCode: ${maskedPartyCode}, size: ${data.length}b`);
+        }
         
         await handleMessage(ws, msg);
       } catch (err) {

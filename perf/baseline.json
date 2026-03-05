@@ -1,0 +1,6 @@
+{
+  "_comment": "Perf smoke baseline — regenerate with: npm run perf:baseline",
+  "_updatedAt": "2026-03-05T00:00:00.000Z",
+  "healthz": { "p50": 10, "p95": 50 },
+  "api_ping": { "p50": 10, "p95": 50 }
+}
