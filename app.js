@@ -158,9 +158,19 @@ function setView(viewName, opts = {}) {
   _currentViewName = viewName;
   console.log('[NAV]', from, '->', viewName, { hash: '#' + view.hash });
 
-  // Update location hash (unless triggered by a hashchange)
-  if (!opts.fromHash && window.location && window.location.hash !== '#' + view.hash) {
-    try { history.pushState(null, '', '#' + view.hash); } catch (e) { /* may throw in tests */ }
+  // Update location hash:
+  // - pushState for normal navigation (new history entry)
+  // - replaceState when redirected by auth flow (fromHash:true) so the address
+  //   bar reflects the current view without adding a redundant history entry.
+  //   When the URL already matches (genuine hashchange), neither call is needed.
+  if (window.location && window.location.hash !== '#' + view.hash) {
+    try {
+      if (opts.fromHash) {
+        history.replaceState(null, '', '#' + view.hash);
+      } else {
+        history.pushState(null, '', '#' + view.hash);
+      }
+    } catch (e) { /* may throw in tests */ }
   }
 
   // Always hide ALL_VIEWS first (via showView) to guarantee single-view display,
