@@ -225,6 +225,16 @@
             </div>
             <input type="hidden" id="favoriteColor" value="purple" />
           </div>
+          <div class="form-group hidden" style="flex-direction:row;align-items:flex-start;gap:10px" id="accountTermsGroup">
+            <input type="checkbox" id="accountTermsAccept" style="margin-top:3px;flex-shrink:0" />
+            <label for="accountTermsAccept" style="font-size:13px;line-height:1.5;cursor:pointer">
+              I agree to the
+              <a href="#" class="link-to-terms" style="color:var(--accent,#6366f1)">Terms &amp; Conditions</a>
+              and
+              <a href="#" class="link-to-privacy" style="color:var(--accent,#6366f1)">Privacy Policy</a>.
+            </label>
+          </div>
+          <div class="auth-error hidden" id="accountCreationError"></div>
           <button class="btn primary" id="btnCreateAccountSubmit">Save Profile & Continue 🚀</button>
         </div>
         

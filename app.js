@@ -7243,9 +7243,6 @@ async function handleBillingReturn() {
   // Initialize music player
   initializeMusicPlayer();
 
-  // Set up auth form submit handlers and navigation links
-  setupAuthEventListeners();
-
   // LANDING PAGE BUTTONS (for logged-out users)
   const btnLandingSignup = el("btnLandingSignup");
   const btnLandingLogin = el("btnLandingLogin");
@@ -9494,7 +9491,10 @@ function initializeAllFeatures() {
   if (typeof initModeration === 'function') {
     initModeration();
   }
-  
+
+  // Set up auth event listeners (login, signup, account creation, etc.)
+  setupAuthEventListeners();
+
   initCrowdEnergyMeter();
   initDJMoments();
   initPartyRecap();
@@ -9848,6 +9848,119 @@ function setupAuthEventListeners() {
       }
     });
   });
+
+  // Account Creation page handlers (viewAccountCreation)
+  const btnCreateAccountSubmit = document.getElementById('btnCreateAccountSubmit');
+  if (btnCreateAccountSubmit && !btnCreateAccountSubmit.dataset.handlerAttached) {
+    btnCreateAccountSubmit.dataset.handlerAttached = 'true';
+    btnCreateAccountSubmit.onclick = async () => {
+      console.log("[UI] Create account submit clicked");
+      const djNameEl = document.getElementById('accountDjName');
+      const emailEl = document.getElementById('accountEmail');
+      const passwordEl = document.getElementById('accountPassword');
+      const errorEl = document.getElementById('accountCreationError');
+      const djName = djNameEl ? djNameEl.value.trim() : '';
+      const email = emailEl ? emailEl.value.trim() : '';
+      const password = passwordEl ? passwordEl.value : '';
+
+      if (errorEl) errorEl.classList.add('hidden');
+
+      if (!djName) {
+        if (errorEl) {
+          errorEl.textContent = 'DJ Name is required';
+          errorEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      if (email || password) {
+        // User wants to create a full account — both email and password are required
+        if (!email || !password) {
+          if (errorEl) {
+            errorEl.textContent = 'Both email and password are required to create an account';
+            errorEl.classList.remove('hidden');
+          }
+          return;
+        }
+
+        const termsCheckbox = document.getElementById('accountTermsAccept');
+        const termsAccepted = termsCheckbox ? termsCheckbox.checked : false;
+        if (!termsAccepted) {
+          if (errorEl) {
+            errorEl.textContent = 'You must accept the Terms & Conditions and Privacy Policy to create an account';
+            errorEl.classList.remove('hidden');
+          }
+          return;
+        }
+
+        const result = await signUp(email, password, djName, true);
+        if (result.success) {
+          if (result.user && result.user.djName) {
+            saveProfile({ djName: result.user.djName, email: result.user.email || email, tier: USER_TIER.FREE });
+          }
+          showToast('✅ Account created! Welcome to Phone Party!');
+          await initAuthFlow();
+        } else {
+          if (result.status === 409) {
+            if (errorEl) {
+              errorEl.textContent = 'Account already exists. ';
+              const loginLink = document.createElement('a');
+              loginLink.href = '#';
+              loginLink.style.cssText = 'color:inherit;text-decoration:underline';
+              loginLink.textContent = 'Log In Instead';
+              loginLink.addEventListener('click', (evt) => {
+                evt.preventDefault();
+                setView('login');
+              });
+              errorEl.appendChild(loginLink);
+              errorEl.classList.remove('hidden');
+            }
+          } else {
+            if (errorEl) {
+              errorEl.textContent = result.error || `Signup failed (status ${result.status || 'unknown'})`;
+              errorEl.classList.remove('hidden');
+            }
+          }
+        }
+      } else {
+        // No email/password — save a local DJ profile and continue
+        saveProfile({ djName, tier: state.selectedTier || USER_TIER.FREE });
+        setView('createJoin');
+      }
+    };
+  }
+
+  const btnShowLogin = document.getElementById('btnShowLogin');
+  if (btnShowLogin && !btnShowLogin.dataset.handlerAttached) {
+    btnShowLogin.dataset.handlerAttached = 'true';
+    btnShowLogin.onclick = () => {
+      console.log("[UI] Show login from account creation");
+      setView('login');
+    };
+  }
+
+  const btnBackToTiers = document.getElementById('btnBackToTiers');
+  if (btnBackToTiers && !btnBackToTiers.dataset.handlerAttached) {
+    btnBackToTiers.dataset.handlerAttached = 'true';
+    btnBackToTiers.onclick = () => {
+      console.log("[UI] Back to tiers from account creation");
+      setView('chooseTier');
+    };
+  }
+
+  // Show/hide terms checkbox when account email field is filled
+  const accountEmailInput = document.getElementById('accountEmail');
+  const accountTermsGroup = document.getElementById('accountTermsGroup');
+  if (accountEmailInput && accountTermsGroup && !accountEmailInput.dataset.termsListenerAttached) {
+    accountEmailInput.dataset.termsListenerAttached = 'true';
+    accountEmailInput.addEventListener('input', () => {
+      if (accountEmailInput.value.trim()) {
+        accountTermsGroup.classList.remove('hidden');
+      } else {
+        accountTermsGroup.classList.add('hidden');
+      }
+    });
+  }
 }
 
 /**

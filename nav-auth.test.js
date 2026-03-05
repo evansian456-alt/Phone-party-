@@ -116,6 +116,8 @@ document.body.innerHTML = `
     <section class="card hidden" id="viewPrivacy"><h1>Privacy</h1></section>
     <input id="joinCode" /><input id="guestName" />
     <input id="accountDjName" /><input id="accountEmail" /><input id="accountPassword" />
+    <div id="accountTermsGroup" class="hidden"><input type="checkbox" id="accountTermsAccept" /></div>
+    <div id="accountCreationError" class="auth-error hidden"></div>
     <div id="selectedTierInfo">
       <div class="selected-tier-badge"></div>
       <div class="selected-tier-details"></div>
@@ -165,6 +167,9 @@ document.body.innerHTML = `
     <button id="btnCreateAccountSubmit"></button>
     <button id="btnShowLogin"></button>
     <button id="btnSkipAccount">Skip</button>
+    <div id="members"></div>
+    <button id="btnCompletePayment"></button>
+    <button id="btnCancelPayment"></button>
     <div class="prototype-mode-section"><div class="line"></div></div>
   </main>
 `;
@@ -417,5 +422,88 @@ describe('setView() – nav visibility', () => {
     document.querySelectorAll('.post-auth-only').forEach(el => {
       expect(el.classList.contains('nav-hidden')).toBe(false);
     });
+  });
+});
+
+describe('viewAccountCreation button handlers', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    global.isLoggedIn.mockReturnValue(false);
+    global.signUp.mockReset();
+    resetViews();
+    // Reset form fields
+    document.getElementById('accountDjName').value = '';
+    document.getElementById('accountEmail').value = '';
+    document.getElementById('accountPassword').value = '';
+    document.getElementById('accountTermsAccept').checked = false;
+    document.getElementById('accountTermsGroup').classList.add('hidden');
+    const errorEl = document.getElementById('accountCreationError');
+    errorEl.textContent = '';
+    errorEl.classList.add('hidden');
+    // Show the viewAccountCreation
+    document.getElementById('viewAccountCreation').classList.remove('hidden');
+  });
+
+  test('btnShowLogin navigates to login view', () => {
+    document.getElementById('btnShowLogin').click();
+    expect(isVisible('viewLogin')).toBe(true);
+    expect(isVisible('viewAccountCreation')).toBe(false);
+  });
+
+  test('btnBackToTiers navigates to chooseTier view', () => {
+    document.getElementById('btnBackToTiers').click();
+    expect(isVisible('viewChooseTier')).toBe(true);
+    expect(isVisible('viewAccountCreation')).toBe(false);
+  });
+
+  test('btnCreateAccountSubmit shows error when DJ name is empty', () => {
+    document.getElementById('accountDjName').value = '';
+    document.getElementById('btnCreateAccountSubmit').click();
+    const errorEl = document.getElementById('accountCreationError');
+    expect(errorEl.classList.contains('hidden')).toBe(false);
+    expect(errorEl.textContent).toContain('DJ Name is required');
+  });
+
+  test('btnCreateAccountSubmit with DJ name only saves local profile and navigates to createJoin', () => {
+    document.getElementById('accountDjName').value = 'DJ Cool';
+    document.getElementById('btnCreateAccountSubmit').click();
+    expect(getSavedProfile()).not.toBeNull();
+    expect(getSavedProfile().djName).toBe('DJ Cool');
+    expect(isVisible('viewHome')).toBe(true);
+  });
+
+  test('btnCreateAccountSubmit with email but no password shows error', () => {
+    document.getElementById('accountDjName').value = 'DJ Cool';
+    document.getElementById('accountEmail').value = 'test@example.com';
+    document.getElementById('accountPassword').value = '';
+    document.getElementById('btnCreateAccountSubmit').click();
+    const errorEl = document.getElementById('accountCreationError');
+    expect(errorEl.classList.contains('hidden')).toBe(false);
+    expect(errorEl.textContent).toContain('Both email and password are required');
+  });
+
+  test('btnCreateAccountSubmit with email+password but no terms shows error', () => {
+    document.getElementById('accountDjName').value = 'DJ Cool';
+    document.getElementById('accountEmail').value = 'test@example.com';
+    document.getElementById('accountPassword').value = 'password123';
+    document.getElementById('accountTermsAccept').checked = false;
+    document.getElementById('btnCreateAccountSubmit').click();
+    const errorEl = document.getElementById('accountCreationError');
+    expect(errorEl.classList.contains('hidden')).toBe(false);
+    expect(errorEl.textContent).toContain('Terms & Conditions');
+  });
+
+  test('btnCreateAccountSubmit with email+password+terms calls signUp', async () => {
+    // Return failure so the success path (saveProfile + initAuthFlow) is not triggered —
+    // we only need to assert that signUp was called with the correct arguments.
+    global.signUp.mockResolvedValue({ success: false, error: 'test-only failure' });
+    document.getElementById('accountDjName').value = 'DJ Cool';
+    document.getElementById('accountEmail').value = 'test@example.com';
+    document.getElementById('accountPassword').value = 'password123';
+    document.getElementById('accountTermsAccept').checked = true;
+    document.getElementById('btnCreateAccountSubmit').click();
+    // Allow async handler to run
+    await new Promise(r => setTimeout(r, 10));
+    expect(global.signUp).toHaveBeenCalledWith('test@example.com', 'password123', 'DJ Cool', true);
   });
 });
