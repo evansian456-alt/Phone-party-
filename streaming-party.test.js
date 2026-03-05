@@ -202,33 +202,10 @@ describe('TrackDescriptor (createTrackDescriptor)', () => {
 });
 
 // ============================================================================
-// Streaming Party API — HTTP 403 enforcement (with mocked db)
+// Streaming Party API — HTTP 403 enforcement (paywall logic verification)
 // ============================================================================
 
 describe('Streaming Party API paywall enforcement', () => {
-  let app;
-  let dbMock;
-
-  beforeAll(() => {
-    // Mock the database module to avoid real DB connections
-    jest.mock('./database', () => {
-      const mockDb = {
-        query: jest.fn(),
-        getOrCreateUserUpgrades: jest.fn(),
-        resolveEntitlements: jest.fn(),
-        getOrCreateUserProfile: jest.fn(),
-        connect: jest.fn(),
-        end: jest.fn(),
-        pool: { end: jest.fn() }
-      };
-      return mockDb;
-    }, { virtual: false });
-  });
-
-  afterAll(() => {
-    jest.unmock('./database');
-  });
-
   it('hasStreamingAccess returns false for a simulated FREE user object', () => {
     const freeUser = {
       tier: 'FREE',

@@ -12506,15 +12506,10 @@ function buildStreamingPartyPlaybackState(trackDescriptor, startedAtPartyMs, sta
   };
 }
 
-// Override handleOfficialAppSyncTrackSelected to also update streaming party state
-var _originalHandleOfficialAppSyncTrackSelected = typeof handleOfficialAppSyncTrackSelected === 'function'
-  ? handleOfficialAppSyncTrackSelected : null;
-
 // Wire Sync Coach for guests when TRACK_SELECTED arrives with OFFICIAL_APP_SYNC mode
 (function patchSyncCoachOnTrackSelected() {
-  var _origHandler = window._streamingPartyPatched ? null : null;
-  // Listen for TRACK_SELECTED — the original handler fires toast + UI update.
-  // We augment it: if user is a guest, open Sync Coach after a short delay.
+  // Listen for streamingPartyTrackSelected — fired when host selects a streaming track.
+  // Augments the existing OFFICIAL_APP_SYNC handler: guests get a Sync Coach prompt.
   document.addEventListener('streamingPartyTrackSelected', function(evt) {
     var detail = evt.detail || {};
     if (!state.isHost && detail.platform) {

@@ -45,7 +45,7 @@ async function signupAndLogin(request, user) {
 test.describe('Streaming Party — provider logos', () => {
   test('Provider logos are present in the HTML (testid attributes)', async ({ page }) => {
     await page.goto(BASE);
-    await page.waitForTimeout(1000);
+    await page.waitForLoadState('networkidle');
 
     // The logos may be hidden (in paywall or paid section), but they must exist in the DOM
     const youtubeLogos = await page.locator('[data-testid="provider-logo-youtube"]').all();
@@ -245,7 +245,7 @@ test.describe('Streaming Party — PRO user access', () => {
 test.describe('Streaming Party — Sync information modal', () => {
   test('Sync info modal exists in the DOM', async ({ page }) => {
     await page.goto(BASE);
-    await page.waitForTimeout(1000);
+    await page.waitForLoadState('networkidle');
 
     const modal = page.locator('[data-testid="sync-info-modal"]');
     await expect(modal).toHaveCount(1);
@@ -253,7 +253,7 @@ test.describe('Streaming Party — Sync information modal', () => {
 
   test('Sync coach modal exists in the DOM', async ({ page }) => {
     await page.goto(BASE);
-    await page.waitForTimeout(1000);
+    await page.waitForLoadState('networkidle');
 
     const modal = page.locator('[data-testid="sync-coach-modal"]');
     await expect(modal).toHaveCount(1);
@@ -267,7 +267,7 @@ test.describe('Streaming Party — Sync information modal', () => {
 test.describe('Streaming Party — Terms and Conditions', () => {
   test('Terms page includes Streaming Party section', async ({ page }) => {
     await page.goto(`${BASE}/#terms`);
-    await page.waitForTimeout(1000);
+    await page.waitForLoadState('networkidle');
 
     // Look for the terms view
     const termsView = page.locator('#viewTerms');
@@ -276,9 +276,9 @@ test.describe('Streaming Party — Terms and Conditions', () => {
     if (!isVisible) {
       // Try clicking a terms link
       const termsLink = page.locator('a.link-to-terms, [href="#terms"]').first();
-      if (await termsLink.isVisible().catch(() => false)) {
+      if (await termsLink.isVisible({ timeout: 3000 }).catch(() => false)) {
         await termsLink.click();
-        await page.waitForTimeout(500);
+        await page.waitForSelector('#viewTerms:not(.hidden)', { timeout: 5000 }).catch(() => {});
       }
     }
 
