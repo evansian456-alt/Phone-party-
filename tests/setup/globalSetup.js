@@ -72,24 +72,47 @@ module.exports = async function globalSetup() {
   // ── 2. Ensure NODE_ENV=test ────────────────────────────────────────────
   process.env.NODE_ENV = 'test';
 
-  // ── 3. Start PostgreSQL container ─────────────────────────────────────
-  console.log('[globalSetup] Starting PostgreSQL container…');
-  const pgContainer = await new PostgreSqlContainer('postgres:16-alpine')
-    .withDatabase('houseparty_test')
-    .withUsername('testuser')
-    .withPassword('testpass')
-    .start();
+  // ── 3. PostgreSQL — reuse existing service or start a container ────────
+  //
+  // When DATABASE_URL is already set (e.g. a CI service container or an
+  // e2e-runner-managed server), skip starting a Testcontainer so we avoid
+  // double-initialization and seed users into the wrong database.
+  let pgContainer = null;
+  let DATABASE_URL = process.env.DATABASE_URL || null;
 
-  const DATABASE_URL = pgContainer.getConnectionUri();
-  process.env.DATABASE_URL = DATABASE_URL;
-  console.log(`[globalSetup] PostgreSQL ready: ${DATABASE_URL}`);
+  if (DATABASE_URL) {
+    let safeUrl = DATABASE_URL;
+    try {
+      const u = new URL(DATABASE_URL);
+      if (u.password) { u.password = '***'; }
+      safeUrl = u.toString();
+    } catch (_) {}
+    console.log(`[globalSetup] Reusing existing PostgreSQL at ${safeUrl}`);
+  } else {
+    console.log('[globalSetup] Starting PostgreSQL container…');
+    pgContainer = await new PostgreSqlContainer('postgres:16-alpine')
+      .withDatabase('houseparty_test')
+      .withUsername('testuser')
+      .withPassword('testpass')
+      .start();
+    DATABASE_URL = pgContainer.getConnectionUri();
+    process.env.DATABASE_URL = DATABASE_URL;
+    console.log(`[globalSetup] PostgreSQL ready: ${DATABASE_URL}`);
+  }
 
-  // ── 4. Start Redis container ───────────────────────────────────────────
-  console.log('[globalSetup] Starting Redis container…');
-  const redisContainer = await new RedisContainer('redis:7-alpine').start();
-  const REDIS_URL = `redis://${redisContainer.getHost()}:${redisContainer.getMappedPort(6379)}`;
-  process.env.REDIS_URL = REDIS_URL;
-  console.log(`[globalSetup] Redis ready: ${REDIS_URL}`);
+  // ── 4. Redis — reuse existing service or start a container ────────────
+  let redisContainer = null;
+  let REDIS_URL = process.env.REDIS_URL || null;
+
+  if (REDIS_URL) {
+    console.log(`[globalSetup] Reusing existing Redis at ${REDIS_URL}`);
+  } else {
+    console.log('[globalSetup] Starting Redis container…');
+    redisContainer = await new RedisContainer('redis:7-alpine').start();
+    REDIS_URL = `redis://${redisContainer.getHost()}:${redisContainer.getMappedPort(6379)}`;
+    process.env.REDIS_URL = REDIS_URL;
+    console.log(`[globalSetup] Redis ready: ${REDIS_URL}`);
+  }
 
   // ── 5. Run DB migrations ───────────────────────────────────────────────
   console.log('[globalSetup] Running database migrations…');
@@ -119,8 +142,8 @@ module.exports = async function globalSetup() {
   fs.writeFileSync(
     STATE_FILE,
     JSON.stringify({
-      pgContainerId: pgContainer.getId(),
-      redisContainerId: redisContainer.getId(),
+      pgContainerId: pgContainer ? pgContainer.getId() : null,
+      redisContainerId: redisContainer ? redisContainer.getId() : null,
       DATABASE_URL,
       REDIS_URL,
     })

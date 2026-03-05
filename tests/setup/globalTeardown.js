@@ -25,17 +25,21 @@ module.exports = async function globalTeardown() {
   // ── Prefer in-process references (same Node process) ──────────────────
   if (globalThis.__testcontainers) {
     const { pgContainer, redisContainer } = globalThis.__testcontainers;
-    try {
-      await pgContainer.stop();
-      console.log('[globalTeardown] PostgreSQL container stopped.');
-    } catch (err) {
-      console.warn('[globalTeardown] Could not stop PG container:', err.message);
+    if (pgContainer) {
+      try {
+        await pgContainer.stop();
+        console.log('[globalTeardown] PostgreSQL container stopped.');
+      } catch (err) {
+        console.warn('[globalTeardown] Could not stop PG container:', err.message);
+      }
     }
-    try {
-      await redisContainer.stop();
-      console.log('[globalTeardown] Redis container stopped.');
-    } catch (err) {
-      console.warn('[globalTeardown] Could not stop Redis container:', err.message);
+    if (redisContainer) {
+      try {
+        await redisContainer.stop();
+        console.log('[globalTeardown] Redis container stopped.');
+      } catch (err) {
+        console.warn('[globalTeardown] Could not stop Redis container:', err.message);
+      }
     }
     globalThis.__testcontainers = null;
   } else {

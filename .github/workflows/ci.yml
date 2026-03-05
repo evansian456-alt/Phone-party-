@@ -86,6 +86,7 @@ jobs:
         env:
           BASE_URL: http://localhost:8080
           ADMIN_EMAILS: ianevans2023@outlook.com
+          DISABLE_RATE_LIMIT: "true"
         continue-on-error: false
 
       - name: Upload e2e test report
@@ -94,6 +95,24 @@ jobs:
         with:
           name: playwright-report-tests
           path: playwright-report-tests/
+          retention-days: 7
+
+      - name: Upload e2e test results (screenshots, videos, traces)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload audit screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-audit-screenshots
+          path: playwright-audit-report/
+          if-no-files-found: ignore
           retention-days: 7
 
       - name: Run stress tests
