@@ -89,8 +89,8 @@ describe('Tier Enforcement', () => {
       const partyDataRaw = await redis.get(`party:${testPartyCode}`);
       expect(partyDataRaw).toBeTruthy();
       const partyData = JSON.parse(partyDataRaw);
-      const isActive = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
-      expect(isActive).toBeFalsy();
+      const isActive = Boolean(partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now());
+      expect(isActive).toBe(false);
     });
 
     it('should expire Party Pass when expiration time is in past', async () => {

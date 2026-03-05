@@ -135,8 +135,8 @@ describe('DJ Short Messages', () => {
       expect(partyData.partyPassExpiresAt).toBeUndefined();
       
       // In the actual handler, this would result in an error message
-      const hasAccess = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
-      expect(hasAccess).toBeFalsy();
+      const hasAccess = Boolean(partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now());
+      expect(hasAccess).toBe(false);
     });
 
     it('should allow DJ short messages with active Party Pass', async () => {
