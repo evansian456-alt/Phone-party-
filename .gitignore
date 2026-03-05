@@ -24,3 +24,5 @@ dist/
 # Stress test reports (generated during test runs) and container state
 tests/stress/reports/*.json
 .stress-container-state.json
+audit-server.log
+.audit-state.json

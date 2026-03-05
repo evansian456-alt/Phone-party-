@@ -17,24 +17,57 @@
 // Configuration
 // ============================================================
 
-const {
-  CLOCK_SYNC_INTERVAL_MS,
-  PLAYBACK_FEEDBACK_INTERVAL_MS,
-  SYNC_TEST_FEEDBACK_INTERVAL_MS,
-  ROLLING_BUFFER_MS,
-  PLAYBACK_RATE_MIN,
-  PLAYBACK_RATE_MAX,
-  LATE_PLAYBACK_THRESHOLD_MS,
-  DESKTOP_IGNORE_DRIFT_MS,
-  DESKTOP_SOFT_CORRECTION_MS,
-  MOBILE_IGNORE_DRIFT_MS,
-  MOBILE_SOFT_CORRECTION_MS,
-  MAX_RECONNECT_ATTEMPTS,
-  RECONNECT_DELAY_MS,
-  MAX_RECONNECT_DELAY_MS,
-  SYNC_TEST_MODE,
-  TEST_AUDIO_PATH,
-} = require('./sync-config');
+/* eslint-disable */
+// Inline sync-config constants for browser compatibility.
+// When loaded as a Node.js module (tests / server), require() is available.
+// When loaded as a plain <script> in the browser, we fall back to these literals.
+let CLOCK_SYNC_INTERVAL_MS, PLAYBACK_FEEDBACK_INTERVAL_MS,
+    SYNC_TEST_FEEDBACK_INTERVAL_MS, ROLLING_BUFFER_MS,
+    PLAYBACK_RATE_MIN, PLAYBACK_RATE_MAX, LATE_PLAYBACK_THRESHOLD_MS,
+    DESKTOP_IGNORE_DRIFT_MS, DESKTOP_SOFT_CORRECTION_MS,
+    MOBILE_IGNORE_DRIFT_MS, MOBILE_SOFT_CORRECTION_MS,
+    MAX_RECONNECT_ATTEMPTS, RECONNECT_DELAY_MS, MAX_RECONNECT_DELAY_MS,
+    SYNC_TEST_MODE, TEST_AUDIO_PATH;
+
+if (typeof require !== 'undefined') {
+  ({
+    CLOCK_SYNC_INTERVAL_MS,
+    PLAYBACK_FEEDBACK_INTERVAL_MS,
+    SYNC_TEST_FEEDBACK_INTERVAL_MS,
+    ROLLING_BUFFER_MS,
+    PLAYBACK_RATE_MIN,
+    PLAYBACK_RATE_MAX,
+    LATE_PLAYBACK_THRESHOLD_MS,
+    DESKTOP_IGNORE_DRIFT_MS,
+    DESKTOP_SOFT_CORRECTION_MS,
+    MOBILE_IGNORE_DRIFT_MS,
+    MOBILE_SOFT_CORRECTION_MS,
+    MAX_RECONNECT_ATTEMPTS,
+    RECONNECT_DELAY_MS,
+    MAX_RECONNECT_DELAY_MS,
+    SYNC_TEST_MODE,
+    TEST_AUDIO_PATH,
+  } = require('./sync-config'));
+} else {
+  // Browser fallback — mirrors sync-config.js defaults
+  CLOCK_SYNC_INTERVAL_MS = 5000;
+  PLAYBACK_FEEDBACK_INTERVAL_MS = 100;
+  SYNC_TEST_FEEDBACK_INTERVAL_MS = 500;
+  ROLLING_BUFFER_MS = 150;
+  PLAYBACK_RATE_MIN = 0.95;
+  PLAYBACK_RATE_MAX = 1.05;
+  LATE_PLAYBACK_THRESHOLD_MS = -1000;
+  DESKTOP_IGNORE_DRIFT_MS = 200;
+  DESKTOP_SOFT_CORRECTION_MS = 800;
+  MOBILE_IGNORE_DRIFT_MS = 300;
+  MOBILE_SOFT_CORRECTION_MS = 1000;
+  MAX_RECONNECT_ATTEMPTS = 10;
+  RECONNECT_DELAY_MS = 1000;
+  MAX_RECONNECT_DELAY_MS = 30000;
+  SYNC_TEST_MODE = false;
+  TEST_AUDIO_PATH = '/test-audio.wav';
+}
+/* eslint-enable */
 
 // Load psychoacoustic masking helpers (browser: attached to window; Node: required)
 const _PsychoacousticMaskingSync = (typeof PsychoacousticMasking !== 'undefined')

@@ -4720,6 +4720,7 @@ function renderGuestUnifiedFeed() {
       state.unifiedFeed.forEach(item => {
         const messageEl = document.createElement("div");
         messageEl.className = item.isEmoji ? "guest-feed-item guest-feed-item-emoji" : "guest-feed-item";
+        messageEl.setAttribute('data-testid', 'message-item');
         messageEl.innerHTML = `
           <div class="guest-feed-content">${escapeHtml(item.content)}</div>
           <div class="guest-feed-sender">${escapeHtml(item.senderName)}</div>

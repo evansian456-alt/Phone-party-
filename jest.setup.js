@@ -29,20 +29,22 @@ if (process.env.ENFORCE_NO_SKIPS !== '0') {
   global.xtest = noSkip;
 }
 
-// Mock ioredis with ioredis-mock for tests
-const RedisMock = require('ioredis-mock');
-
-// Create a custom Redis mock that is immediately ready
-class CustomRedisMock extends RedisMock {
-  constructor(...args) {
-    super(...args);
-    // Set status to ready immediately
-    this.status = 'ready';
-    // Emit ready event synchronously for tests
-    process.nextTick(() => {
-      this.emit('ready');
-    });
+// Mock ioredis with ioredis-mock for tests.
+// The factory must be self-contained (no out-of-scope variable references) to
+// satisfy Jest's babel-jest hoisting restrictions.
+jest.mock('ioredis', () => {
+  const RedisMock = require('ioredis-mock');
+  // Create a custom Redis mock that is immediately ready
+  class MockCustomRedis extends RedisMock {
+    constructor(...args) {
+      super(...args);
+      // Set status to ready immediately
+      this.status = 'ready';
+      // Emit ready event synchronously for tests
+      process.nextTick(() => {
+        this.emit('ready');
+      });
+    }
   }
-}
-
-jest.mock('ioredis', () => CustomRedisMock);
+  return MockCustomRedis;
+});
