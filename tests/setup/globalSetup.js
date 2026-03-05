@@ -63,6 +63,22 @@ async function hashPassword(plain) {
   return bcrypt.hash(plain, 12);
 }
 
+/**
+ * Return a safe-to-log version of a connection URL with the password
+ * component replaced by '***'. Falls back to the original string if
+ * the URL cannot be parsed (e.g. non-standard format), and logs a warning.
+ */
+function redactUrl(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    if (u.password) { u.password = '***'; }
+    return u.toString();
+  } catch (_) {
+    console.warn('[globalSetup] Could not parse URL for redaction — logging as-is');
+    return rawUrl;
+  }
+}
+
 // ─── Main ──────────────────────────────────────────────────────────────────
 
 module.exports = async function globalSetup() {
@@ -81,13 +97,7 @@ module.exports = async function globalSetup() {
   let DATABASE_URL = process.env.DATABASE_URL || null;
 
   if (DATABASE_URL) {
-    let safeUrl = DATABASE_URL;
-    try {
-      const u = new URL(DATABASE_URL);
-      if (u.password) { u.password = '***'; }
-      safeUrl = u.toString();
-    } catch (_) {}
-    console.log(`[globalSetup] Reusing existing PostgreSQL at ${safeUrl}`);
+    console.log(`[globalSetup] Reusing existing PostgreSQL at ${redactUrl(DATABASE_URL)}`);
   } else {
     console.log('[globalSetup] Starting PostgreSQL container…');
     pgContainer = await new PostgreSqlContainer('postgres:16-alpine')
@@ -97,7 +107,7 @@ module.exports = async function globalSetup() {
       .start();
     DATABASE_URL = pgContainer.getConnectionUri();
     process.env.DATABASE_URL = DATABASE_URL;
-    console.log(`[globalSetup] PostgreSQL ready: ${DATABASE_URL}`);
+    console.log(`[globalSetup] PostgreSQL ready: ${redactUrl(DATABASE_URL)}`);
   }
 
   // ── 4. Redis — reuse existing service or start a container ────────────
@@ -105,7 +115,7 @@ module.exports = async function globalSetup() {
   let REDIS_URL = process.env.REDIS_URL || null;
 
   if (REDIS_URL) {
-    console.log(`[globalSetup] Reusing existing Redis at ${REDIS_URL}`);
+    console.log(`[globalSetup] Reusing existing Redis at ${redactUrl(REDIS_URL)}`);
   } else {
     console.log('[globalSetup] Starting Redis container…');
     redisContainer = await new RedisContainer('redis:7-alpine').start();
