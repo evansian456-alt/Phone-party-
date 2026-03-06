@@ -4341,7 +4341,7 @@ app.post("/api/end-party", apiLimiter, authMiddleware.optionalAuth, async (req, 
       parties.delete(code);
     }
     
-    res.json({ success: true });
+    res.json({ ok: true, success: true });
     
   } catch (error) {
     console.error(`[HTTP] Error ending party, instanceId: ${INSTANCE_ID}:`, error);
