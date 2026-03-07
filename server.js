@@ -80,13 +80,19 @@ const stripeClient = require('./stripe-client');
 const { PRODUCTS, getProductByPlatformId } = require('./billing/products');
 const { applyPurchaseToUser } = require('./billing/entitlements');
 
+// Production-grade modules (src/ directory)
+const logger = require('./src/utils/logger');
+const errorHandler = require('./src/middleware/errorHandler');
+const requestLogger = require('./src/middleware/requestLogger');
+const { loadRoutes } = require('./src/routes/index');
+
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "8080", 10);
 const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and version display
 
 // Early boot log so Cloud Run logs confirm the process reached this point
-console.log("[Boot] commit=" + (process.env.COMMIT_SHA || "unknown") + " port=" + PORT + " node=" + process.version);
+logger.info('server boot', { commit: process.env.COMMIT_SHA || 'unknown', port: PORT, node: process.version });
 
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
@@ -824,6 +830,9 @@ app.use((req, res, next) => {
   res.setHeader("X-Changer-Version", CHANGER_VERSION);
   next();
 });
+
+// Structured request logging (Cloud Logging-compatible)
+app.use(requestLogger);
 
 // Serve static files from the repo root.
 // HTML, JS, and CSS files use no-cache so browsers always revalidate after a deploy.
@@ -6876,37 +6885,23 @@ if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
   app.use(Sentry.Handlers.errorHandler());
 }
 
-// Global JSON error handler — catches any unhandled errors and returns JSON
-// instead of Express's default HTML error page. Must be registered after all routes.
-// Express requires the 'next' parameter even though we may not call it for linting purposes.
-// eslint-disable-next-line no-unused-vars
-app.use((err, req, res, next) => {
-  console.error('[Server] Unhandled error:', err);
-  const status = err.status || err.statusCode || 500;
-  const message = (process.env.NODE_ENV === 'production' && status === 500)
-    ? 'Internal server error'
-    : (err.message || 'Internal server error');
+// Load src/ routes (health probes etc.) before the error handler so errors
+// thrown inside them are caught by errorHandler.
+loadRoutes(app);
 
-  // If headers already sent, delegate to Express default error handler
-  if (res.headersSent) {
-    return next(err);
-  }
-
-  res.status(status).json({ error: message });
-});
+// Global JSON error handler — must be registered after all routes and route
+// loaders so Express routes any errors from those handlers to this middleware.
+app.use(errorHandler);
 
 // Start the HTTP server only if not imported as a module
 let server;
 let wss;
 
 async function startServer() {
-  console.log("🚀 Server booting...");
-  console.log(`   Instance ID: ${INSTANCE_ID}`);
-  console.log(`   Port: ${PORT}`);
-  console.log(`   Version: ${APP_VERSION}`);
+  logger.info('server booting', { instanceId: INSTANCE_ID, port: PORT, version: APP_VERSION });
   
   // Initialize database schema
-  console.log("⏳ Initializing database...");
+  logger.info('initializing database');
   try {
     const dbHealth = await db.healthCheck();
     if (dbHealth.healthy) {
@@ -6989,24 +6984,15 @@ async function startServer() {
   }
   
   server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Server listening on http://0.0.0.0:${PORT}`);
-    console.log(`   Instance ID: ${INSTANCE_ID}`);
-    console.log(`   Redis status: ${redis ? redis.status : 'NOT CONFIGURED'}`);
-    console.log(`   Redis ready: ${redisReady ? 'YES' : 'NO'}`);
-    console.log("🎉 Server ready to accept connections");
+    logger.info('server started', { port: PORT, instanceId: INSTANCE_ID, redis: redis ? redis.status : 'NOT CONFIGURED', redisReady });
     
     // Initialize security modules
     initRateLimiter();
-    console.log('🔒 Rate limiter initialized');
+    logger.info('rate limiter initialized');
     
     // Log registered routes for debugging
-    console.log("\n📋 Registered HTTP Routes:");
     const routes = getRegisteredRoutes();
-    
-    // Print all routes with formatting
-    routes.forEach(route => {
-      console.log(`   ${route.methods} ${route.path}`);
-    });
+    logger.info('routes registered', { totalRoutes: routes.length });
     
     // Explicitly confirm critical routes
     const criticalRoutes = [
@@ -7014,25 +7000,24 @@ async function startServer() {
       { method: 'POST', path: '/api/join-party' }
     ];
     
-    console.log("\n✓ Critical Routes Verified:");
     criticalRoutes.forEach(({ method, path }) => {
       const isRegistered = routes.some(r => {
         const methodList = r.methods.split(', ');
         return methodList.includes(method) && r.path === path;
       });
-      console.log(`   ${isRegistered ? '✓' : '✗'} ${method} ${path}`);
+      if (!isRegistered) {
+        logger.warn('critical route missing', { method, path });
+      }
     });
-    console.log("");
   });
   
   // Start cleanup interval
   cleanupInterval = setInterval(runCleanupJobs, CLEANUP_INTERVAL_MS);
-  console.log(`[Server] Party cleanup job started (runs every ${CLEANUP_INTERVAL_MS / 1000}s, TTL: ${PARTY_TTL_MS / 1000}s, instance: ${INSTANCE_ID})`);
-  console.log(`[Server] Track cleanup job started (runs every ${CLEANUP_INTERVAL_MS / 1000}s, TTL: ${TRACK_TTL_MS / 1000}s, instance: ${INSTANCE_ID})`);
+  logger.info('cleanup job started', { intervalSec: CLEANUP_INTERVAL_MS / 1000, partyTtlSec: PARTY_TTL_MS / 1000, trackTtlSec: TRACK_TTL_MS / 1000, instanceId: INSTANCE_ID });
   
   // Start Event Replay Manager for reliable message delivery
   eventReplayManager.start();
-  console.log(`[Server] Event Replay System started (retry interval: ${eventReplayManager.config.retryIntervalMs}ms, max attempts: ${eventReplayManager.config.maxRetryAttempts})`);
+  logger.info('event replay system started', { retryIntervalMs: eventReplayManager.config.retryIntervalMs, maxRetryAttempts: eventReplayManager.config.maxRetryAttempts });
   
   // WebSocket server setup
   wss = new WebSocket.Server({ server });
@@ -9601,19 +9586,19 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Graceful shutdown handler for Cloud Run (SIGTERM)
 process.on('SIGTERM', () => {
-  console.log('[Server] SIGTERM received – beginning graceful shutdown');
+  logger.info('SIGTERM received – beginning graceful shutdown');
   if (server) {
     server.close(() => {
-      console.log('[Server] HTTP server closed');
+      logger.info('HTTP server closed');
       if (redis) {
-        redis.quit().catch((err) => console.error('[Server] Redis disconnect error:', err)).finally(() => process.exit(0));
+        redis.quit().catch((err) => logger.error('Redis disconnect error', { err: err.message })).finally(() => process.exit(0));
       } else {
         process.exit(0);
       }
     });
     // Force exit after 10 seconds if graceful shutdown stalls
     setTimeout(() => {
-      console.error('[Server] Graceful shutdown timeout – forcing exit');
+      logger.error('graceful shutdown timeout – forcing exit');
       process.exit(1);
     }, 10000).unref();
   } else {
