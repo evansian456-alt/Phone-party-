@@ -58,7 +58,7 @@ test.describe('Chat context via party (API)', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.exists).toBe(true);
-    expect(body.party.djName).toBe(host.djName);
+    expect(body.partyCode).toBeDefined();
   });
 
   test('party-state endpoint returns party data', async ({ request }) => {

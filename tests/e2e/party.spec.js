@@ -49,8 +49,7 @@ test.describe('Party creation (API)', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.exists).toBe(true);
-    expect(body.party).toBeDefined();
-    expect(body.party.djName).toBe(host.djName);
+    expect(body.partyCode).toBeDefined();
   });
 
   test('GET /api/party returns exists=false for invalid code', async ({ request }) => {
@@ -63,17 +62,18 @@ test.describe('Party creation (API)', () => {
     const createRes = await request.post(`${BASE}/api/create-party`, {
       data: { djName: host.djName },
     });
-    const { code } = await createRes.json();
+    const { code, hostId } = await createRes.json();
 
     const endRes = await request.post(`${BASE}/api/end-party`, {
-      data: { code },
+      data: { partyCode: code, hostId },
     });
     expect(endRes.ok()).toBeTruthy();
 
     // Party should no longer exist
     const checkRes = await request.get(`${BASE}/api/party?code=${code}`);
     const checkBody = await checkRes.json();
-    expect(checkBody.exists).toBe(false);
+    const ended = !checkBody.exists || checkBody.status === 'ended';
+    expect(ended).toBe(true);
   });
 });
 

@@ -104,8 +104,8 @@ describe('GET /api/party', () => {
     const res = await request(app).get(`/api/party?code=${partyCode}`);
     expect(res.status).toBe(200);
     expect(res.body.exists).toBe(true);
-    expect(res.body.party).toBeDefined();
-    expect(res.body.party.ended).toBeFalsy();
+    expect(res.body.partyCode).toBeDefined();
+    expect(res.body.status).not.toBe('ended');
   });
 
   test('returns exists=false for an unknown code', async () => {
@@ -141,9 +141,8 @@ describe('POST /api/join-party', () => {
 
   test('authenticated guest can join with valid code', async () => {
     const res = await guestAgent.post('/api/join-party').send({
-      code: partyCode,
-      guestId: `guest_${uid()}`,
-      djName: guest.djName,
+      partyCode: partyCode,
+      nickname: guest.djName,
     });
 
     expect(res.status).toBe(200);
@@ -184,22 +183,21 @@ describe('GET /api/party-state', () => {
     guest = makeUser('stateguest');
     await signupAndLogin(guestAgent, guest);
     await guestAgent.post('/api/join-party').send({
-      code: partyCode,
-      guestId: `guest_${uid()}`,
-      djName: guest.djName,
+      partyCode: partyCode,
+      nickname: guest.djName,
     });
   });
 
   test('host sees party state with hostView=true', async () => {
     const res = await hostAgent.get(`/api/party-state?code=${partyCode}`);
     expect(res.status).toBe(200);
-    expect(res.body.party).toBeDefined();
+    expect(res.body.partyCode).toBeDefined();
   });
 
   test('guest sees party state', async () => {
     const res = await guestAgent.get(`/api/party-state?code=${partyCode}`);
     expect(res.status).toBe(200);
-    expect(res.body.party).toBeDefined();
+    expect(res.body.partyCode).toBeDefined();
   });
 
   test('multiple consecutive polls return consistent state', async () => {
@@ -210,7 +208,7 @@ describe('GET /api/party-state', () => {
     expect(res1.status).toBe(200);
     expect(res2.status).toBe(200);
     // Core identifiers must be identical across polls
-    expect(res1.body.party?.code).toBe(res2.body.party?.code);
+    expect(res1.body.partyCode).toBe(res2.body.partyCode);
   });
 });
 
@@ -222,6 +220,7 @@ describe('POST /api/end-party', () => {
   let host;
   let guest;
   let partyCode;
+  let hostId;
 
   beforeAll(async () => {
     hostAgent = request.agent(app);
@@ -232,24 +231,25 @@ describe('POST /api/end-party', () => {
       .post('/api/create-party')
       .send({ djName: host.djName });
     partyCode = createRes.body.code;
+    hostId = createRes.body.hostId;
 
     guestAgent = request.agent(app);
     guest = makeUser('endguest');
     await signupAndLogin(guestAgent, guest);
     await guestAgent.post('/api/join-party').send({
-      code: partyCode,
-      guestId: `guest_${uid()}`,
-      djName: guest.djName,
+      partyCode: partyCode,
+      nickname: guest.djName,
     });
   });
 
   test('guest cannot end the party (403)', async () => {
-    const res = await guestAgent.post('/api/end-party').send({ code: partyCode });
+    // Guest does not have the hostId, so the auth check fails → 403
+    const res = await guestAgent.post('/api/end-party').send({ partyCode: partyCode });
     expect(res.status).toBe(403);
   });
 
   test('host can end the party', async () => {
-    const res = await hostAgent.post('/api/end-party').send({ code: partyCode });
+    const res = await hostAgent.post('/api/end-party').send({ partyCode: partyCode, hostId: hostId });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
   });
@@ -257,7 +257,7 @@ describe('POST /api/end-party', () => {
   test('ended party shows as ended in GET /api/party', async () => {
     const res = await request(app).get(`/api/party?code=${partyCode}`);
     // Either the party is gone or it is marked ended
-    const ended = !res.body.exists || res.body.party?.ended === true;
+    const ended = !res.body.exists || res.body.status === 'ended';
     expect(ended).toBe(true);
   });
 });

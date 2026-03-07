@@ -153,10 +153,11 @@ test.describe('Guest view — emoji reactions', () => {
       data: { mode: 'OPEN', hostId },
     });
 
-    const guestId = `g_${uid()}`;
-    await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'EmojiGuest' },
+    const joinRes = await request.post(`${BASE}/api/join-party`, {
+      data: { partyCode: code, nickname: 'EmojiGuest' },
     });
+    const joinBody = await joinRes.json();
+    const guestId = joinBody.guestId;
 
     // Send emoji reaction
     const res = await request.post(`${BASE}/api/party/${code}/message`, {
@@ -178,10 +179,11 @@ test.describe('Guest view — emoji reactions', () => {
       data: { mode: 'LOCKED', hostId },
     });
 
-    const guestId = `g_${uid()}`;
-    await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'LockedGuest' },
+    const joinRes2 = await request.post(`${BASE}/api/join-party`, {
+      data: { partyCode: code, nickname: 'LockedGuest' },
     });
+    const joinBody2 = await joinRes2.json();
+    const guestId = joinBody2.guestId;
 
     const res = await request.post(`${BASE}/api/party/${code}/message`, {
       data: { guestId, message: '❤️', type: 'emoji' },
@@ -289,9 +291,8 @@ test.describe('Guest join and leave', () => {
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
     const { code } = await createRes.json();
 
-    const guestId = `g_${uid()}`;
     const joinRes = await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'JoinAuditGuest' },
+      data: { partyCode: code, nickname: 'JoinAuditGuest' },
     });
     expect(joinRes.ok()).toBeTruthy();
 
@@ -301,7 +302,7 @@ test.describe('Guest join and leave', () => {
 
   test('joining non-existent party returns 404', async ({ request }) => {
     const res = await request.post(`${BASE}/api/join-party`, {
-      data: { code: 'XXXXXX', guestId: `g_${uid()}`, djName: 'Nobody' },
+      data: { partyCode: 'XXXXXX', nickname: 'Nobody' },
     });
     expect([404, 400]).toContain(res.status());
   });
@@ -314,10 +315,11 @@ test.describe('Guest join and leave', () => {
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
     const { code } = await createRes.json();
 
-    const guestId = `g_${uid()}`;
-    await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'LeaveGuest' },
+    const joinRes2 = await request.post(`${BASE}/api/join-party`, {
+      data: { partyCode: code, nickname: 'LeaveGuest' },
     });
+    const joinBody2 = await joinRes2.json();
+    const guestId = joinBody2.guestId;
 
     const leaveRes = await request.post(`${BASE}/api/leave-party`, {
       data: { code, guestId },

@@ -151,10 +151,11 @@ test.describe('Host party view — chat mode selector', () => {
     });
 
     // Try to send a text message as guest — should be blocked
-    const guestId = `g_${uid()}`;
-    await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'GuestLocked' },
+    const joinRes = await request.post(`${BASE}/api/join-party`, {
+      data: { partyCode: code, nickname: 'GuestLocked' },
     });
+    const joinBody = await joinRes.json();
+    const guestId = joinBody.guestId;
 
     const msgRes = await request.post(`${BASE}/api/party/${code}/message`, {
       data: { guestId, message: 'Hello!', type: 'text' },
@@ -271,7 +272,7 @@ test.describe('Host party view — guest count and info', () => {
 
     // Add a guest
     await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId: `g_${uid()}`, djName: 'AuditGuest1' },
+      data: { partyCode: code, nickname: 'AuditGuest1' },
     });
 
     const state2 = await (await request.get(`${BASE}/api/party-state?code=${code}`)).json();
@@ -320,13 +321,13 @@ test.describe('Host party view — tier-gated features', () => {
     // Add 2 guests (FREE limit is 2)
     for (let i = 1; i <= 2; i++) {
       await request.post(`${BASE}/api/join-party`, {
-        data: { code, guestId: `g_${uid()}`, djName: `Guest${i}` },
+        data: { partyCode: code, nickname: `Guest${i}` },
       });
     }
 
     // 3rd guest should be rejected on FREE tier
     const thirdRes = await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId: `g_${uid()}`, djName: 'ThirdGuest' },
+      data: { partyCode: code, nickname: 'ThirdGuest' },
     });
     // Should either be rejected (4xx) or succeed with a warning
     // Either way, party-state guest count should not exceed 2 for FREE
