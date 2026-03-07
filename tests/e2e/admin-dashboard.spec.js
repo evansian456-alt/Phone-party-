@@ -28,9 +28,10 @@ function makeUser(prefix = 'admintest') {
 }
 
 test.describe('Admin dashboard — access control', () => {
-  test('unauthenticated request returns 401', async ({ request }) => {
-    const noAuthCtx = await request.newContext();
+  test('unauthenticated request returns 401', async ({ playwright }) => {
+    const noAuthCtx = await playwright.request.newContext();
     const res = await noAuthCtx.get(`${BASE}/api/admin/stats`);
+    await noAuthCtx.dispose();
     expect(res.status()).toBe(401);
   });
 

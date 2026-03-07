@@ -276,10 +276,10 @@ test.describe('Authenticated home', () => {
 // LOGOUT
 // ─────────────────────────────────────────────────────────────────
 test.describe('Logout', () => {
-  test('logout returns to landing and clears auth', async ({ page, request }) => {
+  test('logout returns to landing and clears auth', async ({ page }) => {
     const u = makeUser('logout');
-    await signup(request, u);
-    await login(request, u);
+    await page.request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
+    await page.request.post(`${BASE}/api/auth/login`, { data: { email: u.email, password: u.password } });
 
     await page.goto(BASE);
     await page.waitForTimeout(1500);
@@ -293,7 +293,7 @@ test.describe('Logout', () => {
     }
 
     // /api/me should be 401 after logout
-    const meRes = await request.get(`${BASE}/api/me`);
+    const meRes = await page.request.get(`${BASE}/api/me`);
     expect(meRes.status()).toBe(401);
   });
 });

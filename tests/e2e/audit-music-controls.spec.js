@@ -255,11 +255,11 @@ test.describe('Sync accuracy', () => {
     }
   });
 
-  test('guest sees same track and startAtServerMs as host', async ({ request }) => {
+  test('guest sees same track and startAtServerMs as host', async ({ request, playwright }) => {
     const state = await (await request.get(`${BASE}/api/party-state?code=${syncCode}`)).json();
 
     // Join as guest (new context)
-    const guestCtx = await request.newContext();
+    const guestCtx = await playwright.request.newContext();
     const guestState = await (await guestCtx.get(`${BASE}/api/party-state?code=${syncCode}`)).json();
 
     if (state.currentTrack && guestState.currentTrack) {

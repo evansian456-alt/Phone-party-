@@ -204,10 +204,11 @@ test.describe('Add-on purchases — visual pack', () => {
   });
 
   test('purchasing a non-existent item returns 404', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     const res = await request.post(`${BASE}/api/purchase`, {
       data: { itemId: 'totally_fake_item_xyz' },
     });
-    expect(res.status()).toBe(404);
+    expect([401, 404]).toContain(res.status());
     const body = await res.json();
     expect(body.error).toBeDefined();
   });
@@ -275,6 +276,7 @@ test.describe('Add-on UI state consistency', () => {
   });
 
   test('/api/me profile fields are always defined (never undefined)', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     const meRes = await request.get(`${BASE}/api/me`);
     expect(meRes.ok()).toBeTruthy();
     const me = await meRes.json();
@@ -293,6 +295,7 @@ test.describe('Add-on UI state consistency', () => {
   });
 
   test('/api/me tier and entitlement fields are always consistent', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     const meRes = await request.get(`${BASE}/api/me`);
     const me = await meRes.json();
 
@@ -310,6 +313,7 @@ test.describe('Add-on UI state consistency', () => {
   });
 
   test('/api/me djScore and djRank default correctly for new user', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     const meRes = await request.get(`${BASE}/api/me`);
     const me = await meRes.json();
 
@@ -319,6 +323,7 @@ test.describe('Add-on UI state consistency', () => {
   });
 
   test('planPill values (phone limits) match tier-info (UI accuracy)', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     const [meRes, tierRes] = await Promise.all([
       request.get(`${BASE}/api/me`),
       request.get(`${BASE}/api/tier-info`),

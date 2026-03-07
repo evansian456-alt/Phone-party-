@@ -41,6 +41,7 @@ test.describe('Tier enforcement — FREE', () => {
   });
 
   test('FREE user /api/me returns tier=FREE', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: freeUser.email, password: freeUser.password } });
     const res = await request.get(`${BASE}/api/me`);
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
@@ -49,6 +50,7 @@ test.describe('Tier enforcement — FREE', () => {
   });
 
   test('FREE user entitlements: no partyPass, no pro', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: freeUser.email, password: freeUser.password } });
     const res = await request.get(`${BASE}/api/me`);
     const body = await res.json();
     expect(body.entitlements.hasPartyPass).toBe(false);
@@ -56,6 +58,7 @@ test.describe('Tier enforcement — FREE', () => {
   });
 
   test('FREE tier info endpoint reflects FREE tier', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: freeUser.email, password: freeUser.password } });
     const res = await request.get(`${BASE}/api/tier-info`);
     if (res.status() === 401 || res.status() === 404) return; // optional endpoint
     const body = await res.json();
@@ -78,6 +81,7 @@ test.describe('Tier enforcement — PARTY_PASS (simulated)', () => {
       return;
     }
 
+    await request.post(`${BASE}/api/auth/login`, { data: { email: ppUser.email, password: ppUser.password } });
     const meRes = await request.get(`${BASE}/api/me`);
     const { user } = await meRes.json();
 
@@ -140,6 +144,7 @@ test.describe('Tier enforcement — PRO (simulated)', () => {
   test('simulate Pro subscription and verify tier update', async ({ request }) => {
     if (process.env.NODE_ENV !== 'test') return;
 
+    await request.post(`${BASE}/api/auth/login`, { data: { email: proUser.email, password: proUser.password } });
     const meRes = await request.get(`${BASE}/api/me`);
     const { user } = await meRes.json();
 
@@ -166,6 +171,7 @@ test.describe('Tier enforcement — PRO (simulated)', () => {
   test('PRO user has all entitlements', async ({ request }) => {
     if (process.env.NODE_ENV !== 'test') return;
 
+    await request.post(`${BASE}/api/auth/login`, { data: { email: proUser.email, password: proUser.password } });
     const res = await request.get(`${BASE}/api/me`);
     const body = await res.json();
     if (body.tier === 'PRO') {

@@ -3802,14 +3802,12 @@ app.post("/api/join-party", async (req, res) => {
     const maxAllowed = await getMaxAllowedPhones(code, normalizedPartyData);
     const currentGuestCount = normalizedPartyData.guestCount || 0;
     
-    // Count total devices (host + guests) - host counts as 1 device
-    const totalDevices = 1 + currentGuestCount;
-    
-    if (totalDevices >= maxAllowed) {
-      console.log(`[join-party] Party limit reached: ${code}, current: ${totalDevices}, max: ${maxAllowed}`);
+    // maxAllowed is the guest limit (host does not count against the cap)
+    if (currentGuestCount >= maxAllowed) {
+      console.log(`[join-party] Party limit reached: ${code}, current: ${currentGuestCount}, max: ${maxAllowed}`);
       return res.status(403).json({ 
-        error: `Party limit reached (${maxAllowed} ${maxAllowed === 2 ? 'phones' : 'devices'})`,
-        details: maxAllowed === 2 ? "Free parties are limited to 2 phones" : undefined
+        error: `Party limit reached (${maxAllowed} ${maxAllowed === 2 ? 'guests' : 'guests'})`,
+        details: maxAllowed === 2 ? "Free parties are limited to 2 guests" : undefined
       });
     }
     
@@ -5018,7 +5016,7 @@ app.post("/api/party/:code/clear-queue", async (req, res) => {
 app.post("/api/party/:code/reorder-queue", async (req, res) => {
   const timestamp = new Date().toISOString();
   const code = req.params.code ? req.params.code.toUpperCase() : null;
-  const { hostId, fromIndex, toIndex } = req.body;
+  const { hostId, fromIndex, toIndex, newOrder } = req.body;
   
   console.log(`[HTTP] POST /api/party/${code}/reorder-queue at ${timestamp}`);
   
@@ -5026,7 +5024,8 @@ app.post("/api/party/:code/reorder-queue", async (req, res) => {
     return res.status(400).json({ error: 'Invalid party code' });
   }
   
-  if (typeof fromIndex !== 'number' || typeof toIndex !== 'number') {
+  // Accept either newOrder (full array) or fromIndex/toIndex (single move)
+  if (newOrder === undefined && (typeof fromIndex !== 'number' || typeof toIndex !== 'number')) {
     return res.status(400).json({ error: 'fromIndex and toIndex are required and must be numbers' });
   }
   
@@ -5058,9 +5057,24 @@ app.post("/api/party/:code/reorder-queue", async (req, res) => {
       return res.status(400).json({ error: 'Invalid toIndex' });
     }
     
-    // Reorder: remove from fromIndex and insert at toIndex
-    const [movedTrack] = partyData.queue.splice(fromIndex, 1);
-    partyData.queue.splice(toIndex, 0, movedTrack);
+        // Support both newOrder (full array of trackIds) and fromIndex/toIndex (single move)
+    if (newOrder !== undefined && Array.isArray(newOrder)) {
+      // Full reorder: rearrange queue based on newOrder array of trackIds
+      const reordered = [];
+      for (const trackId of newOrder) {
+        const track = partyData.queue.find(t => t.trackId === trackId);
+        if (track) reordered.push(track);
+      }
+      // Append any tracks not in newOrder (shouldn't happen, but safe)
+      for (const track of partyData.queue) {
+        if (!reordered.find(t => t.trackId === track.trackId)) reordered.push(track);
+      }
+      partyData.queue = reordered;
+    } else {
+      // Reorder: remove from fromIndex and insert at toIndex
+      const [movedTrack] = partyData.queue.splice(fromIndex, 1);
+      partyData.queue.splice(toIndex, 0, movedTrack);
+    }
     
     // PHASE 3: Persist to storage
     await savePartyState(code, partyData);
@@ -5097,6 +5111,46 @@ app.post("/api/party/:code/reorder-queue", async (req, res) => {
       error: 'Failed to reorder queue',
       details: error.message 
     });
+  }
+});
+
+// POST /api/party/:code/chat-mode - Set party chat mode (HOST-ONLY)
+app.post("/api/party/:code/chat-mode", async (req, res) => {
+  const code = req.params.code ? req.params.code.toUpperCase() : null;
+  const { hostId, mode } = req.body;
+
+  if (!code || code.length !== 6) {
+    return res.status(400).json({ error: 'Invalid party code' });
+  }
+
+  const validModes = ['OPEN', 'EMOJI_ONLY', 'LOCKED'];
+  if (!mode || !validModes.includes(mode)) {
+    return res.status(400).json({ error: 'mode must be one of: OPEN, EMOJI_ONLY, LOCKED' });
+  }
+
+  try {
+    const partyData = await loadPartyState(code);
+    if (!partyData) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+
+    const authCheck = validateHostAuth(hostId, partyData);
+    if (!authCheck.valid) {
+      return res.status(403).json({ error: authCheck.error });
+    }
+
+    partyData.chatMode = mode;
+    await savePartyState(code, partyData);
+
+    const party = parties.get(code);
+    if (party) {
+      party.chatMode = mode;
+    }
+
+    res.json({ ok: true, chatMode: mode });
+  } catch (error) {
+    console.error(`[HTTP] Error setting chat mode:`, error);
+    res.status(500).json({ error: 'Failed to set chat mode' });
   }
 });
 

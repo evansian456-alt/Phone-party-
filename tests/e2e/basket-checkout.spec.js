@@ -43,6 +43,7 @@ test.describe('Basket — add / remove', () => {
   });
 
   test('basket starts empty', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     const res = await request.get(`${BASE}/api/basket`);
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
@@ -50,6 +51,7 @@ test.describe('Basket — add / remove', () => {
   });
 
   test('add item to basket', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     const res = await request.post(`${BASE}/api/basket/add`, {
       data: { priceId: TEST_PRICE_ID },
     });
@@ -59,16 +61,21 @@ test.describe('Basket — add / remove', () => {
   });
 
   test('basket contents match after add — UI state consistency', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
+    // Add the item in this test's context then verify
+    await request.post(`${BASE}/api/basket/add`, { data: { priceId: TEST_PRICE_ID } });
     // Backend state
     const backendRes = await request.get(`${BASE}/api/basket`);
     const backendBody = await backendRes.json();
 
-    // The basket should still contain the item added in the previous test
+    // The basket should contain the item
     expect(backendBody.basket).toContain(TEST_PRICE_ID);
   });
 
   test('adding duplicate item does not create duplicates', async ({ request }) => {
-    // Add the same item again
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
+    // Add the same item twice
+    await request.post(`${BASE}/api/basket/add`, { data: { priceId: TEST_PRICE_ID } });
     await request.post(`${BASE}/api/basket/add`, { data: { priceId: TEST_PRICE_ID } });
 
     const res = await request.get(`${BASE}/api/basket`);
@@ -78,6 +85,7 @@ test.describe('Basket — add / remove', () => {
   });
 
   test('remove item from basket', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     // Ensure item is in basket first
     await request.post(`${BASE}/api/basket/add`, { data: { priceId: TEST_PRICE_ID } });
 
@@ -114,6 +122,7 @@ test.describe('Basket — checkout session', () => {
   });
 
   test('checkout with empty basket returns 400', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     // Ensure basket is empty
     const basketRes = await request.get(`${BASE}/api/basket`);
     const { basket } = await basketRes.json();
@@ -126,6 +135,7 @@ test.describe('Basket — checkout session', () => {
   });
 
   test('checkout with item creates session (Stripe configured) or 503 (not configured)', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     await request.post(`${BASE}/api/basket/add`, { data: { priceId: TEST_PRICE_ID } });
 
     const res = await request.post(`${BASE}/api/basket/checkout`);
@@ -139,6 +149,7 @@ test.describe('Basket — checkout session', () => {
   });
 
   test('direct create-checkout-session endpoint works', async ({ request }) => {
+    await request.post(`${BASE}/api/auth/login`, { data: { email: user.email, password: user.password } });
     const res = await request.post(`${BASE}/api/create-checkout-session`, {
       data: { tier: 'PARTY_PASS' },
     });

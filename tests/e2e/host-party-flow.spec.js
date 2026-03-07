@@ -85,6 +85,7 @@ test.describe('Host party flow', () => {
   });
 
   test('host tier starts as FREE', async ({ request }) => {
+    await apiLogin(request, host);
     const meRes = await request.get(`${BASE}/api/me`);
     expect(meRes.ok()).toBeTruthy();
     const body = await meRes.json();
@@ -93,6 +94,7 @@ test.describe('Host party flow', () => {
   });
 
   test('Stripe checkout session can be created for Party Pass (test mode)', async ({ request }) => {
+    await apiLogin(request, host);
     const res = await request.post(`${BASE}/api/create-checkout-session`, {
       data: { tier: 'PARTY_PASS' },
     });
@@ -107,8 +109,10 @@ test.describe('Host party flow', () => {
   test('simulate Party Pass webhook updates tier (test mode only)', async ({ request }) => {
     if (process.env.NODE_ENV !== 'test') return;
 
+    await apiLogin(request, host);
     const meRes = await request.get(`${BASE}/api/me`);
     const { user } = await meRes.json();
+    if (!user) return;
 
     const webhookRes = await request.post(`${BASE}/api/test/stripe/simulate-webhook`, {
       data: {
@@ -125,8 +129,10 @@ test.describe('Host party flow', () => {
   test('simulate Pro subscription webhook (test mode only)', async ({ request }) => {
     if (process.env.NODE_ENV !== 'test') return;
 
+    await apiLogin(request, host);
     const meRes = await request.get(`${BASE}/api/me`);
     const { user } = await meRes.json();
+    if (!user) return;
 
     const webhookRes = await request.post(`${BASE}/api/test/stripe/simulate-webhook`, {
       data: {

@@ -174,7 +174,7 @@ test.describe('PARTY_PASS tier enforcement (test mode)', () => {
         type: 'checkout.session.completed',
         data: {
           object: {
-            metadata: { userId: String(meBefore.id) },
+            metadata: { userId: String(meBefore.user?.id || meBefore.id) },
             amount_total: 399,
             mode: 'payment',
           },
