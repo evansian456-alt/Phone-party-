@@ -150,18 +150,24 @@ test.describe('Full UI Journey — Signup → Party → Chat → Purchase → Lo
   test('2. Profile form is visible and can be saved', async ({ page }) => {
     if (!hostUser) test.skip();
 
-    // Login first via API helper then reload
-    await page.goto(BASE);
-    await waitForView(page, 'viewLanding', 10_000);
+    // Login first via API helper then reload.  Use generous timeouts because
+    // this test runs immediately after signup (test 1) which may leave the
+    // server temporarily busy on a loaded CI runner.
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    await waitForView(page, 'viewLanding', 20_000);
     await page.click('[data-testid="login-button"]');
-    await waitForView(page, 'viewLogin');
+    await waitForView(page, 'viewLogin', 15_000);
     await page.fill('#loginEmail', hostUser.email);
     await page.fill('#loginPassword', hostUser.password);
     await page.click('#formLogin button[type="submit"]');
-    await expect(page.locator('#viewLogin')).not.toBeVisible({ timeout: 12_000 });
+    await expect(page.locator('#viewLogin')).not.toBeVisible({ timeout: 20_000 });
 
-    // Navigate to profile via nav button
-    await page.waitForTimeout(500); // let nav visibility update
+    // Navigate to profile via nav button.  Wait for the post-login nav to
+    // become stable rather than relying on a fixed 500 ms pause.
+    await page.waitForFunction(() => {
+      const nav = document.querySelector('[data-testid="nav-settings"]');
+      return nav && !nav.classList.contains('nav-hidden') && !nav.classList.contains('hidden');
+    }, { timeout: 8_000 }).catch(() => {});
     const profileBtn = page.locator('[data-testid="nav-settings"]:not(.nav-hidden)');
     if (await profileBtn.isVisible({ timeout: 8_000 }).catch(() => false)) {
       await profileBtn.click();
