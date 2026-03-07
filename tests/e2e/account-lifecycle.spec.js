@@ -185,7 +185,7 @@ test.describe('Account lifecycle', () => {
     }
 
     // Accept terms if present
-    const termsCheckbox = page.locator('#signupTermsAccept, input[type="checkbox"]').first();
+    const termsCheckbox = page.locator('#signupTermsAccept');
     if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
       const checked = await termsCheckbox.isChecked().catch(() => false);
       if (!checked) await termsCheckbox.check();
@@ -253,7 +253,7 @@ test.describe('Account lifecycle', () => {
       await djNameField.fill(dupUser.djName);
     }
 
-    const termsCheckbox = page.locator('#signupTermsAccept, input[type="checkbox"]').first();
+    const termsCheckbox = page.locator('#signupTermsAccept');
     if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
       const checked = await termsCheckbox.isChecked().catch(() => false);
       if (!checked) await termsCheckbox.check();

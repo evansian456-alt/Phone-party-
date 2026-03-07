@@ -85,6 +85,7 @@ test.describe('Signup view', () => {
     await page.fill('#signupEmail', u.email);
     await page.fill('#signupPassword', u.password);
     await page.fill('#signupDjName', u.djName);
+    await page.check('#signupTermsAccept');
     await page.click('#viewSignup button[type="submit"]');
 
     // Should navigate away from signup
