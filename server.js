@@ -3802,12 +3802,12 @@ app.post("/api/join-party", async (req, res) => {
     const maxAllowed = await getMaxAllowedPhones(code, normalizedPartyData);
     const currentGuestCount = normalizedPartyData.guestCount || 0;
     
-    // maxAllowed is the guest limit (host does not count against the cap)
-    if (currentGuestCount >= maxAllowed) {
+    // maxAllowed is total phones including host; currentGuestCount is guests only
+    if (1 + currentGuestCount >= maxAllowed) {
       console.log(`[join-party] Party limit reached: ${code}, current: ${currentGuestCount}, max: ${maxAllowed}`);
       return res.status(403).json({ 
-        error: `Party limit reached (${maxAllowed} ${maxAllowed === 2 ? 'guests' : 'guests'})`,
-        details: maxAllowed === 2 ? "Free parties are limited to 2 guests" : undefined
+        error: `Party limit reached (${maxAllowed} phones)`,
+        details: maxAllowed === 2 ? "Free parties are limited to 2 phones" : undefined
       });
     }
     
