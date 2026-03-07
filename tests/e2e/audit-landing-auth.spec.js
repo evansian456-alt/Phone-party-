@@ -94,8 +94,8 @@ test.describe('Signup view', () => {
 
     await page.click('#viewSignup button[type="submit"]');
 
-    // Should navigate away from signup
-    await page.waitForTimeout(3000);
+    // Wait for signup to complete — view should transition away from #viewSignup
+    await page.waitForSelector('#viewSignup.hidden, #viewAuthHome:not(.hidden), #viewHome:not(.hidden)', { timeout: 8000 }).catch(() => {});
     const signupVisible = await page.locator('#viewSignup').isVisible();
     // After successful signup the user should be on home/authHome — not still on signup
     expect(signupVisible).toBe(false);

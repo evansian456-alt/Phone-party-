@@ -168,12 +168,14 @@ test.describe('Account lifecycle', () => {
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
-      }).catch(() => {
-        // Ignore if page is navigating; the signup view may already be shown
+      }).catch((err) => {
+        // Execution context can be destroyed during navigation; the signup view may already be shown
+        if (!err.message.includes('Execution context was destroyed') && !err.message.includes('Target closed')) {
+          throw err;
+        }
       });
     }
     const emailField = page.locator('input[type="email"], input[id="signupEmail"]').first();
-    await emailField.fill(freshUser.email);
 
     const passwordField = page.locator('input[type="password"], input[id="signupPassword"]').first();
     await passwordField.fill(freshUser.password);
@@ -240,8 +242,11 @@ test.describe('Account lifecycle', () => {
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
-      }).catch(() => {
-        // Ignore if page is navigating; the signup view may already be shown
+      }).catch((err) => {
+        // Execution context can be destroyed during navigation; the signup view may already be shown
+        if (!err.message.includes('Execution context was destroyed') && !err.message.includes('Target closed')) {
+          throw err;
+        }
       });
     }
 
