@@ -235,9 +235,14 @@ test.describe('Admin dashboard view', () => {
 
   test('/api/admin/stats returns 401 for unauthenticated requests', async ({ playwright }) => {
     const noAuth = await playwright.request.newContext();
-    const res = await noAuth.get(`${BASE}/api/admin/stats`);
-    await noAuth.dispose();
-    expect(res.status()).toBe(401);
+    let status;
+    try {
+      const res = await noAuth.get(`${BASE}/api/admin/stats`);
+      status = res.status();
+    } finally {
+      await noAuth.dispose();
+    }
+    expect(status).toBe(401);
   });
 
   test('/api/admin/stats returns 403 for non-admin users', async ({ request }) => {
