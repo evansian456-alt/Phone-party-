@@ -33,8 +33,8 @@ test.describe('Profile view — /api/me accuracy', () => {
     const meRes = await request.get(`${BASE}/api/me`);
     const me = await meRes.json();
 
-    expect(me.djName).toBe(u.djName);
-    expect(me.email).toBe(u.email);
+    expect(me.user.djName).toBe(u.djName);
+    expect(me.user.email).toBe(u.email);
   });
 
   test('/api/me returns tier FREE for new user', async ({ request }) => {
@@ -58,7 +58,7 @@ test.describe('Profile view — /api/me accuracy', () => {
     const me = await meRes.json();
 
     // This is the login bug fix — profileCompleted must be true immediately
-    expect(me.profileCompleted).toBe(true);
+    expect(me.user.profileCompleted).toBe(true);
   });
 
   test('/api/me profile.djScore defaults to 0', async ({ request }) => {
@@ -132,7 +132,7 @@ test.describe('Profile view — /api/me accuracy', () => {
 
     const meRes = await request.get(`${BASE}/api/me`);
     const me = await meRes.json();
-    expect(me.djName).toBe(newName);
+    expect(me.user.djName).toBe(newName);
   });
 });
 

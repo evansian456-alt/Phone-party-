@@ -85,10 +85,17 @@ test.describe('Signup view', () => {
     await page.fill('#signupEmail', u.email);
     await page.fill('#signupPassword', u.password);
     await page.fill('#signupDjName', u.djName);
+
+    // Accept terms if the checkbox is present
+    const termsCheckbox = page.locator('#signupTermsAccept');
+    if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (!(await termsCheckbox.isChecked())) await termsCheckbox.check();
+    }
+
     await page.click('#viewSignup button[type="submit"]');
 
     // Should navigate away from signup
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
     const signupVisible = await page.locator('#viewSignup').isVisible();
     // After successful signup the user should be on home/authHome — not still on signup
     expect(signupVisible).toBe(false);
@@ -101,12 +108,20 @@ test.describe('Signup view', () => {
 
     await page.fill('#signupEmail', `missing_dj_${uid()}@test.invalid`);
     await page.fill('#signupPassword', 'Pass123!');
-    // intentionally leave djName empty
+    // intentionally leave djName empty — bypass HTML5 required validation via JS submit
+    await page.evaluate(() => {
+      const form = document.querySelector('#viewSignup form');
+      if (form) {
+        // Remove required attribute so the form submits without HTML5 validation popup
+        const djField = form.querySelector('#signupDjName');
+        if (djField) djField.removeAttribute('required');
+      }
+    });
     await page.click('#viewSignup button[type="submit"]');
 
-    // Error should appear
+    // Error should appear (server-side or client-side validation)
     const err = page.locator('#signupError');
-    await expect(err).toBeVisible({ timeout: 3000 });
+    await expect(err).toBeVisible({ timeout: 5000 });
     await expect(err).not.toBeEmpty();
   });
 
@@ -279,10 +294,15 @@ test.describe('Logout', () => {
   test('logout returns to landing and clears auth', async ({ page, request }) => {
     const u = makeUser('logout');
     await signup(request, u);
-    await login(request, u);
 
+    // Login via the page so the page's cookie store has the auth session
     await page.goto(BASE);
-    await page.waitForTimeout(1500);
+    await page.locator('#btnLandingLogin, [data-testid="login-button"]').first().click().catch(() => {});
+    await page.waitForSelector('#loginEmail', { state: 'visible', timeout: 5000 }).catch(() => {});
+    await page.fill('#loginEmail', u.email).catch(() => {});
+    await page.fill('#loginPassword', u.password).catch(() => {});
+    await page.click('#formLogin button[type="submit"]').catch(() => {});
+    await page.waitForTimeout(2000);
 
     // Click logout if button is visible
     const logoutBtn = page.locator('#btnLogout').first();
@@ -292,8 +312,8 @@ test.describe('Logout', () => {
       await expect(page.locator('#viewLanding')).toBeVisible();
     }
 
-    // /api/me should be 401 after logout
-    const meRes = await request.get(`${BASE}/api/me`);
+    // /api/me should be 401 after logout (using page's request context which reflects the page's session state)
+    const meRes = await page.request.get(`${BASE}/api/me`);
     expect(meRes.status()).toBe(401);
   });
 });

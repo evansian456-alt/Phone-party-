@@ -107,11 +107,8 @@ test.describe('Party UI elements', () => {
       { timeout: 12_000 }
     );
 
-    await expect(page.locator('[data-testid="create-party"]')).toBeVisible();
-    await expect(page.locator('[data-testid="join-party"]')).toBeVisible();
-  });
-
-  test('party-code element is attached in the DOM', async ({ page }) => {
+    await expect(page.locator('[data-testid="create-party"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="join-party"]').first()).toBeVisible();
     await page.goto(BASE);
     await expect(page.locator('[data-testid="party-code"]')).toBeAttached();
   });

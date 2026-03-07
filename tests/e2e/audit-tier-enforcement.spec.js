@@ -126,17 +126,22 @@ test.describe('FREE tier enforcement', () => {
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
     const { code } = await createRes.json();
 
-    // Join 2 guests (FREE limit)
-    for (let i = 1; i <= 2; i++) {
-      const res = await request.post(`${BASE}/api/join-party`, {
-        data: { partyCode: code, nickname: `Guest${i}` },
-      });
-      expect(res.ok()).toBeTruthy();
-    }
+    // FREE tier allows 2 total devices (1 host + 1 guest). First guest should succeed.
+    const res1 = await request.post(`${BASE}/api/join-party`, {
+      data: { partyCode: code, nickname: 'Guest1' },
+    });
+    expect(res1.ok()).toBeTruthy();
 
-    // Verify party state shows 2 guests
+    // Second guest should be rejected — party is at capacity (2 phones: host + 1 guest)
+    const res2 = await request.post(`${BASE}/api/join-party`, {
+      data: { partyCode: code, nickname: 'Guest2' },
+    });
+    expect(res2.ok()).toBe(false);
+    expect(res2.status()).toBe(403);
+
+    // Verify party state shows 1 guest
     const state = await (await request.get(`${BASE}/api/party-state?code=${code}`)).json();
-    expect(state.guestCount).toBeGreaterThanOrEqual(2);
+    expect(state.guestCount).toBe(1);
   });
 
   test('FREE tier: party has no partyPassExpiresAt (unlimited time)', async ({ request }) => {
@@ -173,11 +178,12 @@ test.describe('PARTY_PASS tier enforcement (test mode)', () => {
       data: {
         type: 'checkout.session.completed',
         data: {
-          object: {
-            metadata: { userId: String(meBefore.id) },
-            amount_total: 399,
-            mode: 'payment',
+          metadata: {
+            userId: String(meBefore.user?.id || meBefore.id),
+            priceId: process.env.STRIPE_PRICE_PARTY_PASS || 'price_party_pass_test',
+            productType: 'party_pass',
           },
+          client_reference_id: String(meBefore.user?.id || meBefore.id),
         },
       },
     });

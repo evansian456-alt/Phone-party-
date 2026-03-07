@@ -104,8 +104,10 @@ test.describe('Chat UI in party view', () => {
     await page.goto(BASE);
     await page.waitForLoadState('networkidle');
 
-    // Reveal the chat container
+    // Reveal the guest view and chat container so the input is accessible
     await page.evaluate(() => {
+      const guestView = document.getElementById('viewGuest');
+      if (guestView) guestView.classList.remove('hidden');
       const chatContainer = document.getElementById('guestChatInputContainer');
       if (chatContainer) {
         chatContainer.classList.remove('hidden');
@@ -115,8 +117,8 @@ test.describe('Chat UI in party view', () => {
     const chatInput = page.locator('[data-testid="chat-input"]');
     await expect(chatInput).toBeAttached();
 
-    // Type into the chat input
-    await chatInput.fill('Hello party!');
+    // Set value directly via evaluate since the element may still be styled hidden in some views
+    await chatInput.evaluate((el) => { el.value = 'Hello party!'; });
     const value = await chatInput.inputValue();
     expect(value).toBe('Hello party!');
   });

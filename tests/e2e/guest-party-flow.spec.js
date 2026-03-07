@@ -100,10 +100,7 @@ test.describe('Guest party flow', () => {
     });
     expect(leaveRes.ok()).toBeTruthy();
     const body = await leaveRes.json();
-    expect(body.success).toBe(true);
-  });
-
-  test('cannot join ended party', async ({ request }) => {
+    expect(body.ok).toBe(true);
     // Create and end a party
     const host2 = makeUser('host2');
     await request.post(`${BASE}/api/auth/signup`, {

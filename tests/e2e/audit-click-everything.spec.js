@@ -256,7 +256,7 @@ test.describe('Click-Everything Audit', () => {
     if (await profileBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await profileBtn.click();
       // nav-settings opens viewMyProfile
-      await page.locator('#viewMyProfile, #viewProfile').first().waitFor({ state: 'visible', timeout: 8_000 });
+      await page.waitForSelector('#viewMyProfile:not(.hidden), #viewProfile:not(.hidden)', { timeout: 8_000 });
       await screenshot(page, 'profile_view');
       // Go back
       await page.goto(BASE);
@@ -291,7 +291,13 @@ test.describe('Click-Everything Audit', () => {
     // Play button
     const playBtn = page.locator('[data-testid="play-party"]');
     if (await playBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await playBtn.click();
+      // Dismiss any overlaid modal before clicking
+      const nudge = page.locator('#modalReferralNudge');
+      if (await nudge.isVisible({ timeout: 500 }).catch(() => false)) {
+        await page.keyboard.press('Escape');
+        await nudge.waitFor({ state: 'hidden', timeout: 2_000 }).catch(() => {});
+      }
+      await playBtn.click({ force: true });
       await screenshot(page, 'party_play_clicked');
     }
 
@@ -360,7 +366,7 @@ test.describe('Click-Everything Audit', () => {
     await profileBtn.waitFor({ state: 'visible', timeout: 10_000 });
     await profileBtn.click();
     // nav-settings opens viewMyProfile (not viewProfile)
-    await page.locator('#viewMyProfile, #viewProfile').first().waitFor({ state: 'visible', timeout: 10_000 });
+    await page.waitForSelector('#viewMyProfile:not(.hidden), #viewProfile:not(.hidden)', { timeout: 10_000 });
     await screenshot(page, 'profile_view_entered');
 
     // Profile form exists

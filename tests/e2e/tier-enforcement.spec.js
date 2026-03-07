@@ -59,7 +59,7 @@ test.describe('Tier enforcement — FREE', () => {
     const res = await request.get(`${BASE}/api/tier-info`);
     if (res.status() === 401 || res.status() === 404) return; // optional endpoint
     const body = await res.json();
-    expect(body.tier || body.effectiveTier).toBeDefined();
+    expect(body.tiers || body.tier || body.effectiveTier).toBeDefined();
   });
 });
 
@@ -89,6 +89,7 @@ test.describe('Tier enforcement — PARTY_PASS (simulated)', () => {
           metadata: {
             userId: user.id,
             priceId: process.env.STRIPE_PRICE_PARTY_PASS || 'price_party_pass_test',
+            productType: 'party_pass',
           },
           client_reference_id: user.id,
         },
@@ -150,6 +151,7 @@ test.describe('Tier enforcement — PRO (simulated)', () => {
           metadata: {
             userId: user.id,
             priceId: process.env.STRIPE_PRICE_PRO_MONTHLY || 'price_pro_monthly_test',
+            productType: 'pro_monthly',
           },
           client_reference_id: user.id,
         },

@@ -158,19 +158,20 @@ test.describe('Account lifecycle', () => {
     });
 
     // Navigate to signup view
+    await page.waitForLoadState('domcontentloaded');
     const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
+      .locator('#btnLandingSignup, button, a')
+      .filter({ hasText: /sign up|register|create account|get started/i })
       .first();
     if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await signupBtn.click();
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
+      }).catch(() => {
+        // Ignore if page is navigating; the signup view may already be shown
       });
     }
-
-    // Fill signup form
     const emailField = page.locator('input[type="email"], input[id="signupEmail"]').first();
     await emailField.fill(freshUser.email);
 
@@ -229,15 +230,18 @@ test.describe('Account lifecycle', () => {
     await page.goto(BASE);
 
     // Navigate to signup view
+    await page.waitForLoadState('domcontentloaded');
     const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
+      .locator('#btnLandingSignup, button, a')
+      .filter({ hasText: /sign up|register|create account|get started/i })
       .first();
     if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await signupBtn.click();
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
+      }).catch(() => {
+        // Ignore if page is navigating; the signup view may already be shown
       });
     }
 

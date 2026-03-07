@@ -56,8 +56,8 @@ test.describe('Party UI data-testid attributes', () => {
 
     await page.waitForFunction(() => { const ah = document.getElementById('viewAuthHome'); const h = document.getElementById('viewHome'); return (ah && !ah.classList.contains('hidden')) || (h && !h.classList.contains('hidden')); }, { timeout: 12000 });
 
-    await expect(page.locator('[data-testid="create-party"]')).toBeVisible();
-    await expect(page.locator('[data-testid="join-party"]')).toBeVisible();
+    await expect(page.locator('[data-testid="create-party"]').first()).toBeVisible();
+    await expect(page.locator('[data-testid="join-party"]').first()).toBeVisible();
   });
 
   test('party-code element exists in viewParty', async ({ page }) => {

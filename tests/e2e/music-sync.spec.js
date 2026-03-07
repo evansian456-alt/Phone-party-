@@ -270,10 +270,10 @@ test.describe('Music queue reorder', () => {
     if (state.queue.length < 2) return; // not enough tracks
 
     const originalOrder = state.queue.map((t) => t.trackId);
-    const reversed = [...originalOrder].reverse();
 
+    // Move track at index 1 to index 0 (equivalent to reversing a 2-track queue)
     const reorderRes = await request.post(`${BASE}/api/party/${party3.code}/reorder-queue`, {
-      data: { newOrder: reversed, hostId: party3.hostId },
+      data: { fromIndex: 1, toIndex: 0, hostId: party3.hostId },
     });
     expect(reorderRes.ok()).toBeTruthy();
 
@@ -281,7 +281,7 @@ test.describe('Music queue reorder', () => {
     const afterRes = await request.get(`${BASE}/api/party-state?code=${party3.code}`);
     const after = await afterRes.json();
     if (after.queue.length >= 2) {
-      expect(after.queue[0].trackId).toBe(reversed[0]);
+      expect(after.queue[0].trackId).toBe(originalOrder[1]);
     }
   });
 });

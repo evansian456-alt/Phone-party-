@@ -57,8 +57,8 @@ test.describe('Guest view — structural elements', () => {
     await expect(page.locator('#guestEqualizer')).toBeAttached();
 
     // Volume
-    await expect(page.locator('#guestVolumeSlider')).toBeAttached();
-    await expect(page.locator('#guestVolumeValue')).toBeAttached();
+    await expect(page.locator('#guestVolumeSlider').first()).toBeAttached();
+    await expect(page.locator('#guestVolumeValue').first()).toBeAttached();
 
     // Playback controls
     await expect(page.locator('#btnGuestPlay')).toBeAttached();
@@ -90,8 +90,8 @@ test.describe('Guest view — structural elements', () => {
     await page.goto(BASE);
     await page.evaluate(() => { document.getElementById('viewGuest')?.classList.remove('hidden'); });
     await page.waitForTimeout(300);
-    const slider = page.locator('#guestVolumeSlider');
-    if (await slider.isAttached()) {
+    const slider = page.locator('#guestVolumeSlider').first();
+    if ((await slider.count()) > 0) {
       const val = await slider.inputValue();
       expect(Number(val)).toBe(80);
     }
@@ -113,11 +113,11 @@ test.describe('Guest view — structural elements', () => {
     await page.evaluate(() => { document.getElementById('viewGuest')?.classList.remove('hidden'); });
     await page.waitForTimeout(300);
     const resync = page.locator('#btnGuestResync');
-    if (await resync.isAttached()) {
+    if ((await resync.count()) > 0) {
       // Should be hidden (class or style) until drift is detected
       const isVisible = await resync.isVisible({ timeout: 500 }).catch(() => false);
       // It may or may not be visible depending on state — just verify it exists
-      expect(await resync.isAttached()).toBe(true);
+      expect((await resync.count()) > 0).toBe(true);
     }
   });
 });
@@ -353,7 +353,7 @@ test.describe('Guest view — party status badge', () => {
     await page.evaluate(() => { document.getElementById('viewGuest')?.classList.remove('hidden'); });
     await page.waitForTimeout(300);
     const timer = page.locator('#guestPartyPassTimer');
-    if (await timer.isAttached()) {
+    if ((await timer.count()) > 0) {
       const hasHiddenClass = await timer.evaluate(el => el.classList.contains('hidden'));
       expect(hasHiddenClass).toBe(true);
     }
