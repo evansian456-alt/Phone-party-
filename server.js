@@ -3078,7 +3078,7 @@ async function getPartyFromRedis(code) {
     if (!data) return null;
     return JSON.parse(data);
   } catch (err) {
-    console.error(`[Redis] Error getting party ${code}:`, err.message);
+    console.error('[Redis] Error getting party %s:', code, err.message);
     throw err;
   }
 }
@@ -4291,7 +4291,7 @@ app.post("/api/end-party", apiLimiter, async (req, res) => {
     try {
       await persistPartyScoreboard(code, partyData);
     } catch (err) {
-      console.error(`[end-party] Failed to persist scoreboard for ${code}:`, err.message);
+      console.error('[end-party] Failed to persist scoreboard for %s:', code, err.message);
     }
     
     // Save updated party data (or delete it)
@@ -6859,7 +6859,7 @@ async function persistPartyScoreboard(partyCode, party) {
     console.log(`[Database] Updated ${guestScores.length} guest profiles`);
     
   } catch (error) {
-    console.error(`[Database] Error persisting scoreboard for party ${partyCode}:`, error.message);
+    console.error('[Database] Error persisting scoreboard for party %s:', partyCode, error.message);
     throw error;
   }
 }
