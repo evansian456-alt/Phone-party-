@@ -167,6 +167,8 @@ test.describe('Account lifecycle', () => {
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
+      }).catch(() => {
+        // setView() may trigger a navigation that destroys the execution context — ignore
       });
     }
 
@@ -238,6 +240,8 @@ test.describe('Account lifecycle', () => {
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
+      }).catch(() => {
+        // setView() may trigger a navigation that destroys the execution context — ignore
       });
     }
 

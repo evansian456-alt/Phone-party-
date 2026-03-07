@@ -298,6 +298,11 @@ test.describe('Click-Everything Audit', () => {
     // Play button
     const playBtn = page.locator('[data-testid="play-party"]');
     if (await playBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      // Re-dismiss referral nudge if it appeared after entering party view
+      if (await nudgeModal.isVisible({ timeout: 500 }).catch(() => false)) {
+        await page.keyboard.press('Escape');
+        await nudgeModal.waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
+      }
       await playBtn.click();
       await screenshot(page, 'party_play_clicked');
     }
