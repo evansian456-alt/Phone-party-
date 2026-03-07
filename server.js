@@ -3709,7 +3709,9 @@ app.post("/api/join-party", async (req, res) => {
     const timestamp = new Date().toISOString();
     console.log(`[HTTP] POST /api/join-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
     
-    const { partyCode, nickname } = req.body;
+    const { nickname } = req.body;
+    // Accept both `partyCode` and legacy `code` field names for backward compatibility
+    const partyCode = req.body.partyCode || req.body.code;
     
     if (!partyCode) {
       console.log("[join-party] end (missing party code)");
@@ -3729,7 +3731,8 @@ app.post("/api/join-party", async (req, res) => {
     // Use nanoid for HTTP guests to avoid collision with WS client IDs
     const guestId = `guest_${nanoid(10)}`;
     const guestNumber = nextHttpGuestSeq++;
-    const guestNickname = nickname || `Guest ${guestNumber}`;
+    // Accept both `nickname` and legacy `djName` field names for backward compatibility
+    const guestNickname = nickname || req.body.djName || `Guest ${guestNumber}`;
     
     console.log(`[join-party] Attempting to join party: ${code}, guestId: ${guestId}, nickname: ${guestNickname}, timestamp: ${timestamp}`);
     
@@ -4135,7 +4138,9 @@ app.post("/api/leave-party", async (req, res) => {
   console.log(`[HTTP] POST /api/leave-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
   try {
-    const { partyCode, guestId } = req.body;
+    // Accept both `partyCode` and legacy `code` field names for backward compatibility
+    const partyCode = req.body.partyCode || req.body.code;
+    const { guestId } = req.body;
     
     if (!partyCode) {
       return res.status(400).json({ error: "Party code is required" });
@@ -4223,7 +4228,9 @@ app.post("/api/end-party", apiLimiter, async (req, res) => {
   console.log(`[HTTP] POST /api/end-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
   try {
-    const { partyCode, hostId } = req.body;
+    const { hostId } = req.body;
+    // Accept both `partyCode` and legacy `code` field names for backward compatibility
+    const partyCode = req.body.partyCode || req.body.code;
     
     if (!partyCode) {
       return res.status(400).json({ error: "Party code is required" });

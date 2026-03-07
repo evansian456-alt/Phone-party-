@@ -1174,11 +1174,12 @@ describe('Party Management Endpoints', () => {
       const createResponse = await request(app).post('/api/create-party')
         .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
+      const hostId = createResponse.body.hostId;
       
-      // End party
+      // End party (host must provide hostId)
       const endResponse = await request(app)
         .post('/api/end-party')
-        .send({ partyCode });
+        .send({ partyCode, hostId });
       
       expect(endResponse.status).toBe(200);
       expect(endResponse.body.ok).toBe(true);
@@ -1213,11 +1214,12 @@ describe('Party Management Endpoints', () => {
       const createResponse = await request(app).post('/api/create-party')
         .send({ djName: 'DJ Test' });
       const partyCode = createResponse.body.partyCode;
+      const hostId = createResponse.body.hostId;
       
-      // End party
+      // End party (host must provide hostId)
       await request(app)
         .post('/api/end-party')
-        .send({ partyCode });
+        .send({ partyCode, hostId });
       
       // Try to join ended party
       const joinResponse = await request(app)

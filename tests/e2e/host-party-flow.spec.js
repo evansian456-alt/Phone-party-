@@ -54,6 +54,7 @@ test.describe('Host party flow', () => {
     expect(typeof body.code).toBe('string');
     expect(body.code.length).toBeGreaterThan(0);
     host.partyCode = body.code;
+    host.hostId = body.hostId;
   });
 
   test('created party is retrievable via GET /api/party', async ({ request }) => {
@@ -62,8 +63,7 @@ test.describe('Host party flow', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.exists).toBe(true);
-    expect(body.party).toBeDefined();
-    expect(body.party.djName).toBe(host.djName);
+    expect(body.partyCode).toBe(host.partyCode);
   });
 
   test('host can end a party', async ({ request }) => {
@@ -71,17 +71,17 @@ test.describe('Host party flow', () => {
     const createRes = await request.post(`${BASE}/api/create-party`, {
       data: { djName: host.djName },
     });
-    const { code } = await createRes.json();
+    const { code, hostId } = await createRes.json();
 
     const endRes = await request.post(`${BASE}/api/end-party`, {
-      data: { code },
+      data: { partyCode: code, hostId },
     });
     expect(endRes.ok()).toBeTruthy();
 
     // Party should now be ended
     const getRes = await request.get(`${BASE}/api/party?code=${code}`);
     const body = await getRes.json();
-    expect(body.party?.ended).toBe(true);
+    expect(body.status).toBe('ended');
   });
 
   test('host tier starts as FREE', async ({ request }) => {
