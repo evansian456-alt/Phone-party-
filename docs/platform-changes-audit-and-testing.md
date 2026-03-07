@@ -1,6 +1,6 @@
 # Platform Changes Audit & Verification Test Plan
 
-_Generated: 2026-03-03 | Branch: `copilot/audit-platform-changes` | Repo: evansian456-alt/Phone Party-_
+_Generated: 2026-03-03 | Branch: `copilot/audit-platform-changes` | Repo: `evansian456-alt/Phone-party-`_
 
 ---
 
@@ -11,7 +11,7 @@ _Generated: 2026-03-03 | Branch: `copilot/audit-platform-changes` | Repo: evansi
 | Claim | Reality |
 |---|---|
 | Platform logos (YouTube, Spotify, SoundCloud) exist | ✅ **REAL** — SVG files at `public/assets/platform-logos/`, served via dedicated route with no-cache headers |
-| Cloud Build deploys to `syncspeaker` in `us-central1` | ✅ **REAL** — `cloudbuild.yaml` targets `syncspeaker` + `us-central1` exclusively; zero references to `phone-party` or `europe-west1` |
+| Cloud Build deploys to `syncspeaker` in `us-central1` | ✅ **REAL** — `cloudbuild.yaml` targets `syncspeaker` + `us-central1` exclusively; zero references to `house-party` or `europe-west1` |
 | Cache-busting for platform assets is implemented | ⚠️ **PARTIALLY** — `NO_CACHE` was set on the dedicated SVG route (`server.js:961`) BUT `express.static` at line 773 intercepted all SVG requests first and did NOT set `no-cache`; **fixed in this audit** by adding `svg` to the `setHeaders` regex at `server.js:776` |
 | UI for "Official App Sync" (select platform, paste URL, sync) | ✅ **REAL** — `index.html:600–668` has full UI with platform dropdown, track-ref input, "Open in App" buttons |
 | Backend handler for `OFFICIAL_APP_SYNC_SELECT` | ✅ **REAL** — `server.js:7002–7085` validates, normalizes via `platform-normalizer.js`, broadcasts to party |
@@ -38,7 +38,7 @@ The service worker was caching stale asset responses. After adding `CHANGER_VERS
 | 3 | No-cache headers on SVG route (was broken: `express.static` intercepted before dedicated route) | PR #9 / cache issue reports + **this audit** | ✅ Fixed — `server.js:776` now includes `svg` in `setHeaders` regex |
 | 4 | Fix service-worker stale caching on deploy | Caching issue | ✅ Implemented | `service-worker.js:7–10` (`CHANGER_VERSION` in cache name) |
 | 5 | Cloud Build must target `syncspeaker` + `us-central1` | Deployment issue | ✅ Implemented | `cloudbuild.yaml:7,22,23` |
-| 6 | Remove any deploy to old `phone-party` / `europe-west1` | Deployment issue | ✅ Implemented | Zero references found in `cloudbuild.yaml` |
+| 6 | Remove any deploy to old `house-party` / `europe-west1` | Deployment issue | ✅ Implemented | Zero references found in `cloudbuild.yaml` |
 | 7 | Official App Sync UI (platform select + track-ref input) | Feature request | ✅ Implemented | `index.html:601–668` |
 | 8 | "Open in App" deep-link buttons per platform | Feature request | ✅ Implemented | `index.html:649–663`, `app.js:11509–11529` |
 | 9 | Backend WebSocket handler for `OFFICIAL_APP_SYNC_SELECT` | Feature request | ✅ Implemented | `server.js:7002–7085` |
@@ -220,7 +220,7 @@ gcloud run revisions describe \
 |---|---|---|
 | 1 | **`express.static` did not set `no-cache` on SVG files** — the `setHeaders` callback in `server.js:776` only matched `.html|.js|.css`, so SVG files (including platform logos) were served with the default browser-cacheable headers (`public, max-age=0`). The dedicated SVG route at `server.js:959` was unreachable because `express.static` intercepted the request first | Fixed: `server.js:776` — regex changed from `/\.(html|js|css)$/` to `/\.(html|js|css|svg)$/` |
 | 2 | **Service worker served stale cached assets** — SW would cache JS/HTML/SVG on install, and old cache names persisted across deploys | `service-worker.js` now uses `CHANGER_VERSION` in the cache name (`service-worker.js:7–10`); old caches deleted on activate |
-| 3 | **Cloud Run was still routing to old `phone-party` service** — if the trigger was pushing to the old service, users would see the old version | Fixed: `cloudbuild.yaml` targets only `syncspeaker`/`us-central1`; no references to old service exist |
+| 3 | **Cloud Run was still routing to old `house-party` service** — if the trigger was pushing to the old service, users would see the old version | Fixed: `cloudbuild.yaml` targets only `syncspeaker`/`us-central1`; no references to old service exist |
 | 4 | **Missing `skipWaiting`/`clients.claim()` calls** — a new SW version would install but not immediately take control | Fixed: `service-worker.js:39` calls `self.skipWaiting()`, line ~70 calls `self.clients.claim()` |
 | 5 | **Official App Sync section is hidden by default** — the section has class `hidden` and only shows for paid-tier users; free users could not see it | `index.html:602` — `class="box hidden"` on `#officialAppSyncSection`; expected behavior but can cause confusion |
 
