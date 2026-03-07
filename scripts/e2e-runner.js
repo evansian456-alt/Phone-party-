@@ -499,11 +499,11 @@ async function main() {
   serverLogStream = fs.createWriteStream(SERVER_LOG_FILE, { flags: 'w' });
   serverProcess.stdout.on('data', (chunk) => {
     process.stdout.write(chunk);
-    serverLogStream.write(chunk);
+    if (serverLogStream) serverLogStream.write(chunk);
   });
   serverProcess.stderr.on('data', (chunk) => {
     process.stderr.write(chunk);
-    serverLogStream.write(chunk);
+    if (serverLogStream) serverLogStream.write(chunk);
   });
   console.log(`[E2E] ${ts()} Server logs → ${SERVER_LOG_FILE}`);
 
