@@ -3495,7 +3495,7 @@ async function savePartyState(code, partyData) {
 
 // Shared party creation function used by both HTTP and WS paths
 // This ensures consistent party data structure across all creation methods
-async function createPartyCommon({ djName, source, hostId, hostConnected }) {
+async function createPartyCommon({ djName, source, hostId, hostConnected, creatorUserId }) {
   // Check if we should use Redis or fallback
   const useRedis = redis && redisReady;
   
@@ -3537,6 +3537,8 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
     guests: [],
     status: "active",
     expiresAt: createdAt + PARTY_TTL_MS,
+    // Creator's authenticated user ID (null for anonymous/WS-created parties)
+    creatorUserId: creatorUserId || null,
     // Tier-based fields (set by backend entitlement validation only)
     tier: null,
     partyPassExpiresAt: undefined,
@@ -3568,7 +3570,7 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
 }
 
 // POST /api/create-party - Create a new party
-app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
+app.post("/api/create-party", partyCreationLimiter, authMiddleware.optionalAuth, async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
@@ -3636,7 +3638,8 @@ app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
       djName: djName,
       source: partySource,
       hostId: hostId,
-      hostConnected: false
+      hostConnected: false,
+      creatorUserId: req.user ? req.user.userId : null
     });
     
     console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}`);
@@ -3867,6 +3870,7 @@ app.post("/api/join-party", async (req, res) => {
     // Respond with success and guest info
     const response = { 
       ok: true,
+      success: true,
       guestId,
       nickname: guestNickname,
       partyCode: code,
@@ -4228,7 +4232,7 @@ app.post("/api/leave-party", async (req, res) => {
 });
 
 // POST /api/end-party - End party early (host only)
-app.post("/api/end-party", async (req, res) => {
+app.post("/api/end-party", apiLimiter, authMiddleware.optionalAuth, async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/end-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
@@ -4276,6 +4280,18 @@ app.post("/api/end-party", async (req, res) => {
       return res.status(404).json({ error: "Party not found or expired" });
     }
     
+    // Validate that the authenticated user is the party's creator (host).
+    // Only enforced when the party has a recorded creatorUserId (i.e. was created by
+    // an authenticated user). Parties created anonymously or via WebSocket skip the check.
+    if (partyData.creatorUserId !== null && partyData.creatorUserId !== undefined) {
+      if (!req.user) {
+        return res.status(401).json({ error: "Authentication required to end this party" });
+      }
+      if (partyData.creatorUserId !== req.user.userId) {
+        return res.status(403).json({ error: "Only the party host can end the party" });
+      }
+    }
+    
     // Mark party as ended
     partyData.status = "ended";
     partyData.endedAt = Date.now();
@@ -4318,7 +4334,7 @@ app.post("/api/end-party", async (req, res) => {
       parties.delete(code);
     }
     
-    res.json({ ok: true });
+    res.json({ ok: true, success: true });
     
   } catch (error) {
     console.error(`[HTTP] Error ending party, instanceId: ${INSTANCE_ID}:`, error);

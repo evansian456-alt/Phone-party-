@@ -33,6 +33,10 @@ pool.on('connect', () => {
 });
 
 pool.on('error', (err) => {
+  // Silently ignore 57P01 (terminating connection due to administrator command)
+  // This fires during test teardown when the container stops, after Jest has finished.
+  // Logging after Jest teardown causes "Cannot log after tests are done" failures.
+  if (err.code === '57P01') return;
   console.error('[Database] Unexpected error on idle client', err);
 });
 
