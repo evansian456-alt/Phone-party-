@@ -3861,11 +3861,18 @@ app.post("/api/join-party", async (req, res) => {
     // Respond with success and guest info
     const response = { 
       ok: true,
+      success: true,
       guestId,
       nickname: guestNickname,
       partyCode: code,
       djName: partyData.djName || "DJ", // Fallback for backward compatibility with old parties
-      chatMode: partyData.chatMode || "OPEN" // Include chat mode for initial setup
+      chatMode: partyData.chatMode || "OPEN", // Include chat mode for initial setup
+      party: {
+        code,
+        status: partyData.status || "active",
+        djName: partyData.djName || "DJ",
+        guestCount: partyData.guestCount || 0,
+      }
     };
     
     // Add warning if using fallback mode in production
@@ -4005,6 +4012,7 @@ app.get("/api/party", async (req, res) => {
         code,
         status,
         ended: status === 'ended',
+        djName: partyData.djName,
         guestCount: partyData.guestCount || 0,
         createdAt: partyData.createdAt,
         expiresAt: partyData.expiresAt || (partyData.createdAt + PARTY_TTL_MS),
