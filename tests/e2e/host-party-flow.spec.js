@@ -44,6 +44,12 @@ test.describe('Host party flow', () => {
     await apiLogin(request, host);
   });
 
+  test.beforeEach(async ({ request }) => {
+    if (host) {
+      await apiLogin(request, host);
+    }
+  });
+
   test('host can create a party', async ({ request }) => {
     const res = await request.post(`${BASE}/api/create-party`, {
       data: { djName: host.djName },

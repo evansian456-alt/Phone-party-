@@ -150,6 +150,7 @@ test.describe('Account lifecycle', () => {
     const freshUser = makeUser();
 
     await page.goto(BASE);
+    await page.waitForLoadState('networkidle').catch(() => {});
 
     // Collect console errors for diagnostics
     const consoleErrors = [];
@@ -167,6 +168,10 @@ test.describe('Account lifecycle', () => {
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
+      }).catch(async () => {
+        // Navigation race — wait for DOM to settle and retry
+        await page.waitForLoadState('domcontentloaded');
+        await page.evaluate(() => { if (typeof setView === 'function') setView('signup'); });
       });
     }
 
@@ -227,6 +232,7 @@ test.describe('Account lifecycle', () => {
     });
 
     await page.goto(BASE);
+    await page.waitForLoadState('networkidle').catch(() => {});
 
     // Navigate to signup view
     const signupBtn = page
@@ -238,6 +244,9 @@ test.describe('Account lifecycle', () => {
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
+      }).catch(async () => {
+        await page.waitForLoadState('domcontentloaded');
+        await page.evaluate(() => { if (typeof setView === 'function') setView('signup'); });
       });
     }
 

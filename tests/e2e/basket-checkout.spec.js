@@ -42,6 +42,14 @@ test.describe('Basket — add / remove', () => {
     await signupAndLogin(request, user);
   });
 
+  test.beforeEach(async ({ request }) => {
+    if (user) {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: user.email, password: user.password },
+      });
+    }
+  });
+
   test('basket starts empty', async ({ request }) => {
     const res = await request.get(`${BASE}/api/basket`);
     expect(res.ok()).toBeTruthy();
@@ -111,6 +119,14 @@ test.describe('Basket — checkout session', () => {
   test.beforeAll(async ({ request }) => {
     user = makeUser('checkout');
     await signupAndLogin(request, user);
+  });
+
+  test.beforeEach(async ({ request }) => {
+    if (user) {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: user.email, password: user.password },
+      });
+    }
   });
 
   test('checkout with empty basket returns 400', async ({ request }) => {

@@ -234,8 +234,7 @@ test.describe('Admin dashboard view', () => {
   });
 
   test('/api/admin/stats returns 401 for unauthenticated requests', async ({ request }) => {
-    const noAuth = await request.newContext();
-    const res = await noAuth.get(`${BASE}/api/admin/stats`);
+    const res = await request.get(`${BASE}/api/admin/stats`);
     expect(res.status()).toBe(401);
   });
 

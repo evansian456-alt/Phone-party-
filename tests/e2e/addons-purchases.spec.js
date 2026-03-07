@@ -147,6 +147,14 @@ test.describe('Add-on purchases — visual pack', () => {
     await signupAndLogin(request, user);
   });
 
+  test.beforeEach(async ({ request }) => {
+    if (user) {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: user.email, password: user.password },
+      });
+    }
+  });
+
   test('purchasing a visual pack succeeds and updates profile', async ({ request }) => {
     const purchaseRes = await request.post(`${BASE}/api/purchase`, {
       data: { itemId: 'neon_pack' },
@@ -221,6 +229,14 @@ test.describe('Add-on purchases — profile upgrades', () => {
     await signupAndLogin(request, user);
   });
 
+  test.beforeEach(async ({ request }) => {
+    if (user) {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: user.email, password: user.password },
+      });
+    }
+  });
+
   test('purchasing crown_effect updates profile.crownEffect', async ({ request }) => {
     const purchaseRes = await request.post(`${BASE}/api/purchase`, {
       data: { itemId: 'crown_effect' },
@@ -272,6 +288,14 @@ test.describe('Add-on UI state consistency', () => {
   test.beforeAll(async ({ request }) => {
     user = makeUser('uistate');
     await signupAndLogin(request, user);
+  });
+
+  test.beforeEach(async ({ request }) => {
+    if (user) {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: user.email, password: user.password },
+      });
+    }
   });
 
   test('/api/me profile fields are always defined (never undefined)', async ({ request }) => {

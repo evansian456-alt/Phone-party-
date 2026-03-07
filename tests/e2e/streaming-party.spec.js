@@ -190,6 +190,14 @@ test.describe('Streaming Party — PRO user access', () => {
     await signupAndLogin(request, proUser);
   });
 
+  test.beforeEach(async ({ request }) => {
+    if (proUser && process.env.NODE_ENV === 'test') {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: proUser.email, password: proUser.password },
+      });
+    }
+  });
+
   test('PRO user: /api/streaming/providers returns 200 with all providers', async ({ request }) => {
     if (process.env.NODE_ENV !== 'test') return;
     if (!proUser) return;

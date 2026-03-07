@@ -4241,7 +4241,8 @@ app.post("/api/leave-party", async (req, res) => {
     }
     
     res.json({ 
-      ok: true, 
+      ok: true,
+      success: true,
       guestCount: partyData.guestCount 
     });
     
@@ -5120,7 +5121,7 @@ app.post("/api/party/:code/clear-queue", async (req, res) => {
 app.post("/api/party/:code/reorder-queue", async (req, res) => {
   const timestamp = new Date().toISOString();
   const code = req.params.code ? req.params.code.toUpperCase() : null;
-  const { hostId, fromIndex, toIndex } = req.body;
+  const { hostId, fromIndex, toIndex, newOrder } = req.body;
   
   console.log(`[HTTP] POST /api/party/${code}/reorder-queue at ${timestamp}`);
   
@@ -5128,8 +5129,11 @@ app.post("/api/party/:code/reorder-queue", async (req, res) => {
     return res.status(400).json({ error: 'Invalid party code' });
   }
   
-  if (typeof fromIndex !== 'number' || typeof toIndex !== 'number') {
-    return res.status(400).json({ error: 'fromIndex and toIndex are required and must be numbers' });
+  // Accept either newOrder (full array of trackIds) OR fromIndex+toIndex (move one track)
+  const hasNewOrder = Array.isArray(newOrder);
+  const hasIndexes = typeof fromIndex === 'number' && typeof toIndex === 'number';
+  if (!hasNewOrder && !hasIndexes) {
+    return res.status(400).json({ error: 'Either newOrder array or fromIndex+toIndex must be provided' });
   }
   
   try {
@@ -5139,7 +5143,7 @@ app.post("/api/party/:code/reorder-queue", async (req, res) => {
       return res.status(404).json({ error: 'Party not found' });
     }
     
-    // PHASE 2: Validate host-only auth
+    // Validate host-only auth
     const authCheck = validateHostAuth(hostId, partyData);
     if (!authCheck.valid) {
       console.log(`[HTTP] Reorder-queue operation denied for ${code}: ${authCheck.error}`);
@@ -5151,23 +5155,31 @@ app.post("/api/party/:code/reorder-queue", async (req, res) => {
       partyData.queue = [];
     }
     
-    // Validate indices
-    if (fromIndex < 0 || fromIndex >= partyData.queue.length) {
-      return res.status(400).json({ error: 'Invalid fromIndex' });
+    if (hasNewOrder) {
+      // Full reorder: sort queue by the provided trackId order
+      const orderMap = new Map(newOrder.map((trackId, idx) => [String(trackId), idx]));
+      partyData.queue = [...partyData.queue].sort((a, b) => {
+        const ai = orderMap.has(String(a.trackId)) ? orderMap.get(String(a.trackId)) : Infinity;
+        const bi = orderMap.has(String(b.trackId)) ? orderMap.get(String(b.trackId)) : Infinity;
+        return ai - bi;
+      });
+      console.log(`[HTTP] Reordered queue for party ${code} via newOrder (${newOrder.length} tracks)`);
+    } else {
+      // Single move: validate indices
+      if (fromIndex < 0 || fromIndex >= partyData.queue.length) {
+        return res.status(400).json({ error: 'Invalid fromIndex' });
+      }
+      if (toIndex < 0 || toIndex >= partyData.queue.length) {
+        return res.status(400).json({ error: 'Invalid toIndex' });
+      }
+      // Reorder: remove from fromIndex and insert at toIndex
+      const [movedTrack] = partyData.queue.splice(fromIndex, 1);
+      partyData.queue.splice(toIndex, 0, movedTrack);
+      console.log(`[HTTP] Reordered queue for party ${code}: moved track from ${fromIndex} to ${toIndex}`);
     }
     
-    if (toIndex < 0 || toIndex >= partyData.queue.length) {
-      return res.status(400).json({ error: 'Invalid toIndex' });
-    }
-    
-    // Reorder: remove from fromIndex and insert at toIndex
-    const [movedTrack] = partyData.queue.splice(fromIndex, 1);
-    partyData.queue.splice(toIndex, 0, movedTrack);
-    
-    // PHASE 3: Persist to storage
+    // Persist to storage
     await savePartyState(code, partyData);
-    
-    console.log(`[HTTP] Reordered queue for party ${code}: moved track from ${fromIndex} to ${toIndex}`);
     
     // Mirror to local party for WS broadcast
     const party = parties.get(code);

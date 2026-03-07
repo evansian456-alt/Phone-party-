@@ -40,6 +40,14 @@ test.describe('Tier enforcement — FREE', () => {
     await signupAndLogin(request, freeUser);
   });
 
+  test.beforeEach(async ({ request }) => {
+    if (freeUser) {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: freeUser.email, password: freeUser.password },
+      });
+    }
+  });
+
   test('FREE user /api/me returns tier=FREE', async ({ request }) => {
     const res = await request.get(`${BASE}/api/me`);
     expect(res.ok()).toBeTruthy();
@@ -70,6 +78,14 @@ test.describe('Tier enforcement — PARTY_PASS (simulated)', () => {
     if (process.env.NODE_ENV !== 'test') return;
     ppUser = makeUser('pp');
     await signupAndLogin(request, ppUser);
+  });
+
+  test.beforeEach(async ({ request }) => {
+    if (ppUser && process.env.NODE_ENV === 'test') {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: ppUser.email, password: ppUser.password },
+      });
+    }
   });
 
   test('simulate Party Pass purchase and verify tier update', async ({ request }) => {
@@ -135,6 +151,14 @@ test.describe('Tier enforcement — PRO (simulated)', () => {
     if (process.env.NODE_ENV !== 'test') return;
     proUser = makeUser('pro');
     await signupAndLogin(request, proUser);
+  });
+
+  test.beforeEach(async ({ request }) => {
+    if (proUser && process.env.NODE_ENV === 'test') {
+      await request.post(`${BASE}/api/auth/login`, {
+        data: { email: proUser.email, password: proUser.password },
+      });
+    }
   });
 
   test('simulate Pro subscription and verify tier update', async ({ request }) => {

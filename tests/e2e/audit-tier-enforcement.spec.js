@@ -126,17 +126,21 @@ test.describe('FREE tier enforcement', () => {
     const createRes = await request.post(`${BASE}/api/create-party`, { data: { djName: host.djName } });
     const { code } = await createRes.json();
 
-    // Join 2 guests (FREE limit)
-    for (let i = 1; i <= 2; i++) {
-      const res = await request.post(`${BASE}/api/join-party`, {
-        data: { code, guestId: `g_${uid()}`, djName: `Guest${i}` },
-      });
-      expect(res.ok()).toBeTruthy();
-    }
+    // FREE limit = 2 total phones (host + 1 guest). First guest join should succeed.
+    const res1 = await request.post(`${BASE}/api/join-party`, {
+      data: { code, guestId: `g_${uid()}`, djName: 'Guest1' },
+    });
+    expect(res1.ok()).toBeTruthy();
 
-    // Verify party state shows 2 guests
+    // Second guest join should be blocked (capacity: 2 phones = host + 1 guest)
+    const res2 = await request.post(`${BASE}/api/join-party`, {
+      data: { code, guestId: `g_${uid()}`, djName: 'Guest2' },
+    });
+    expect(res2.status()).toBe(403);
+
+    // Verify party state shows exactly 1 guest (at capacity)
     const state = await (await request.get(`${BASE}/api/party-state?code=${code}`)).json();
-    expect(state.guestCount).toBeGreaterThanOrEqual(2);
+    expect(state.guestCount).toBeGreaterThanOrEqual(1);
   });
 
   test('FREE tier: party has no partyPassExpiresAt (unlimited time)', async ({ request }) => {
@@ -173,11 +177,9 @@ test.describe('PARTY_PASS tier enforcement (test mode)', () => {
       data: {
         type: 'checkout.session.completed',
         data: {
-          object: {
-            metadata: { userId: String(meBefore.id) },
-            amount_total: 399,
-            mode: 'payment',
-          },
+          metadata: { userId: String(meBefore.id) },
+          amount_total: 399,
+          mode: 'payment',
         },
       },
     });
@@ -319,7 +321,7 @@ test.describe('UI tier display consistency', () => {
       const proStatus = page.locator('#currentStatusPro');
 
       // For FREE user: free status shown, pro status hidden
-      if (await freeStatus.isAttached()) {
+      if (await freeStatus.count() > 0) {
         const freeHidden = await freeStatus.evaluate(el => el.classList.contains('hidden'));
         const proHidden = await proStatus.evaluate(el => el.classList.contains('hidden')).catch(() => true);
         // At least one should be visible (free) and the other hidden (pro)

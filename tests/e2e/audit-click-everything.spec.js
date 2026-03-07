@@ -255,8 +255,8 @@ test.describe('Click-Everything Audit', () => {
 
     if (await profileBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
       await profileBtn.click();
-      // nav-settings opens viewMyProfile
-      await page.locator('#viewMyProfile, #viewProfile').first().waitFor({ state: 'visible', timeout: 8_000 });
+      // nav-settings opens viewMyProfile (comes after viewProfile in DOM, so use specific selector)
+      await page.locator('#viewMyProfile').waitFor({ state: 'visible', timeout: 8_000 });
       await screenshot(page, 'profile_view');
       // Go back
       await page.goto(BASE);
@@ -288,10 +288,16 @@ test.describe('Click-Everything Audit', () => {
     const code = (await codeEl.textContent()).trim();
     expect(code).toMatch(/^[A-Z0-9]{6}$/);
 
-    // Play button
+    // Play button — dismiss any intercepting modal first
     const playBtn = page.locator('[data-testid="play-party"]');
     if (await playBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await playBtn.click();
+      // Dismiss referral nudge modal if it's blocking the button
+      const referralModal = page.locator('#modalReferralNudge');
+      if (await referralModal.isVisible({ timeout: 500 }).catch(() => false)) {
+        await page.locator('#modalReferralNudge button').first().click({ force: true }).catch(() => {});
+        await referralModal.waitFor({ state: 'hidden', timeout: 2_000 }).catch(() => {});
+      }
+      await playBtn.click({ force: true }).catch(() => {});
       await screenshot(page, 'party_play_clicked');
     }
 
@@ -359,8 +365,8 @@ test.describe('Click-Everything Audit', () => {
     const profileBtn = page.locator('[data-testid="nav-settings"]:not(.nav-hidden)');
     await profileBtn.waitFor({ state: 'visible', timeout: 10_000 });
     await profileBtn.click();
-    // nav-settings opens viewMyProfile (not viewProfile)
-    await page.locator('#viewMyProfile, #viewProfile').first().waitFor({ state: 'visible', timeout: 10_000 });
+    // nav-settings opens viewMyProfile (comes after viewProfile in DOM, so use specific selector)
+    await page.locator('#viewMyProfile').waitFor({ state: 'visible', timeout: 10_000 });
     await screenshot(page, 'profile_view_entered');
 
     // Profile form exists

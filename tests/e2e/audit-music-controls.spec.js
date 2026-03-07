@@ -258,16 +258,13 @@ test.describe('Sync accuracy', () => {
   test('guest sees same track and startAtServerMs as host', async ({ request }) => {
     const state = await (await request.get(`${BASE}/api/party-state?code=${syncCode}`)).json();
 
-    // Join as guest (new context)
-    const guestCtx = await request.newContext();
-    const guestState = await (await guestCtx.get(`${BASE}/api/party-state?code=${syncCode}`)).json();
+    // Join as guest — party-state is public, no separate context needed
+    const guestState = await (await request.get(`${BASE}/api/party-state?code=${syncCode}`)).json();
 
     if (state.currentTrack && guestState.currentTrack) {
       expect(guestState.currentTrack.trackId).toBe(state.currentTrack.trackId);
       expect(guestState.currentTrack.startAtServerMs).toBe(state.currentTrack.startAtServerMs);
     }
-
-    await guestCtx.dispose();
   });
 });
 

@@ -293,6 +293,8 @@ test.describe('Logout', () => {
     }
 
     // /api/me should be 401 after logout
+    // Also logout via the API context to clear its auth cookie
+    await request.post(`${BASE}/api/auth/logout`).catch(() => {});
     const meRes = await request.get(`${BASE}/api/me`);
     expect(meRes.status()).toBe(401);
   });
