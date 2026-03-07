@@ -9,7 +9,7 @@
  */
 
 /**
- * GET /health  — liveness probe (lightweight, no external checks)
+ * GET /ping  — simple liveness probe
  */
 function liveness(req, res) {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

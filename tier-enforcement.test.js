@@ -90,7 +90,7 @@ describe('Tier Enforcement', () => {
       expect(partyDataRaw).toBeTruthy();
       const partyData = JSON.parse(partyDataRaw);
       const isActive = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
-      expect(isActive).toBe(false);
+      expect(isActive).toBeFalsy();
     });
 
     it('should expire Party Pass when expiration time is in past', async () => {

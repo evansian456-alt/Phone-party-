@@ -54,33 +54,31 @@ function makeLimiter(options, alwaysBypass = false) {
 }
 
 // ---------------------------------------------------------------------------
-// Named limiters
+// Named limiters — all use `skip: shouldBypassRateLimit` so the bypass
+// decision is re-evaluated per request (not frozen at module load time).
 // ---------------------------------------------------------------------------
 
 /** Strict limiter for auth endpoints (signup / login). */
-const authLimiter = shouldBypassRateLimit()
-  ? rateLimitBypass
-  : rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 10,
-      message: { error: 'Too many authentication attempts, please try again later' },
-      standardHeaders: true,
-      legacyHeaders: false,
-      handler: jsonRateLimitHandler,
-    });
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  message: { error: 'Too many authentication attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: shouldBypassRateLimit,
+  handler: jsonRateLimitHandler,
+});
 
 /** General API limiter – skipped in test/CI mode. */
-const apiLimiter = shouldBypassRateLimit()
-  ? rateLimitBypass
-  : rateLimit({
-      windowMs: 60 * 1000, // 1 minute
-      max: 30,
-      message: { error: 'Too many requests, please try again later' },
-      standardHeaders: true,
-      legacyHeaders: false,
-      skip: shouldBypassRateLimit,
-      handler: jsonRateLimitHandler,
-    });
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: shouldBypassRateLimit,
+  handler: jsonRateLimitHandler,
+});
 
 /** Purchase endpoint limiter. */
 const purchaseLimiter = rateLimit({
@@ -94,34 +92,30 @@ const purchaseLimiter = rateLimit({
 });
 
 /** Party creation limiter. */
-const partyCreationLimiter = shouldBypassRateLimit()
-  ? rateLimitBypass
-  : rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 5,
-      message: { error: 'Too many party creation attempts, please try again later' },
-      standardHeaders: true,
-      legacyHeaders: false,
-      handler: jsonRateLimitHandler,
-    });
+const partyCreationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many party creation attempts, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: shouldBypassRateLimit,
+  handler: jsonRateLimitHandler,
+});
 
 /** Upload endpoint limiter. */
-const uploadLimiter = shouldBypassRateLimit()
-  ? rateLimitBypass
-  : rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 10,
-      message: { error: 'Too many upload requests, please try again later' },
-      standardHeaders: true,
-      legacyHeaders: false,
-      handler: jsonRateLimitHandler,
-    });
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many upload requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: shouldBypassRateLimit,
+  handler: jsonRateLimitHandler,
+});
 
 module.exports = {
   shouldBypassRateLimit,
-  rateLimitBypass,
   jsonRateLimitHandler,
-  makeLimiter,
   authLimiter,
   apiLimiter,
   purchaseLimiter,

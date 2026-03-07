@@ -3216,7 +3216,7 @@ function normalizePartyData(partyData) {
     // Tier field from backend entitlement validation
     tier: partyData.tier || null,
     // Optional fields from purchases
-    partyPassExpiresAt: partyData.partyPassExpiresAt || null,
+    partyPassExpiresAt: partyData.partyPassExpiresAt || undefined,
     maxPhones: partyData.maxPhones || null,
     // Reaction and playback history for late joiners
     reactionHistory: partyData.reactionHistory || [],
@@ -3539,7 +3539,7 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
     expiresAt: createdAt + PARTY_TTL_MS,
     // Tier-based fields (set by backend entitlement validation only)
     tier: null,
-    partyPassExpiresAt: null,
+    partyPassExpiresAt: undefined,
     maxPhones: null,
     // History fields for late joiners
     reactionHistory: [],
