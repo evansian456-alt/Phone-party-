@@ -3808,9 +3808,10 @@ app.post("/api/join-party", async (req, res) => {
     const maxAllowed = await getMaxAllowedPhones(code, normalizedPartyData);
     const currentGuestCount = normalizedPartyData.guestCount || 0;
     
-    // Count guests only (the limit represents max guests, consistent with WebSocket join logic)
-    if (currentGuestCount >= maxAllowed) {
-      console.log(`[join-party] Party limit reached: ${code}, current guests: ${currentGuestCount}, max: ${maxAllowed}`);
+    // Count total devices (host + guests) against the maxPhones limit
+    const totalDevices = 1 + currentGuestCount;
+    if (totalDevices >= maxAllowed) {
+      console.log(`[join-party] Party limit reached: ${code}, current: ${totalDevices}, max: ${maxAllowed}`);
       return res.status(403).json({ 
         error: `Party limit reached (${maxAllowed} ${maxAllowed === 2 ? 'phones' : 'devices'})`,
         details: maxAllowed === 2 ? "Free parties are limited to 2 phones" : undefined
