@@ -33,6 +33,9 @@ pool.on('connect', () => {
 });
 
 pool.on('error', (err) => {
+  // Silently ignore connection termination errors that occur during
+  // database shutdown or test teardown (PostgreSQL code 57P01).
+  if (err.code === '57P01') return;
   console.error('[Database] Unexpected error on idle client', err);
 });
 
