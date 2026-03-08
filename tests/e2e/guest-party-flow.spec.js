@@ -112,12 +112,12 @@ test.describe('Guest party flow', () => {
     const { code: endedCode, hostId: endedHostId } = await createPartyAsHost(request, host2.djName);
     await request.post(`${BASE}/api/end-party`, { data: { partyCode: endedCode, hostId: endedHostId } });
 
-    const joinRes = await request.post(`${BASE}/api/join-party`, {
+    const joinEndedRes = await request.post(`${BASE}/api/join-party`, {
       data: { partyCode: endedCode, nickname: 'LateGuest' },
     });
-    expect(joinRes.ok()).toBeFalsy();
-    const body = await joinRes.json();
-    expect(body.error).toBeDefined();
+    expect(joinEndedRes.ok()).toBeFalsy();
+    const joinEndedBody = await joinEndedRes.json();
+    expect(joinEndedBody.error).toBeDefined();
   });
 
   test('invite link opens party view in browser', async ({ page }) => {
