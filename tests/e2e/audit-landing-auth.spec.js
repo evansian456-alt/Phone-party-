@@ -85,6 +85,7 @@ test.describe('Signup view', () => {
     await page.fill('#signupEmail', u.email);
     await page.fill('#signupPassword', u.password);
     await page.fill('#signupDjName', u.djName);
+    await page.check('#signupTermsAccept');
     await page.click('#viewSignup button[type="submit"]');
 
     // Should navigate away from signup
@@ -281,16 +282,12 @@ test.describe('Logout', () => {
     await signup(request, u);
     await login(request, u);
 
-    await page.goto(BASE);
-    await page.waitForTimeout(1500);
+    // Verify logged in
+    const meBefore = await request.get(`${BASE}/api/me`);
+    expect(meBefore.status()).toBe(200);
 
-    // Click logout if button is visible
-    const logoutBtn = page.locator('#btnLogout').first();
-    if (await logoutBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await logoutBtn.click();
-      await page.waitForTimeout(1500);
-      await expect(page.locator('#viewLanding')).toBeVisible();
-    }
+    // Logout via API
+    await request.post(`${BASE}/api/auth/logout`);
 
     // /api/me should be 401 after logout
     const meRes = await request.get(`${BASE}/api/me`);

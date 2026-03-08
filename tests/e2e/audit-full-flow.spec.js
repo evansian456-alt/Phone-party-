@@ -165,9 +165,8 @@ test.describe('Full UI Journey — Signup → Party → Chat → Purchase → Lo
     const profileBtn = page.locator('[data-testid="nav-settings"]:not(.nav-hidden)');
     if (await profileBtn.isVisible({ timeout: 8_000 }).catch(() => false)) {
       await profileBtn.click();
-      // btnProfile opens viewMyProfile; profile-save testid is in viewProfile
-      // Either view satisfies the "profile is reachable" assertion
-      await page.locator('#viewMyProfile, #viewProfile').first().waitFor({ state: 'visible', timeout: 8_000 });
+      // btnProfile opens viewMyProfile
+      await page.locator('#viewMyProfile').waitFor({ state: 'visible', timeout: 8_000 });
       await screenshot(page, '05_profile_form');
 
       // Update DJ name if editable (viewProfile has #profileDjNameInput)

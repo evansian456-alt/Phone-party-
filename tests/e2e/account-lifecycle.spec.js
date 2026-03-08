@@ -158,17 +158,13 @@ test.describe('Account lifecycle', () => {
     });
 
     // Navigate to signup view
-    const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
-      .first();
-    if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await signupBtn.click();
+    const landingSignupBtn = page.locator('#btnLandingSignup');
+    if (await landingSignupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await landingSignupBtn.click();
     } else {
-      await page.evaluate(() => {
-        if (typeof setView === 'function') setView('signup');
-      });
+      await page.goto((process.env.BASE_URL || 'http://localhost:8080') + '#signup');
     }
+    await page.waitForSelector('#viewSignup', { state: 'visible', timeout: 8_000 });
 
     // Fill signup form
     const emailField = page.locator('input[type="email"], input[id="signupEmail"]').first();
@@ -229,17 +225,13 @@ test.describe('Account lifecycle', () => {
     await page.goto(BASE);
 
     // Navigate to signup view
-    const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
-      .first();
-    if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await signupBtn.click();
+    const landingSignupBtn = page.locator('#btnLandingSignup');
+    if (await landingSignupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await landingSignupBtn.click();
     } else {
-      await page.evaluate(() => {
-        if (typeof setView === 'function') setView('signup');
-      });
+      await page.goto((process.env.BASE_URL || 'http://localhost:8080') + '#signup');
     }
+    await page.waitForSelector('#viewSignup', { state: 'visible', timeout: 8_000 });
 
     // Fill with the same email
     const emailField = page.locator('input[type="email"], input[id="signupEmail"]').first();

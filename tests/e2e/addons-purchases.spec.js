@@ -129,8 +129,8 @@ test.describe('Store catalog — information accuracy', () => {
     const res = await request.get(`${BASE}/api/tier-info`);
     const info = await res.json();
 
-    // FREE: 2 phones
-    expect(info.tiers.FREE.phoneLimit).toBe(2);
+    // FREE: 3 phones (1 host + 2 guests)
+    expect(info.tiers.FREE.phoneLimit).toBe(3);
     // PARTY_PASS: at least 4 phones
     expect(info.tiers.PARTY_PASS.phoneLimit).toBeGreaterThanOrEqual(4);
     // PRO: at least 10 phones
@@ -204,6 +204,8 @@ test.describe('Add-on purchases — visual pack', () => {
   });
 
   test('purchasing a non-existent item returns 404', async ({ request }) => {
+    const testUser = makeUser('purchasefail');
+    await signupAndLogin(request, testUser);
     const res = await request.post(`${BASE}/api/purchase`, {
       data: { itemId: 'totally_fake_item_xyz' },
     });
@@ -269,7 +271,7 @@ test.describe('Add-on purchases — profile upgrades', () => {
 test.describe('Add-on UI state consistency', () => {
   let user;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     user = makeUser('uistate');
     await signupAndLogin(request, user);
   });

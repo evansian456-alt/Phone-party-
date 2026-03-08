@@ -1361,12 +1361,7 @@
         </button>
         <div class="tiny muted" style="margin-bottom: 20px;">Manually re-sync if audio drifts</div>
         
-        <!-- Volume Control -->
-        <div class="guest-volume-control">
-          <label class="tiny muted" for="guestVolumeSlider">🔊 Volume</label>
-          <input type="range" id="guestVolumeSlider" min="0" max="100" value="80" class="volume-slider" />
-          <span class="tiny muted" id="guestVolumeValue">80%</span>
-        </div>
+        <!-- Volume Control (duplicate removed — see Guest Volume Control above) -->
         
         <!-- Sync Quality Indicator -->
         <div class="sync-quality-section">
@@ -1945,7 +1940,7 @@
       <h2>🎵 Create Account</h2>
       <p class="muted">Join Phone Party and start your DJ journey</p>
       
-      <form id="formSignup" class="auth-form" data-testid="signup-form">
+      <form id="formSignup" class="auth-form" data-testid="signup-form" novalidate>
         <div class="form-group">
           <label for="signupEmail">Email</label>
           <input type="email" id="signupEmail" class="input-field" placeholder="your@email.com" required />
