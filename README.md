@@ -23,7 +23,7 @@ Phone Party lets you connect multiple phones together to play music in perfect s
 | Plan | Price | Features |
 |------|-------|----------|
 | **Free Plan** | Free | • Up to 2 phones<br>• Basic features<br>• Includes ads |
-| **Party Pass** 🎉 | £2.99 | • 2-hour session (single-use)<br>• Up to 10 phones<br>• No ads during playback<br>• Pro DJ mode with visualizers<br>• Guest reactions & messaging<br>• Up Next queue system<br>• Priority sync stability<br>• Party-wide unlock |
+| **Party Pass** 🎉 | £3.99 | • 2-hour session (single-use)<br>• Up to 4 phones<br>• Chat + emoji reactions<br>• DJ quick message buttons<br>• Guest quick replies<br>• Auto party prompts<br>• Party-wide unlock |
 | **Pro Monthly** | £9.99/month | • Up to 10 phones<br>• No ads<br>• Pro DJ mode with visualizers<br>• Guest reactions & messaging<br>• Up Next queue system<br>• Priority sync stability<br>• Quality override warnings<br>• Speaker support<br>• Cancel anytime |
 
 **Note**: Party Pass is a single-use purchase that unlocks Pro features for all guests in one party for 2 hours.

@@ -107,7 +107,7 @@ test.describe('FREE tier enforcement', () => {
     });
 
     const guestId = `g_${uid()}`;
-    await request.post(`${BASE}/api/join-party`, { data: { code, guestId, djName: 'FreeGuest' } });
+    await request.post(`${BASE}/api/join-party`, { data: { partyCode: code } });
 
     // Attempt text message as FREE user
     const msgRes = await request.post(`${BASE}/api/party/${code}/message`, {
@@ -129,7 +129,7 @@ test.describe('FREE tier enforcement', () => {
     // Join 2 guests (FREE limit)
     for (let i = 1; i <= 2; i++) {
       const res = await request.post(`${BASE}/api/join-party`, {
-        data: { code, guestId: `g_${uid()}`, djName: `Guest${i}` },
+        data: { partyCode: code },
       });
       expect(res.ok()).toBeTruthy();
     }
@@ -206,7 +206,7 @@ test.describe('Chat mode enforcement', () => {
     hostId = body.hostId;
 
     guestId = `g_${uid()}`;
-    await request.post(`${BASE}/api/join-party`, { data: { code, guestId, djName: 'ChatGuest' } });
+    await request.post(`${BASE}/api/join-party`, { data: { partyCode: code } });
   });
 
   test('chat mode can be set to OPEN', async ({ request }) => {

@@ -2600,7 +2600,7 @@ function updateSelectedTierDisplay() {
     tierDetails.textContent = "£3.99 · Up to 4 phones · 2 hours"; // GBP - Party Pass pricing
   } else if (state.selectedTier === USER_TIER.PRO) {
     tierBadge.textContent = "PRO MONTHLY";
-    tierDetails.textContent = "£9.99/month · 12+ phones · Full features"; // GBP - Pro Monthly pricing
+    tierDetails.textContent = "£9.99/month · Up to 10 phones · Full features"; // GBP - Pro Monthly pricing
   }
 }
 

@@ -230,7 +230,7 @@ test.describe('Music playback — start-track and sync state', () => {
     // Guest joins with a different session (anonymous — no auth required to read party-state)
     const guestId = `g_${uid()}`;
     await request.post(`${BASE}/api/join-party`, {
-      data: { code: party2.code, guestId, djName: 'GuestListener' },
+      data: { partyCode: party2.code },
     });
 
     const stateRes = await request.get(`${BASE}/api/party-state?code=${party2.code}`);

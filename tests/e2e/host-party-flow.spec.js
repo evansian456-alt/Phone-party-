@@ -62,8 +62,8 @@ test.describe('Host party flow', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.exists).toBe(true);
-    expect(body.party).toBeDefined();
-    expect(body.party.djName).toBe(host.djName);
+    // Flat response — djName at top level
+    expect(body.djName).toBe(host.djName);
   });
 
   test('host can end a party', async ({ request }) => {
@@ -74,14 +74,15 @@ test.describe('Host party flow', () => {
     const { code } = await createRes.json();
 
     const endRes = await request.post(`${BASE}/api/end-party`, {
-      data: { code },
+      data: { partyCode: code },
     });
     expect(endRes.ok()).toBeTruthy();
 
     // Party should now be ended
     const getRes = await request.get(`${BASE}/api/party?code=${code}`);
     const body = await getRes.json();
-    expect(body.party?.ended).toBe(true);
+    // Flat response: status field
+    expect(!body.exists || body.status === 'ended').toBe(true);
   });
 
   test('host tier starts as FREE', async ({ request }) => {

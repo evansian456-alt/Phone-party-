@@ -132,7 +132,7 @@ Phone Party includes several Android-specific optimizations:
 | **Queue System** | ✅ Up Next queue | ✅ Queue available |
 | **Visualizers** | ✅ Audio visualizers | ❌ Limited |
 | **Real-time Chat** | ✅ Guest messaging | ✅ Chat available |
-| **Pricing** | Free, £2.99 Party Pass, £9.99/mo Pro | Free, Premium plans |
+| **Pricing** | Free, £3.99 Party Pass, £9.99/mo Pro | Free, Premium plans |
 
 ### Technical Comparison
 
@@ -419,7 +419,7 @@ Yes! Phone Party is designed to be self-hostable:
 | Plan | Price | Features |
 |------|-------|----------|
 | **Free** | £0 | 2 devices, basic features, includes ads |
-| **Party Pass** | £2.99 | Single-use 2-hour session, 10 devices, no ads, pro features |
+| **Party Pass** | £3.99 | Single-use 2-hour session, 4 devices, pro messaging features |
 | **Pro Monthly** | £9.99/mo | 10 devices, no ads, all features, cancel anytime |
 
 Note: Pricing is for the hosted version. Self-hosted versions can set their own pricing or offer for free.

@@ -116,16 +116,15 @@ For more details, see **[docs/KEYBOARD_SHORTCUTS.md](docs/KEYBOARD_SHORTCUTS.md)
 
 **Perfect for**: One-time parties with friends
 
-- ✅ Up to 10 phones
+- ✅ Up to 4 phones
 - ✅ 2-hour session (single-use)
-- ✅ No ads during playback
-- ✅ Pro DJ mode with visualizers
-- ✅ Guest reactions & messaging
-- ✅ Up Next queue system
-- ✅ Priority sync stability
-- ✅ **Party-wide unlock** (all guests get Pro features)
+- ✅ Chat + emoji reactions
+- ✅ DJ quick message buttons
+- ✅ Guest quick replies
+- ✅ Auto party prompts
+- ✅ **Party-wide unlock** (all guests get Party Pass features)
 
-**Price**: £2.99 (one-time purchase)
+**Price**: £3.99 (one-time purchase)
 
 ---
 

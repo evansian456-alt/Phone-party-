@@ -49,38 +49,34 @@ test.describe('Guest party flow', () => {
     expect(res.ok()).toBeTruthy();
     const body = await res.json();
     expect(body.exists).toBe(true);
-    expect(body.party.ended).toBeFalsy();
+    // Flat response: status field or explicit ended flag
+    expect(body.status === 'ended').toBeFalsy();
   });
 
   test('guest can join party via API', async ({ request }) => {
-    const guest = makeUser();
-    const guestId = `guest_${uid()}`;
-
     const joinRes = await request.post(`${BASE}/api/join-party`, {
-      data: { code: partyCode, guestId, djName: guest.djName },
+      data: { partyCode },
     });
     expect(joinRes.ok()).toBeTruthy();
     const body = await joinRes.json();
     expect(body.success).toBe(true);
-    expect(body.party).toBeDefined();
-    expect(body.party.code).toBe(partyCode);
+    // Flat response: partyCode is at top level
+    expect(body.partyCode).toBe(partyCode);
   });
 
   test('guest count increments after join', async ({ request }) => {
     const initialRes = await request.get(`${BASE}/api/party?code=${partyCode}`);
     const initialBody = await initialRes.json();
-    const initialCount = Object.keys(initialBody.party?.guests || {}).length;
+    const initialCount = initialBody.guestCount || 0;
 
     // Add a second guest
-    const guestId = `guest_count_${uid()}`;
-    const guestName = `DJ_GCount_${uid()}`.slice(0, 30);
     await request.post(`${BASE}/api/join-party`, {
-      data: { code: partyCode, guestId, djName: guestName },
+      data: { partyCode },
     });
 
     const afterRes = await request.get(`${BASE}/api/party?code=${partyCode}`);
     const afterBody = await afterRes.json();
-    const afterCount = Object.keys(afterBody.party?.guests || {}).length;
+    const afterCount = afterBody.guestCount || 0;
 
     expect(afterCount).toBeGreaterThanOrEqual(initialCount);
   });
@@ -91,7 +87,7 @@ test.describe('Guest party flow', () => {
 
     // Join first
     await request.post(`${BASE}/api/join-party`, {
-      data: { code: partyCode, guestId, djName: guestName },
+      data: { partyCode, nickname: guestName },
     });
 
     // Leave
@@ -113,10 +109,10 @@ test.describe('Guest party flow', () => {
       data: { email: host2.email, password: host2.password },
     });
     const endedCode = await createPartyAsHost(request, host2.djName);
-    await request.post(`${BASE}/api/end-party`, { data: { code: endedCode } });
+    await request.post(`${BASE}/api/end-party`, { data: { partyCode: endedCode } });
 
     const joinRes = await request.post(`${BASE}/api/join-party`, {
-      data: { code: endedCode, guestId: `g_${uid()}`, djName: 'LateGuest' },
+      data: { partyCode: endedCode },
     });
     expect(joinRes.ok()).toBeFalsy();
     const body = await joinRes.json();

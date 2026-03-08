@@ -155,7 +155,7 @@ test.describe('Guest view — emoji reactions', () => {
 
     const guestId = `g_${uid()}`;
     await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'EmojiGuest' },
+      data: { partyCode: code },
     });
 
     // Send emoji reaction
@@ -180,7 +180,7 @@ test.describe('Guest view — emoji reactions', () => {
 
     const guestId = `g_${uid()}`;
     await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'LockedGuest' },
+      data: { partyCode: code },
     });
 
     const res = await request.post(`${BASE}/api/party/${code}/message`, {
@@ -291,7 +291,7 @@ test.describe('Guest join and leave', () => {
 
     const guestId = `g_${uid()}`;
     const joinRes = await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'JoinAuditGuest' },
+      data: { partyCode: code },
     });
     expect(joinRes.ok()).toBeTruthy();
 
@@ -316,7 +316,7 @@ test.describe('Guest join and leave', () => {
 
     const guestId = `g_${uid()}`;
     await request.post(`${BASE}/api/join-party`, {
-      data: { code, guestId, djName: 'LeaveGuest' },
+      data: { partyCode: code },
     });
 
     const leaveRes = await request.post(`${BASE}/api/leave-party`, {
