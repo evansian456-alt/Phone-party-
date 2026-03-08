@@ -26,6 +26,16 @@ const AUDIO_UNLOCK_SUCCESS_DELAY_MS = 300; // Delay to show "Audio enabled" succ
 // Changer version – bump this whenever platform detection / URL transformation logic changes.
 // Used to confirm the new changer build is running (visible in browser devtools console).
 const CHANGER_VERSION = '2026-03-03-a';
+
+// ── Auth inFlight guards ──────────────────────────────────────────────────
+// Prevent duplicate auth requests when a user clicks the submit button
+// multiple times (which would exhaust the server-side rate limit quickly).
+let _loginInFlight = false;
+let _signupInFlight = false;
+// Sentinel so setupAuthEventListeners never attaches its listeners more than once.
+let _authListenersAttached = false;
+// Timestamp of the last rate-limit error; used for a client-side cooldown.
+let _authRateLimitedUntil = 0;
 console.log('[Changer] version:', CHANGER_VERSION);
 
 // Sync quality indicator labels
@@ -9719,9 +9729,14 @@ function updateUIForLoggedInUser(user) {
 }
 
 /**
- * Set up auth event listeners
+ * Set up auth event listeners.
+ * Guarded by _authListenersAttached so it can be called multiple times safely
+ * without attaching duplicate handlers (which would double-fire auth requests).
  */
 function setupAuthEventListeners() {
+  if (_authListenersAttached) return;
+  _authListenersAttached = true;
+
   // Account button
   const btnAccount = document.getElementById('btnAccount');
   if (btnAccount) {
@@ -9851,47 +9866,102 @@ function setupAuthEventListeners() {
 }
 
 /**
- * Handle login
+ * Handle login.
+ * Protected by an inFlight guard and a client-side rate-limit cooldown so
+ * the user can never fire more than one request at a time.
  */
 async function handleLogin() {
+  // Enforce client-side cooldown after a rate-limit error.
+  if (Date.now() < _authRateLimitedUntil) {
+    const secsLeft = Math.ceil((_authRateLimitedUntil - Date.now()) / 1000);
+    const errorEl = document.getElementById('loginError');
+    if (errorEl) {
+      errorEl.textContent = `Too many attempts. Please wait ${secsLeft} second${secsLeft !== 1 ? 's' : ''} before trying again.`;
+      errorEl.classList.remove('hidden');
+    }
+    return;
+  }
+
+  // Prevent duplicate concurrent requests.
+  if (_loginInFlight) return;
+  _loginInFlight = true;
+
   const email = document.getElementById('loginEmail').value;
   const password = document.getElementById('loginPassword').value;
   const errorEl = document.getElementById('loginError');
-  
-  const result = await logIn(email, password);
-  
-  if (result.success) {
-    // Save profile to localStorage for fast auth detection on next startup
-    if (result.user) {
-      state.userTier = result.user.tier;
-      saveProfile({ djName: result.user.djName, email: result.user.email, tier: result.user.tier });
-    }
-    const sessionOk = await initAuthFlow();
-    if (sessionOk) {
-      showToast('✅ Welcome back!');
+  const submitBtn = document.querySelector('#formLogin button[type="submit"]');
+
+  // Disable button and show loading state while request is in flight.
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.dataset.originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Logging in…';
+  }
+  if (errorEl) errorEl.classList.add('hidden');
+
+  try {
+    const result = await logIn(email, password);
+
+    if (result.success) {
+      // Save profile to localStorage for fast auth detection on next startup
+      if (result.user) {
+        state.userTier = result.user.tier;
+        saveProfile({ djName: result.user.djName, email: result.user.email, tier: result.user.tier });
+      }
+      const sessionOk = await initAuthFlow();
+      if (sessionOk) {
+        showToast('✅ Welcome back!');
+      } else {
+        // Login API succeeded but session could not be confirmed — show visible error toast
+        // (initAuthFlow already redirected to landing, so errorEl may be hidden)
+        showToast('⚠️ Login succeeded but session could not be verified. Please try again or clear your cookies.');
+      }
     } else {
-      // Login API succeeded but session could not be confirmed — show visible error toast
-      // (initAuthFlow already redirected to landing, so errorEl may be hidden)
-      showToast('⚠️ Login succeeded but session could not be verified. Please try again or clear your cookies.');
+      if (errorEl) {
+        errorEl.textContent = mapAuthError(result.error, result.status);
+        errorEl.classList.remove('hidden');
+      }
+      // Apply client-side cooldown when the server signals too many requests.
+      if (result.status === 429 || (result.error && result.error.toLowerCase().includes('too many'))) {
+        _authRateLimitedUntil = Date.now() + 60_000; // 60-second client cooldown
+      }
     }
-  } else {
-    errorEl.textContent = result.error;
-    errorEl.classList.remove('hidden');
+  } finally {
+    _loginInFlight = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || 'Log In';
+      delete submitBtn.dataset.originalText;
+    }
   }
 }
 
 /**
- * Handle signup
+ * Handle signup.
+ * Protected by an inFlight guard and a client-side rate-limit cooldown so
+ * the user can never fire more than one request at a time.
  */
 async function handleSignup() {
+  // Enforce client-side cooldown after a rate-limit error.
+  if (Date.now() < _authRateLimitedUntil) {
+    const secsLeft = Math.ceil((_authRateLimitedUntil - Date.now()) / 1000);
+    const errorEl = document.getElementById('signupError');
+    if (errorEl) {
+      errorEl.textContent = `Too many attempts. Please wait ${secsLeft} second${secsLeft !== 1 ? 's' : ''} before trying again.`;
+      errorEl.classList.remove('hidden');
+    }
+    return;
+  }
+
   const email = document.getElementById('signupEmail').value;
   const password = document.getElementById('signupPassword').value;
   const djName = document.getElementById('signupDjName').value.trim();
   const termsCheckbox = document.getElementById('signupTermsAccept');
   const termsAccepted = termsCheckbox ? termsCheckbox.checked : false;
   const errorEl = document.getElementById('signupError');
-  
-  // Validate DJ name is required
+
+  // Run synchronous validation before the inFlight guard so the user still sees
+  // form errors even when a previous request is outstanding.
   if (!djName) {
     errorEl.textContent = 'DJ Name is required';
     errorEl.classList.remove('hidden');
@@ -9903,63 +9973,89 @@ async function handleSignup() {
     errorEl.classList.remove('hidden');
     return;
   }
-  
-  const result = await signUp(email, password, djName, termsAccepted);
-  
-  if (result.success) {
-    // Persist the profile locally right away so the user is considered
-    // authenticated even before initAuthFlow() confirms with the server.
-    if (result.user && result.user.djName) {
-      saveProfile({ djName: result.user.djName, email: result.user.email || email, tier: USER_TIER.FREE });
-    }
 
-    // Attempt to register referral if the user arrived via an invite link
-    try {
-      const refCode = localStorage.getItem('referral_code');
-      const clickId = localStorage.getItem('referral_click_id');
-      if (refCode) {
-        fetch('/api/referral/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ referralCode: refCode, clickId: clickId || null })
-        }).catch(() => {});
-        // Don't clear yet — keep until profile-complete step fires
+  // Prevent duplicate concurrent API requests (checked after validation so
+  // the user still receives inline errors even while a request is in flight).
+  if (_signupInFlight) return;
+  _signupInFlight = true;
+
+  const submitBtn = document.querySelector('#formSignup button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.dataset.originalText = submitBtn.textContent;
+    submitBtn.textContent = 'Creating account…';
+  }
+  if (errorEl) errorEl.classList.add('hidden');
+
+  try {
+    const result = await signUp(email, password, djName, termsAccepted);
+
+    if (result.success) {
+      // Persist the profile locally right away so the user is considered
+      // authenticated even before initAuthFlow() confirms with the server.
+      if (result.user && result.user.djName) {
+        saveProfile({ djName: result.user.djName, email: result.user.email || email, tier: USER_TIER.FREE });
       }
-    } catch (_) { /* ignore localStorage errors */ }
 
-    // Show inline success message before navigating
-    errorEl.textContent = 'Welcome to the party 🥳';
-    errorEl.classList.remove('hidden');
-    errorEl.classList.add('success');
-    // Wait ~1.5s so the user sees the success message before the view transitions
-    await new Promise((r) => setTimeout(r, 1500));
-    const sessionOk = await initAuthFlow();
-    if (!sessionOk) {
-      // The signup API succeeded and the auth cookie was set, but /api/me failed
-      // (e.g. transient server hiccup). Since we already saved the profile locally,
-      // navigate directly to the authenticated home view instead of bouncing to login.
-      showToast('✅ Account created! Loading your dashboard…');
-      setView('authHome');
-    }
-  } else {
-    if (result.status === 409) {
-      // Duplicate email — show "Account already exists" message and a "Log In Instead" link
-      errorEl.textContent = 'Account already exists. ';
-      const loginLink = document.createElement('a');
-      loginLink.href = '#';
-      loginLink.id = 'signupLoginInstead';
-      loginLink.style.cssText = 'color:inherit;text-decoration:underline';
-      loginLink.textContent = 'Log In Instead';
-      loginLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        setView('login');
-      });
-      errorEl.appendChild(loginLink);
+      // Attempt to register referral if the user arrived via an invite link
+      try {
+        const refCode = localStorage.getItem('referral_code');
+        const clickId = localStorage.getItem('referral_click_id');
+        if (refCode) {
+          fetch('/api/referral/register', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ referralCode: refCode, clickId: clickId || null })
+          }).catch(() => {});
+          // Don't clear yet — keep until profile-complete step fires
+        }
+      } catch (_) { /* ignore localStorage errors */ }
+
+      // Show inline success message before navigating
+      errorEl.textContent = 'Welcome to the party 🥳';
+      errorEl.classList.remove('hidden');
+      errorEl.classList.add('success');
+      // Wait ~1.5s so the user sees the success message before the view transitions
+      await new Promise((r) => setTimeout(r, 1500));
+      const sessionOk = await initAuthFlow();
+      if (!sessionOk) {
+        // The signup API succeeded and the auth cookie was set, but /api/me failed
+        // (e.g. transient server hiccup). Since we already saved the profile locally,
+        // navigate directly to the authenticated home view instead of bouncing to login.
+        showToast('✅ Account created! Loading your dashboard…');
+        setView('authHome');
+      }
     } else {
-      errorEl.textContent = result.error || `Signup failed (status ${result.status || 'unknown'})`;
+      if (result.status === 409) {
+        // Duplicate email — show "Account already exists" message and a "Log In Instead" link
+        errorEl.textContent = 'Account already exists. ';
+        const loginLink = document.createElement('a');
+        loginLink.href = '#';
+        loginLink.id = 'signupLoginInstead';
+        loginLink.style.cssText = 'color:inherit;text-decoration:underline';
+        loginLink.textContent = 'Log In Instead';
+        loginLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          setView('login');
+        });
+        errorEl.appendChild(loginLink);
+      } else {
+        errorEl.textContent = mapAuthError(result.error, result.status);
+      }
+      errorEl.classList.remove('hidden');
+      // Apply client-side cooldown when the server signals too many requests.
+      if (result.status === 429 || (result.error && result.error.toLowerCase().includes('too many'))) {
+        _authRateLimitedUntil = Date.now() + 60_000; // 60-second client cooldown
+      }
     }
-    errorEl.classList.remove('hidden');
+  } finally {
+    _signupInFlight = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = submitBtn.dataset.originalText || 'Create Account';
+      delete submitBtn.dataset.originalText;
+    }
   }
 }
 
