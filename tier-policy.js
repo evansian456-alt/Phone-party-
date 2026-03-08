@@ -1,22 +1,22 @@
 /**
  * TierPolicy - Single source of truth for tier limits.
  *
- * FREE:        maxDevices=2, maxSessionMinutes=30, no uploads, no Official App Sync
- * PARTY_PASS:  maxDevices=6, maxSessionMinutes=60, 10 uploads/session, Official App Sync
+ * FREE:        maxDevices=2, no session time limit (2h party TTL applies to all), no uploads
+ * PARTY_PASS:  maxDevices=4, maxSessionMinutes=120 (2h), 10 uploads/session, Official App Sync
  * PRO /
- * PRO_MONTHLY: maxDevices=6, unlimited time, 100 uploads/month, Official App Sync
+ * PRO_MONTHLY: maxDevices=10, unlimited time, 100 uploads/month, Official App Sync
  */
 
 const TIER_POLICY = {
   FREE: {
     maxDevices: 2,
-    maxSessionMinutes: 30,
+    maxSessionMinutes: null, // no per-user session enforcement; all parties share 2h party TTL
     uploadsAllowed: false,
     officialAppSync: false
   },
   PARTY_PASS: {
-    maxDevices: 6,
-    maxSessionMinutes: 60,
+    maxDevices: 4,
+    maxSessionMinutes: 120, // 2-hour party session
     uploadsAllowed: true,
     maxUploadsPerSession: 10,
     maxUploadMB: 15,
@@ -24,7 +24,7 @@ const TIER_POLICY = {
   },
   // PRO_MONTHLY is the legacy alias used throughout the codebase
   PRO_MONTHLY: {
-    maxDevices: 6,
+    maxDevices: 10,
     maxSessionMinutes: null, // unlimited
     uploadsAllowed: true,
     maxUploadsPerMonth: 100,
@@ -34,7 +34,7 @@ const TIER_POLICY = {
   },
   // PRO is a shorthand alias
   PRO: {
-    maxDevices: 6,
+    maxDevices: 10,
     maxSessionMinutes: null, // unlimited
     uploadsAllowed: true,
     maxUploadsPerMonth: 100,
