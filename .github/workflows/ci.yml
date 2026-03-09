@@ -66,6 +66,9 @@ jobs:
       - name: Apply database migrations
         run: npm run db:migrate
 
+      - name: Create test storage directory
+        run: mkdir -p test-storage-tmp
+
       - name: Run unit tests
         run: npm test -- --passWithNoTests --forceExit
 
