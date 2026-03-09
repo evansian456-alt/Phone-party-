@@ -9,6 +9,12 @@ process.env.JWT_SECRET = 'test-secret-for-testing-only-do-not-use-in-production'
 // prevents EADDRINUSE conflicts between parallel Jest workers.
 process.env.PORT = '0';
 
+// Ensure test-storage-tmp directory exists before tests run
+const fs = require('fs');
+const path = require('path');
+const storageDir = path.join(process.cwd(), 'test-storage-tmp');
+if (!fs.existsSync(storageDir)) fs.mkdirSync(storageDir, { recursive: true });
+
 // ── Zero-skips enforcement (always on) ───────────────────────────────────────
 // Any call to describe.skip / it.skip / test.skip / xit / xdescribe / xtest
 // throws immediately, making the suite fail-fast.

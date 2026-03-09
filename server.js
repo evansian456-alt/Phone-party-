@@ -3530,7 +3530,7 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
     expiresAt: createdAt + PARTY_TTL_MS,
     // Tier-based fields (set by backend entitlement validation only)
     tier: null,
-    partyPassExpiresAt: null,
+    // partyPassExpiresAt is intentionally omitted for new free parties (set only when purchased)
     maxPhones: null,
     // History fields for late joiners
     reactionHistory: [],

@@ -89,13 +89,12 @@ describe('Tier Enforcement', () => {
       const partyDataRaw = await redis.get(`party:${testPartyCode}`);
       expect(partyDataRaw).toBeTruthy();
       const partyData = JSON.parse(partyDataRaw);
-      const isActive = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
+      const isActive = !!(partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now());
       expect(isActive).toBe(false);
     });
 
     it('should expire Party Pass when expiration time is in past', async () => {
       if (!testPartyCodeWithPass) return;
-      // Set expiration to past
       const partyDataRaw = await redis.get(`party:${testPartyCodeWithPass}`);
       expect(partyDataRaw).toBeTruthy();
       const partyData = JSON.parse(partyDataRaw);
@@ -229,4 +228,11 @@ describe('Tier Enforcement', () => {
       expect(typeof partyData.partyPassExpiresAt).toBe('number');
     });
   });
+});
+
+afterAll(async () => {
+  try { await redis.quit(); } catch (e) { /* ignore */ }
+  if (global.__TEST_SERVER__ && typeof global.__TEST_SERVER__.close === 'function') {
+    await new Promise((resolve) => global.__TEST_SERVER__.close(resolve));
+  }
 });

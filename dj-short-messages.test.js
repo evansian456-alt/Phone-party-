@@ -135,7 +135,7 @@ describe('DJ Short Messages', () => {
       expect(partyData.partyPassExpiresAt).toBeUndefined();
       
       // In the actual handler, this would result in an error message
-      const hasAccess = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
+      const hasAccess = !!(partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now());
       expect(hasAccess).toBe(false);
     });
 
@@ -172,4 +172,11 @@ describe('DJ Short Messages', () => {
       expect(feedEvent.ttlMs).toBe(15000);
     });
   });
+});
+
+afterAll(async () => {
+  try { await redis.quit(); } catch (e) { /* ignore */ }
+  if (global.__TEST_SERVER__ && typeof global.__TEST_SERVER__.close === 'function') {
+    await new Promise((resolve) => global.__TEST_SERVER__.close(resolve));
+  }
 });
