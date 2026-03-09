@@ -125,7 +125,9 @@ test.describe('Signup view', () => {
 test.describe('Login view', () => {
   test('form renders email, password, submit button', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await expect(page.locator('#loginEmail')).toBeVisible();
     await expect(page.locator('#loginPassword')).toBeVisible();
     await expect(page.locator('#formLogin button[type="submit"]')).toBeVisible();
@@ -133,7 +135,9 @@ test.describe('Login view', () => {
 
   test('wrong password shows error, does not navigate away', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.fill('#loginEmail', 'nonexistent@test.invalid');
     await page.fill('#loginPassword', 'WrongPass!');
     await page.click('#formLogin button[type="submit"]');
@@ -149,7 +153,9 @@ test.describe('Login view', () => {
     await signup(request, u);
 
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.fill('#loginEmail', u.email);
     await page.fill('#loginPassword', u.password);
     await page.click('#formLogin button[type="submit"]');
@@ -162,14 +168,18 @@ test.describe('Login view', () => {
 
   test('"Forgot password?" link shows reset form', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.click('#linkForgotPassword');
     await expect(page.locator('#viewPasswordReset')).toBeVisible();
   });
 
   test('"Create account" link goes to signup', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.click('#linkToSignup');
     await expect(page.locator('#viewSignup')).toBeVisible();
   });
@@ -181,7 +191,9 @@ test.describe('Login view', () => {
 test.describe('Password reset view', () => {
   test('reset form renders correctly', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.click('#linkForgotPassword');
     await expect(page.locator('#resetEmail')).toBeVisible();
     await expect(page.locator('#formPasswordResetRequest button[type="submit"]')).toBeVisible();
@@ -189,7 +201,9 @@ test.describe('Password reset view', () => {
 
   test('"Back to Login" link returns to login', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.click('#linkForgotPassword');
     await page.click('#linkResetToLogin');
     await expect(page.locator('#viewLogin')).toBeVisible();
@@ -197,7 +211,9 @@ test.describe('Password reset view', () => {
 
   test('submitting reset form for non-existent email shows feedback', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.click('#linkForgotPassword');
     await page.fill('#resetEmail', `nobody_${uid()}@test.invalid`);
     await page.click('#formPasswordResetRequest button[type="submit"]');
@@ -219,7 +235,9 @@ test.describe('Authenticated home', () => {
     await signup(request, u);
 
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.fill('#loginEmail', u.email);
     await page.fill('#loginPassword', u.password);
     await page.click('#formLogin button[type="submit"]');
@@ -238,7 +256,9 @@ test.describe('Authenticated home', () => {
     await signup(request, u);
 
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.fill('#loginEmail', u.email);
     await page.fill('#loginPassword', u.password);
     await page.click('#formLogin button[type="submit"]');
@@ -258,7 +278,9 @@ test.describe('Authenticated home', () => {
     await signup(request, u);
 
     await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
     await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
     await page.fill('#loginEmail', u.email);
     await page.fill('#loginPassword', u.password);
     await page.click('#formLogin button[type="submit"]');
