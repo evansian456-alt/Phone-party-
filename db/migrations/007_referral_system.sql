@@ -1,4 +1,4 @@
--- Migration 006: Referral Growth System
+-- Migration 007: Referral Growth System
 -- Adds comprehensive referral tracking tables and user reward columns
 
 -- Add referral columns to users table

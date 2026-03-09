@@ -81,6 +81,11 @@ class LocalDiskProvider {
     const key = `${trackId}${ext}`;
     const filepath = path.join(this.uploadDir, key);
 
+    // Ensure upload directory exists before writing
+    if (!fs.existsSync(this.uploadDir)) {
+      fs.mkdirSync(this.uploadDir, { recursive: true });
+    }
+
     // Write file
     if (Buffer.isBuffer(fileData)) {
       await writeFile(filepath, fileData);
