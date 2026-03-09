@@ -937,11 +937,6 @@ function toast(msg) {
   setTimeout(() => toastEl.classList.add("hidden"), 2200);
 }
 
-// Update debug panel with last API call and error (no-op - debug panel removed)
-function updateDebugPanel(endpoint = null, error = null) {
-  // Debug panel has been removed
-  return;
-}
 
 function show(id) { el(id).classList.remove("hidden"); }
 function hide(id) { el(id).classList.add("hidden"); }
@@ -4990,8 +4985,47 @@ function hasProTierEntitlement() {
 
 function updatePartyPassUI() {
   const hasPartyPass = hasPartyPassEntitlement();
-  
-  // Update DJ Quick Buttons visibility
+
+  // --- 1. Banner state ---
+  const banner = el("partyPassBanner");
+  const activeStatus = el("partyPassActive");
+  const upgradeCard = el("partyPassUpgrade");
+  const descEl = el("partyPassDesc");
+  const titleEl = el("partyPassTitle");
+  const timerEl = el("partyPassTimer");
+
+  if (banner && activeStatus && upgradeCard) {
+    if (hasPartyPass) {
+      banner.classList.remove("hidden");
+      activeStatus.classList.remove("hidden");
+      upgradeCard.classList.add("hidden");
+      if (titleEl) titleEl.textContent = "Party Pass Active";
+      if (descEl) descEl.classList.add("hidden");
+      if (timerEl) {
+        if (state.userTier === USER_TIER.PARTY_PASS && state.partyPassActive && state.partyPassEndTime) {
+          timerEl.classList.remove("hidden");
+        } else {
+          timerEl.classList.add("hidden");
+        }
+      }
+    } else if (state.partyPro && !state.isHost) {
+      banner.classList.remove("hidden");
+      activeStatus.classList.remove("hidden");
+      upgradeCard.classList.add("hidden");
+      if (titleEl) titleEl.textContent = "🎉 Party Pass Active";
+      if (descEl) descEl.classList.remove("hidden");
+      if (timerEl) timerEl.classList.add("hidden");
+    } else if (!state.partyPro && state.isHost) {
+      banner.classList.remove("hidden");
+      activeStatus.classList.add("hidden");
+      upgradeCard.classList.remove("hidden");
+      if (timerEl) timerEl.classList.add("hidden");
+    } else {
+      banner.classList.add("hidden");
+    }
+  }
+
+  // --- 2. DJ host controls ---
   const djQuickButtons = el("djQuickButtonsContainer");
   if (djQuickButtons) {
     if (hasPartyPass && state.isHost) {
@@ -5000,8 +5034,7 @@ function updatePartyPassUI() {
       djQuickButtons.classList.add("hidden");
     }
   }
-  
-  // Update DJ locked state message
+
   const djLockedMsg = el("djMessagingLocked");
   if (djLockedMsg) {
     if (!hasPartyPass && state.isHost) {
@@ -5010,8 +5043,7 @@ function updatePartyPassUI() {
       djLockedMsg.classList.add("hidden");
     }
   }
-  
-  // Update DJ messaging feed section
+
   const djMessagingFeedSection = el("djMessagingFeedSection");
   if (djMessagingFeedSection) {
     if (hasPartyPass && state.isHost) {
@@ -5020,8 +5052,8 @@ function updatePartyPassUI() {
       djMessagingFeedSection.classList.add("hidden");
     }
   }
-  
-  // Update Guest Quick Replies visibility
+
+  // --- 3. Guest messaging UI ---
   const guestQuickReplies = el("guestQuickRepliesContainer");
   if (guestQuickReplies) {
     if (state.partyPassActive && !state.isHost) {
@@ -5030,8 +5062,7 @@ function updatePartyPassUI() {
       guestQuickReplies.classList.add("hidden");
     }
   }
-  
-  // Update Guest chat input visibility
+
   const guestChatContainer = el("guestChatInputContainer");
   if (guestChatContainer) {
     if (state.partyPassActive && !state.isHost) {
@@ -5040,8 +5071,7 @@ function updatePartyPassUI() {
       guestChatContainer.classList.add("hidden");
     }
   }
-  
-  // Update Guest locked state message
+
   const guestLockedMsg = el("guestMessagingLocked");
   if (guestLockedMsg) {
     if (!state.partyPassActive && !state.isHost) {
@@ -5050,8 +5080,7 @@ function updatePartyPassUI() {
       guestLockedMsg.classList.add("hidden");
     }
   }
-  
-  // Update Guest messaging feed section
+
   const guestMessagingFeedSection = el("guestMessagingFeedSection");
   if (guestMessagingFeedSection) {
     if (state.partyPassActive && !state.isHost) {
@@ -5061,8 +5090,7 @@ function updatePartyPassUI() {
     }
   }
 
-  // Streaming Party: show paid section to host when paid, show paywall to free users
-  // Only shown when the STREAMING_PARTY_ENABLED feature flag is on.
+  // --- 4. Streaming party paywall ---
   const officialAppSyncSection = el("officialAppSyncSection");
   const streamingPartyPaywall = el("streamingPartyPaywall");
   if (state.isHost && _featureFlags.STREAMING_PARTY_ENABLED) {
@@ -5074,7 +5102,6 @@ function updatePartyPassUI() {
       streamingPartyPaywall.classList[isPaid ? 'add' : 'remove']('hidden');
     }
   } else {
-    // Guests, or feature flag off: hide both streaming party sections
     if (officialAppSyncSection) officialAppSyncSection.classList.add('hidden');
     if (streamingPartyPaywall) streamingPartyPaywall.classList.add('hidden');
   }
@@ -5493,12 +5520,6 @@ function updatePlaybackUI() {
   el("btnAd").disabled = isProOrPartyPass || state.source === "mic";
   el("adLine").textContent = isProOrPartyPass ? "No ads (Pro)"
     : (state.source === "mic" ? "No ads in mic mode" : "Ads interrupt playback for free users.");
-}
-
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
-  }[c]));
 }
 
 // Music file handling functions
@@ -6759,53 +6780,6 @@ function expirePartyPass() {
   toast("⏰ Party Pass has expired");
 }
 
-function updatePartyPassUI() {
-  const banner = el("partyPassBanner");
-  const activeStatus = el("partyPassActive");
-  const upgradeCard = el("partyPassUpgrade");
-  const descEl = el("partyPassDesc");
-  const titleEl = el("partyPassTitle");
-  const timerEl = el("partyPassTimer");
-  
-  if (!banner || !activeStatus || !upgradeCard) return;
-  
-  const hasPartyPass = hasPartyPassEntitlement();
-  
-  if (hasPartyPass) {
-    // User has Party Pass (either PARTY_PASS tier, PRO_MONTHLY, or active Party Pass)
-    banner.classList.remove("hidden");
-    activeStatus.classList.remove("hidden");
-    upgradeCard.classList.add("hidden");
-    
-    if (titleEl) titleEl.textContent = "Party Pass Active";
-    if (descEl) descEl.classList.add("hidden");
-    if (timerEl) {
-      // Only show timer for temporary Party Pass (not PRO_MONTHLY)
-      if (state.userTier === USER_TIER.PARTY_PASS && state.partyPassActive && state.partyPassEndTime) {
-        timerEl.classList.remove("hidden");
-      } else {
-        timerEl.classList.add("hidden");
-      }
-    }
-  } else if (state.partyPro && !state.isHost) {
-    // Friend in a Pro/Party Pass party
-    banner.classList.remove("hidden");
-    activeStatus.classList.remove("hidden");
-    upgradeCard.classList.add("hidden");
-    
-    if (titleEl) titleEl.textContent = "🎉 Party Pass Active";
-    if (descEl) descEl.classList.remove("hidden");
-    if (timerEl) timerEl.classList.add("hidden");
-  } else if (!state.partyPro && state.isHost) {
-    // Show upgrade banner for free users on host page
-    banner.classList.remove("hidden");
-    activeStatus.classList.add("hidden");
-    upgradeCard.classList.remove("hidden");
-  } else {
-    // Hide banner
-    banner.classList.add("hidden");
-  }
-}
 
 function checkPartyPassStatus() {
   if (!state.code) return;
