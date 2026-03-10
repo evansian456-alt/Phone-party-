@@ -4246,7 +4246,10 @@ app.post("/api/leave-party", async (req, res) => {
   }
 });
 
-// POST /api/end-party - End party early (host only)
+// POST /api/end-party - End party early.
+// For parties created by an authenticated user (ownerUserId set), only that user may
+// end the party (403 otherwise).  Legacy/anonymous parties (no ownerUserId) can be
+// ended by any caller for backward compatibility.
 app.post("/api/end-party", apiLimiter, authMiddleware.optionalAuth, async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/end-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
@@ -4297,7 +4300,8 @@ app.post("/api/end-party", apiLimiter, authMiddleware.optionalAuth, async (req, 
       return res.status(404).json({ error: "Party not found or expired" });
     }
     
-    // Host authorization: if the party has an ownerUserId, require matching auth
+    // Host authorization: only applies to parties that have an ownerUserId.
+    // Anonymous/legacy parties (no ownerUserId) can be ended by any caller.
     if (partyData.ownerUserId) {
       if (!req.user || req.user.userId !== partyData.ownerUserId) {
         return res.status(403).json({ error: "Only the host can end the party" });
@@ -4308,7 +4312,7 @@ app.post("/api/end-party", apiLimiter, authMiddleware.optionalAuth, async (req, 
     partyData.status = "ended";
     partyData.endedAt = Date.now();
     
-    console.log(`[end-party] Party ${code} ended by host`);
+    console.log(`[end-party] Party ${code} ended by ${partyData.ownerUserId ? `owner ${req.user?.userId}` : 'anonymous caller'}`);
     
     // Track session end in metrics
     if (metricsService) {

@@ -220,6 +220,9 @@ describe('Section 3: Storage Range Request Support', () => {
 
       // Cleanup
       await newProvider.delete(trackId);
+      // Await the pending metadata write triggered by delete() before the
+      // afterAll cleanup removes the directory (prevents ENOENT race).
+      await newProvider.savePromise;
     });
   });
 
