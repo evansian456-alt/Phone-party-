@@ -16,8 +16,8 @@ describe('Section 3: Storage Range Request Support', () => {
     // Create test storage provider
     process.env.UPLOAD_DIR = testDir;
     // Ensure the test directory exists before initialising the provider
-    if (!require('fs').existsSync(testDir)) {
-      require('fs').mkdirSync(testDir, { recursive: true });
+    if (!fs.existsSync(testDir)) {
+      fs.mkdirSync(testDir, { recursive: true });
     }
     provider = new LocalDiskProvider();
     await provider.init();
