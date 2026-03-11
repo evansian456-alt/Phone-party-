@@ -319,7 +319,7 @@ test.describe('UI tier display consistency', () => {
       const proStatus = page.locator('#currentStatusPro');
 
       // For FREE user: free status shown, pro status hidden
-      if (await freeStatus.isAttached()) {
+      if ((await freeStatus.count()) > 0) {
         const freeHidden = await freeStatus.evaluate(el => el.classList.contains('hidden'));
         const proHidden = await proStatus.evaluate(el => el.classList.contains('hidden')).catch(() => true);
         // At least one should be visible (free) and the other hidden (pro)

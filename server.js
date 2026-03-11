@@ -5133,6 +5133,60 @@ app.post("/api/party/:code/reorder-queue", async (req, res) => {
   }
 });
 
+// POST /api/party/:code/chat-mode - Set chat mode (HOST-ONLY)
+// Accepts { mode: 'OPEN'|'EMOJI_ONLY'|'LOCKED', hostId } in body.
+app.post("/api/party/:code/chat-mode", apiLimiter, async (req, res) => {
+  const timestamp = new Date().toISOString();
+  const code = req.params.code ? req.params.code.toUpperCase().trim() : null;
+  const { hostId, mode } = req.body;
+
+  console.log(`[HTTP] POST /api/party/${code}/chat-mode at ${timestamp}`);
+
+  if (!code || code.length !== 6) {
+    return res.status(400).json({ error: 'Invalid party code' });
+  }
+
+  const VALID_MODES = ['OPEN', 'EMOJI_ONLY', 'LOCKED'];
+  if (!mode || !VALID_MODES.includes(mode)) {
+    return res.status(400).json({ error: `mode must be one of: ${VALID_MODES.join(', ')}` });
+  }
+
+  try {
+    const partyData = await loadPartyState(code);
+    if (!partyData) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+
+    const authCheck = validateHostAuth(hostId, partyData);
+    if (!authCheck.valid) {
+      console.log(`[HTTP] chat-mode update denied for ${code}: ${authCheck.error}`);
+      return res.status(403).json({ error: authCheck.error });
+    }
+
+    partyData.chatMode = mode;
+    await savePartyState(code, partyData);
+
+    console.log(`[HTTP] chat-mode updated for party ${code}: ${mode}`);
+
+    // Mirror to local WebSocket state and broadcast
+    const party = parties.get(code);
+    if (party) {
+      party.chatMode = mode;
+      const message = JSON.stringify({ t: 'CHAT_MODE_UPDATED', chatMode: mode });
+      party.members.forEach(m => {
+        if (m.ws.readyState === WebSocket.OPEN) {
+          m.ws.send(message);
+        }
+      });
+    }
+
+    return res.json({ success: true, chatMode: mode });
+  } catch (error) {
+    console.error(`[HTTP] Error updating chat-mode for ${code}:`, error);
+    return res.status(500).json({ error: 'Failed to update chat mode', details: error.message });
+  }
+});
+
 // GET /api/party/:code/members - Get party members for polling
 app.get("/api/party/:code/members", async (req, res) => {
   const timestamp = new Date().toISOString();
