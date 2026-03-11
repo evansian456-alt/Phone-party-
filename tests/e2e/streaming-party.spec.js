@@ -90,7 +90,7 @@ test.describe('Streaming Party — API paywall (unauthenticated)', () => {
 test.describe('Streaming Party — FREE user access restriction', () => {
   let freeUser;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     freeUser = makeUser('sp_free');
     await signupAndLogin(request, freeUser);
   });
@@ -126,7 +126,7 @@ test.describe('Streaming Party — FREE user access restriction', () => {
 test.describe('Streaming Party — PARTY_PASS user access', () => {
   let ppUser;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     if (process.env.NODE_ENV !== 'test') return;
     ppUser = makeUser('sp_pp');
     await signupAndLogin(request, ppUser);
@@ -185,7 +185,7 @@ test.describe('Streaming Party — PARTY_PASS user access', () => {
 test.describe('Streaming Party — PRO user access', () => {
   let proUser;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     if (process.env.NODE_ENV !== 'test') return;
     proUser = makeUser('sp_pro');
     await signupAndLogin(request, proUser);

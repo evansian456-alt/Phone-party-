@@ -218,6 +218,7 @@ test.describe('Visual pack store', () => {
 
   test('each visual pack has BUY button and hidden Activate button initially', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForLoadState('domcontentloaded');
     await page.evaluate(() => { document.getElementById('viewVisualPackStore')?.classList.remove('hidden'); });
     await page.waitForTimeout(300);
 

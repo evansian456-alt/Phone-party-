@@ -63,7 +63,7 @@ test.describe('Music queue — host operations', () => {
   let host;
   let party;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     host = makeUser('host_music');
     await signupAndLogin(request, host);
     party = await createParty(request, host.djName);
@@ -160,7 +160,7 @@ test.describe('Music playback — start-track and sync state', () => {
   let host2;
   let party2;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     host2 = makeUser('host_sync');
     await signupAndLogin(request, host2);
     party2 = await createParty(request, host2.djName);
@@ -252,7 +252,7 @@ test.describe('Music queue reorder', () => {
   let host3;
   let party3;
 
-  test.beforeAll(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     host3 = makeUser('host_reorder');
     await signupAndLogin(request, host3);
     party3 = await createParty(request, host3.djName);

@@ -181,6 +181,7 @@ test.describe('Host party view — DJ moment buttons', () => {
 
   test('DJ moment labels are correct', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForLoadState('domcontentloaded');
     await page.evaluate(() => {
       document.getElementById('viewParty')?.classList.remove('hidden');
       document.getElementById('djMomentsCard')?.classList.remove('hidden');

@@ -77,6 +77,7 @@ test.describe('Guest view — structural elements', () => {
 
   test('"No track selected" shown when nothing is playing', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForLoadState('domcontentloaded');
     await page.evaluate(() => { document.getElementById('viewGuest')?.classList.remove('hidden'); });
     await page.waitForTimeout(300);
     const nowPlaying = page.locator('#guestNowPlayingFilename');
