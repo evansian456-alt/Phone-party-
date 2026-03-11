@@ -140,9 +140,9 @@ test.describe('FREE tier enforcement', () => {
     });
     expect(guest2Res.ok()).toBe(false);
 
-    // Verify party state shows 1 guest
+    // Verify party state shows exactly 1 guest (2 total phones = limit reached)
     const state = await (await request.get(`${BASE}/api/party-state?code=${code}`)).json();
-    expect(state.guestCount).toBeGreaterThanOrEqual(1);
+    expect(state.guestCount).toBe(1);
   });
 
   test('FREE tier: party has no partyPassExpiresAt (unlimited time)', async ({ request }) => {

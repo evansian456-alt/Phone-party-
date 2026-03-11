@@ -102,8 +102,8 @@ test.describe('Signup view', () => {
 
     await page.fill('#signupEmail', `missing_dj_${uid()}@test.invalid`);
     await page.fill('#signupPassword', 'Pass123!');
-    // intentionally leave djName empty — submit form bypassing HTML5 validation
-    // to test the JS-level error message
+    // intentionally leave djName empty — submit form bypassing HTML5 required validation
+    // so the app's JS validation (handleSignup) can show the custom #signupError message
     await page.evaluate(() => document.getElementById('formSignup').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
 
     // Error should appear

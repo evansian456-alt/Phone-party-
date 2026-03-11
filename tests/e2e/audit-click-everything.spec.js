@@ -297,7 +297,9 @@ test.describe('Click-Everything Audit', () => {
         await page.locator('#btnNudgeLater').click().catch(() => {});
         await page.waitForTimeout(300);
       }
-      await playBtn.click({ timeout: 5000 }).catch(() => {});
+      await playBtn.click({ timeout: 5000 }).catch((e) => {
+        console.log(`[click-all] Play button click failed (modal may have blocked): ${e.message}`);
+      });
       await screenshot(page, 'party_play_clicked');
     }
 

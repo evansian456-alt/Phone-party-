@@ -60,7 +60,7 @@ test.describe('Tier enforcement — FREE', () => {
     if (res.status() === 401 || res.status() === 404) return; // optional endpoint
     if (!res.ok()) return; // service unavailable in this environment
     const body = await res.json();
-    // /api/tier-info returns { tiers: {...} } not { tier, effectiveTier }
+    // /api/tier-info returns { tiers: {...} }; some environments may return { tier, effectiveTier }
     expect(body.tiers || body.tier || body.effectiveTier).toBeDefined();
   });
 });
