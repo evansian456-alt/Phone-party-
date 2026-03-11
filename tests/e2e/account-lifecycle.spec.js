@@ -150,13 +150,10 @@ test.describe('Account lifecycle', () => {
     const freshUser = makeUser();
 
     await page.goto(BASE);
-    await page.waitForSelector('#viewLanding, #viewLogin, #viewAuthHome', { timeout: 10_000 }).catch((e) => console.log('[lifecycle] view wait timed out:', e.message));
+    await page.waitForSelector('#viewLanding:not(.hidden), #viewLogin:not(.hidden), #viewAuthHome:not(.hidden)', { timeout: 10_000 }).catch((e) => console.log('[lifecycle] view wait timed out:', e.message));
 
-    // Navigate to signup view
-    const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
-      .first();
+    // Navigate to signup view using data-testid (button text is "🚀 GET STARTED FREE")
+    const signupBtn = page.locator('[data-testid="signup-button"]');
     if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await signupBtn.click();
     } else {
@@ -166,7 +163,7 @@ test.describe('Account lifecycle', () => {
     }
 
     // Wait for signup form to be active
-    await page.waitForSelector('#signupEmail', { state: 'visible', timeout: 8_000 }).catch((e) => console.log('[lifecycle] signup form wait timed out:', e.message));
+    await page.waitForSelector('#viewSignup:not(.hidden)', { timeout: 10_000 });
 
     // Fill signup form using specific signup field IDs
     const emailField = page.locator('#signupEmail');
@@ -175,26 +172,20 @@ test.describe('Account lifecycle', () => {
     const passwordField = page.locator('#signupPassword');
     await passwordField.fill(freshUser.password);
 
-    const djNameField = page
-      .locator('input[name="djName"], input[id="signupDjName"]')
-      .first();
+    const djNameField = page.locator('#signupDjName');
     if (await djNameField.isVisible({ timeout: 2000 }).catch(() => false)) {
       await djNameField.fill(freshUser.djName);
     }
 
     // Accept terms if present
-    const termsCheckbox = page.locator('#signupTermsAccept, input[type="checkbox"]').first();
+    const termsCheckbox = page.locator('#signupTermsAccept');
     if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
       const checked = await termsCheckbox.isChecked().catch(() => false);
       if (!checked) await termsCheckbox.check();
     }
 
-    // Submit
-    const submitBtn = page
-      .locator('button[type="submit"], button')
-      .filter({ hasText: /sign up|register|create/i })
-      .first();
-    await submitBtn.click();
+    // Submit using the signup form's submit button specifically
+    await page.locator('[data-testid="signup-form"] button[type="submit"]').click();
 
     // Wait for success message or authenticated state
     const successMsgLocator = page.locator('#signupError, [id*="signup"][id*="error"], [id*="signup"][id*="msg"]');
@@ -221,13 +212,10 @@ test.describe('Account lifecycle', () => {
     });
 
     await page.goto(BASE);
-    await page.waitForSelector('#viewLanding, #viewLogin, #viewAuthHome', { timeout: 10_000 }).catch((e) => console.log('[lifecycle] view wait timed out:', e.message));
+    await page.waitForSelector('#viewLanding:not(.hidden), #viewLogin:not(.hidden), #viewAuthHome:not(.hidden)', { timeout: 10_000 }).catch((e) => console.log('[lifecycle] view wait timed out:', e.message));
 
-    // Navigate to signup view
-    const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
-      .first();
+    // Navigate to signup view using data-testid (button text is "🚀 GET STARTED FREE")
+    const signupBtn = page.locator('[data-testid="signup-button"]');
     if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await signupBtn.click();
     } else {
@@ -237,7 +225,7 @@ test.describe('Account lifecycle', () => {
     }
 
     // Wait for signup form to be active
-    await page.waitForSelector('#signupEmail', { state: 'visible', timeout: 8_000 }).catch((e) => console.log('[lifecycle] signup form wait timed out:', e.message));
+    await page.waitForSelector('#viewSignup:not(.hidden)', { timeout: 10_000 });
 
     // Fill with the same email using specific signup field IDs
     const emailField = page.locator('#signupEmail');
@@ -246,22 +234,19 @@ test.describe('Account lifecycle', () => {
     const passwordField = page.locator('#signupPassword');
     await passwordField.fill(dupUser.password);
 
-    const djNameField = page.locator('input[name="djName"], input[id="signupDjName"]').first();
+    const djNameField = page.locator('#signupDjName');
     if (await djNameField.isVisible({ timeout: 2000 }).catch(() => false)) {
       await djNameField.fill(dupUser.djName);
     }
 
-    const termsCheckbox = page.locator('#signupTermsAccept, input[type="checkbox"]').first();
+    const termsCheckbox = page.locator('#signupTermsAccept');
     if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
       const checked = await termsCheckbox.isChecked().catch(() => false);
       if (!checked) await termsCheckbox.check();
     }
 
-    const submitBtn = page
-      .locator('button[type="submit"], button')
-      .filter({ hasText: /sign up|register|create/i })
-      .first();
-    await submitBtn.click();
+    // Submit using the signup form's submit button specifically
+    await page.locator('[data-testid="signup-form"] button[type="submit"]').click();
 
     // Expect "Account already exists" message
     const errorEl = page.locator('#signupError, [id*="signup"][id*="error"]');
