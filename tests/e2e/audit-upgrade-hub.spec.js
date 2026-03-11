@@ -219,9 +219,14 @@ test.describe('Visual pack store', () => {
   test('each visual pack has BUY button and hidden Activate button initially', async ({ page }) => {
     await page.goto(BASE);
     await page.waitForLoadState('load');
-    // Wait for initAuthFlow() to settle (it will call setView('landing'/'authHome'/'login'))
-    // before forcing the visual pack store visible to avoid a race condition.
-    await page.waitForSelector('#viewLanding:not(.hidden), #viewAuthHome:not(.hidden), #viewLogin:not(.hidden)', { timeout: 10_000 }).catch(() => {});
+    // Wait for initAuthFlow() to settle: it calls setView() which sets the URL hash.
+    // #viewLanding starts not-hidden in the HTML so waitForSelector fires too early.
+    // initAuthFlow sets the hash to '#landing' (logged-out), '#home' (logged-in),
+    // '#complete-profile', or '#login' depending on auth state.
+    await page.waitForFunction(
+      () => ['#landing', '#home', '#login', '#complete-profile'].includes(window.location.hash),
+      { timeout: 10_000 }
+    ).catch(() => {});
     await page.evaluate(() => { document.getElementById('viewVisualPackStore')?.classList.remove('hidden'); }).catch((e) => console.log('[upgrade-hub] show store failed:', e.message));
     await page.waitForTimeout(300);
 

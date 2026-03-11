@@ -150,7 +150,14 @@ test.describe('Account lifecycle', () => {
     const freshUser = makeUser();
 
     await page.goto(BASE);
-    await page.waitForSelector('#viewLanding:not(.hidden), #viewLogin:not(.hidden), #viewAuthHome:not(.hidden)', { timeout: 10_000 }).catch((e) => console.log('[lifecycle] view wait timed out:', e.message));
+    // Wait for initAuthFlow to settle: it calls setView() which sets the URL hash.
+    // #viewLanding starts not-hidden in the HTML, so waitForSelector fires too early.
+    // initAuthFlow sets the hash to '#landing' (logged-out), '#home' (logged-in),
+    // '#complete-profile', or '#login' depending on auth state.
+    await page.waitForFunction(
+      () => ['#landing', '#home', '#login', '#complete-profile'].includes(window.location.hash),
+      { timeout: 10_000 }
+    ).catch((e) => console.log('[lifecycle] auth-flow settle timed out:', e.message));
 
     // Navigate to signup view using data-testid (button text is "🚀 GET STARTED FREE")
     const signupBtn = page.locator('[data-testid="signup-button"]');
@@ -212,7 +219,14 @@ test.describe('Account lifecycle', () => {
     });
 
     await page.goto(BASE);
-    await page.waitForSelector('#viewLanding:not(.hidden), #viewLogin:not(.hidden), #viewAuthHome:not(.hidden)', { timeout: 10_000 }).catch((e) => console.log('[lifecycle] view wait timed out:', e.message));
+    // Wait for initAuthFlow to settle: it calls setView() which sets the URL hash.
+    // #viewLanding starts not-hidden in the HTML, so waitForSelector fires too early.
+    // initAuthFlow sets the hash to '#landing' (logged-out), '#home' (logged-in),
+    // '#complete-profile', or '#login' depending on auth state.
+    await page.waitForFunction(
+      () => ['#landing', '#home', '#login', '#complete-profile'].includes(window.location.hash),
+      { timeout: 10_000 }
+    ).catch((e) => console.log('[lifecycle] auth-flow settle timed out:', e.message));
 
     // Navigate to signup view using data-testid (button text is "🚀 GET STARTED FREE")
     const signupBtn = page.locator('[data-testid="signup-button"]');
