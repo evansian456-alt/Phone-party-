@@ -192,11 +192,10 @@ test.describe('Streaming Party — PARTY_PASS user access', () => {
     const res = await request.get(`${BASE}/api/streaming/access`);
     if (!res.ok()) return; // Skip if not set up yet
     const body = await res.json();
-    // Only assert allowed=true if the user was actually upgraded (webhook simulation may not be active)
-    if (body.allowed === true) {
-      expect(body.allowed).toBe(true);
-    }
-    // If still false (webhook not active in this env), skip without failing
+    // Skip if webhook simulation didn't upgrade the tier (not active in all CI envs)
+    if (body.allowed !== true) return;
+    // Webhook succeeded — access must be granted
+    expect(body.allowed).toBe(true);
   });
 });
 

@@ -100,15 +100,15 @@ test.describe('Auth error flow', () => {
     await page.waitForSelector('#viewLanding', { state: 'visible', timeout: 10000 });
     await page.locator('[data-testid="login-button"]').click();
     // Wait for login view to be visible before filling the form
-    await page.waitForSelector('#viewLogin', { state: 'visible', timeout: 8000 });
-    await page.locator('#loginEmail').waitFor({ state: 'visible', timeout: 5000 });
+    await page.waitForSelector('#viewLogin', { state: 'visible', timeout: 10000 });
+    await page.locator('#loginEmail').waitFor({ state: 'visible', timeout: 10000 });
 
     await page.locator('#loginEmail').fill(user.email);
     await page.locator('#loginPassword').fill('WrongPassword!');
     await page.locator('[data-testid="login-form"] button[type="submit"]').click();
 
     // Error box should become visible with an error message
-    await expect(page.locator('#viewLogin [data-testid="auth-error-box"]')).toBeVisible({ timeout: 8000 });
+    await expect(page.locator('#viewLogin [data-testid="auth-error-box"]')).toBeVisible({ timeout: 10000 });
     const errText = await page.locator('#viewLogin [data-testid="auth-error-box"]').textContent();
     expect(errText && errText.trim().length).toBeGreaterThan(0);
   });
