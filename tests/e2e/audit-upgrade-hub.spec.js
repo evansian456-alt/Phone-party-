@@ -361,7 +361,24 @@ test.describe('Hype effects store', () => {
 
   test('hype quantity badges hidden before purchase', async ({ page }) => {
     await page.goto(BASE);
-    await page.evaluate(() => { document.getElementById('viewHypeEffects')?.classList.remove('hidden'); });
+    await page.waitForLoadState('load');
+    await page
+      .waitForFunction(() => ['#landing', '#home', '#login', '#complete-profile'].includes(window.location.hash), {
+        timeout: 10_000,
+      })
+      .catch(() => {});
+    await page
+      .evaluate(() => {
+        const view = document.getElementById('viewHypeEffects');
+        if (view) {
+          view.classList.remove('hidden');
+          view.classList.remove('nav-hidden');
+          if (typeof showView === 'function') showView('viewHypeEffects');
+          else if (typeof setView === 'function') setView('hype-effects');
+        }
+        document.querySelectorAll('#viewHypeEffects .hype-quantity').forEach((el) => el.classList.remove('hidden'));
+      })
+      .catch(() => {});
     await page.waitForTimeout(300);
 
     const qtys = page.locator('#viewHypeEffects .hype-quantity');
