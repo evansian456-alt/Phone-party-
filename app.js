@@ -3,7 +3,8 @@ const PARTY_PASS_LIMIT = 4;
 const PRO_LIMIT = 10;
 const PARTY_CODE_LENGTH = 6; // Length of party code
 // PHASE 6: Increased timeout for create-party (20s) and other API calls
-const API_TIMEOUT_MS = 20000; // 20 second timeout for API callsconst PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
+const API_TIMEOUT_MS = 20000; // 20 second timeout for API calls
+const PARTY_LOOKUP_RETRIES = 5; // Number of retries for party lookup (updated for Railway multi-instance)
 const PARTY_LOOKUP_RETRY_DELAY_MS = 1000; // Initial delay between retries in milliseconds (exponential backoff)
 const CREATE_PARTY_RETRY_DELAY_MS = 800; // Delay before retrying create-party request (ms)
 const MAX_CREATE_PARTY_ATTEMPTS = 2; // Maximum attempts for create-party (1 initial + 1 retry)
