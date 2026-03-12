@@ -549,6 +549,53 @@ let useFallbackMode = false;
 
 // Track DB readiness (set in startServer; used by /readyz)
 let dbReady = false;
+const ENABLE_LOCAL_AUTH_FALLBACK = process.env.ENABLE_LOCAL_AUTH_FALLBACK === 'true';
+
+// In-memory auth/subscription fallback used only for local development when DB is unavailable.
+// This lets engineers run full UX flows end-to-end in constrained environments.
+const localFallbackUsersByEmail = new Map();
+const localFallbackUsersById = new Map();
+let localFallbackUserIdSeq = 1;
+
+function canUseLocalAuthFallback() {
+  return ENABLE_LOCAL_AUTH_FALLBACK && !dbReady;
+}
+
+function buildLocalFallbackMePayload(user) {
+  const hasPro = !!user.upgrades.pro_monthly_active;
+  const hasPartyPass = !!user.upgrades.party_pass_active;
+  const tier = hasPro ? 'PRO_MONTHLY' : (hasPartyPass ? 'PARTY_PASS' : 'FREE');
+
+  return {
+    user: {
+      id: user.id,
+      email: user.email,
+      djName: user.djName,
+      createdAt: user.createdAt,
+      profileCompleted: !!user.profileCompleted,
+      tier,
+      subscriptionStatus: hasPro ? 'active' : null,
+      currentPeriodEnd: hasPro ? new Date(Date.now() + 28 * 24 * 60 * 60 * 1000).toISOString() : null,
+      isAdmin: false,
+    },
+    profile: {
+      djScore: 0,
+      djRank: 'Bedroom DJ',
+      activeVisualPack: user.profile.activeVisualPack,
+      activeTitle: user.profile.activeTitle,
+      verifiedBadge: !!user.profile.verifiedBadge,
+      crownEffect: !!user.profile.crownEffect,
+      animatedName: !!user.profile.animatedName,
+      reactionTrail: !!user.profile.reactionTrail,
+    },
+    entitlements: user.entitlements,
+    tierInfo: {
+      tier,
+      hasPartyPass,
+      hasPro,
+    }
+  };
+}
 
 if (redis) {
   redis.on("connect", () => {
@@ -1475,6 +1522,56 @@ app.post("/api/auth/signup", authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'You must accept the Terms & Conditions and Privacy Policy to create an account' });
     }
 
+    if (canUseLocalAuthFallback()) {
+      const normalizedEmail = email.toLowerCase();
+      if (localFallbackUsersByEmail.has(normalizedEmail)) {
+        return res.status(409).json({ error: 'Account already exists' });
+      }
+
+      const passwordHash = await authMiddleware.hashPassword(password);
+      const user = {
+        id: localFallbackUserIdSeq++,
+        email: normalizedEmail,
+        djName: djName.trim(),
+        passwordHash,
+        createdAt: new Date().toISOString(),
+        profileCompleted: true,
+        upgrades: { party_pass_active: false, pro_monthly_active: false },
+        entitlements: [],
+        profile: {
+          activeVisualPack: null,
+          activeTitle: null,
+          verifiedBadge: false,
+          crownEffect: false,
+          animatedName: false,
+          reactionTrail: false,
+        }
+      };
+
+      localFallbackUsersByEmail.set(normalizedEmail, user);
+      localFallbackUsersById.set(user.id, user);
+
+      const token = authMiddleware.generateToken({ userId: user.id, email: user.email });
+      res.cookie('auth_token', token, {
+        httpOnly: true,
+        path: '/',
+        secure: isHttpsRequest(req),
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        sameSite: 'lax'
+      });
+
+      return res.status(201).json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          djName: user.djName,
+          profileCompleted: true,
+          createdAt: user.createdAt
+        }
+      });
+    }
+
     // Check if email already exists
     const existingUser = await db.query(
       'SELECT id FROM users WHERE email = $1',
@@ -1570,6 +1667,37 @@ app.post("/api/auth/login", authLimiter, async (req, res) => {
     // Validate input
     if (!authMiddleware.isValidEmail(email)) {
       return res.status(400).json({ error: 'Invalid email address' });
+    }
+
+    if (canUseLocalAuthFallback()) {
+      const user = localFallbackUsersByEmail.get(email.toLowerCase());
+      if (!user) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      const isValid = await authMiddleware.verifyPassword(password, user.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      const token = authMiddleware.generateToken({ userId: user.id, email: user.email, isAdmin: false });
+      res.cookie('auth_token', token, {
+        httpOnly: true,
+        path: '/',
+        secure: isHttpsRequest(req),
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+        sameSite: 'lax'
+      });
+
+      return res.json({
+        success: true,
+        user: {
+          id: user.id,
+          email: user.email,
+          djName: user.djName,
+          isAdmin: false
+        }
+      });
     }
 
     // Find user
@@ -1672,6 +1800,14 @@ app.get('/api/feature-flags', apiLimiter, (req, res) => {
 app.get("/api/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
+
+    if (canUseLocalAuthFallback()) {
+      const user = localFallbackUsersById.get(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      return res.json(buildLocalFallbackMePayload(user));
+    }
     
     // Get user basic info (including Stripe billing fields added by migration 003)
     const userResult = await db.query(
@@ -1823,6 +1959,18 @@ app.post("/api/complete-profile", apiLimiter, authMiddleware.requireAuth, async 
     const userId = req.user.userId;
     const { djName } = req.body;
 
+    if (canUseLocalAuthFallback()) {
+      const user = localFallbackUsersById.get(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      user.profileCompleted = true;
+      if (djName && djName.trim()) {
+        user.djName = djName.trim().substring(0, 50);
+      }
+      return res.json({ success: true, profileCompleted: true });
+    }
+
     if (djName && djName.trim()) {
       await db.query(
         'UPDATE users SET profile_completed = TRUE, dj_name = $2 WHERE id = $1',
@@ -1852,6 +2000,23 @@ app.post("/api/profile/update", apiLimiter, authMiddleware.requireAuth, async (r
   try {
     const userId = req.user.userId;
     const { djName } = req.body;
+
+    if (canUseLocalAuthFallback()) {
+      const user = localFallbackUsersById.get(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const trimmedLocal = typeof djName === 'string' ? djName.trim() : '';
+      if (!trimmedLocal) {
+        return res.status(400).json({ error: 'DJ name is required' });
+      }
+      if (trimmedLocal.length > DJ_NAME_MAX_LENGTH) {
+        return res.status(400).json({ error: `DJ name must be ${DJ_NAME_MAX_LENGTH} characters or less` });
+      }
+      user.djName = trimmedLocal;
+      user.profileCompleted = true;
+      return res.json({ success: true, djName: trimmedLocal, profileCompleted: true });
+    }
 
     const trimmed = typeof djName === 'string' ? djName.trim() : '';
     if (!trimmed) {
@@ -1963,6 +2128,71 @@ app.get("/api/tier-info", (req, res) => {
  * Process a purchase
  */
 app.post("/api/purchase", purchaseLimiter, authMiddleware.requireAuth, async (req, res) => {
+  if (canUseLocalAuthFallback()) {
+    try {
+      const { itemId, partyCode } = req.body;
+      const userId = req.user.userId;
+      const user = localFallbackUsersById.get(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const item = storeCatalog.getItemById(itemId);
+      if (!item) {
+        return res.status(404).json({ error: 'Item not found' });
+      }
+
+      if (item.id === 'party_pass') user.upgrades.party_pass_active = true;
+      if (item.id === 'pro_monthly') user.upgrades.pro_monthly_active = true;
+
+      if (partyCode) {
+        const normalizedCode = String(partyCode).toUpperCase();
+        const localParty = parties.get(normalizedCode);
+        const fallbackParty = getPartyFromFallback(normalizedCode);
+
+        const applyPartyUpgrade = (party) => {
+          if (!party) return;
+          if (item.id === 'party_pass') {
+            party.maxPhones = 4;
+            party.partyPassExpiresAt = Date.now() + 2 * 60 * 60 * 1000;
+            party.tier = 'PARTY_PASS';
+            party.partyPro = true;
+          }
+          if (item.id === 'add_5phones') {
+            party.maxPhones = (party.maxPhones || 2) + 5;
+          }
+          if (item.id === 'add_30min') {
+            party.partyPassExpiresAt = (party.partyPassExpiresAt || Date.now()) + 30 * 60 * 1000;
+          }
+        };
+
+        applyPartyUpgrade(localParty);
+        applyPartyUpgrade(fallbackParty);
+        if (fallbackParty) {
+          setPartyInFallback(normalizedCode, fallbackParty);
+        }
+      }
+
+      const type = item.type;
+      user.entitlements.push({ type, key: item.id });
+      if (type === storeCatalog.STORE_CATEGORIES.VISUAL_PACKS) user.profile.activeVisualPack = item.id;
+      if (type === storeCatalog.STORE_CATEGORIES.DJ_TITLES) user.profile.activeTitle = item.id;
+      if (item.id === 'verified_badge') user.profile.verifiedBadge = true;
+      if (item.id === 'crown_effect') user.profile.crownEffect = true;
+      if (item.id === 'animated_name') user.profile.animatedName = true;
+      if (item.id === 'reaction_trail') user.profile.reactionTrail = true;
+
+      return res.json({
+        success: true,
+        message: 'Purchase successful',
+        item: { id: item.id, name: item.name, type: item.type }
+      });
+    } catch (error) {
+      console.error('[Store] Local fallback purchase error:', error);
+      return res.status(500).json({ error: 'Failed to process purchase' });
+    }
+  }
+
   const client = await db.getClient();
   
   try {
@@ -2294,6 +2524,30 @@ app.post("/api/payment/confirm", purchaseLimiter, authMiddleware.requireAuth, as
 app.get("/api/user/entitlements", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
   try {
     const userId = req.user.userId;
+
+    if (canUseLocalAuthFallback()) {
+      const user = localFallbackUsersById.get(userId);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      return res.json({
+        success: true,
+        upgrades: {
+          partyPass: {
+            expiresAt: user.upgrades.party_pass_active ? new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString() : null
+          },
+          proMonthly: {
+            active: !!user.upgrades.pro_monthly_active,
+            startedAt: user.upgrades.pro_monthly_active ? new Date().toISOString() : null,
+            renewalProvider: null
+          }
+        },
+        entitlements: {
+          hasPartyPass: !!user.upgrades.party_pass_active,
+          hasPro: !!user.upgrades.pro_monthly_active,
+        }
+      });
+    }
 
     // Get user upgrades
     const upgrades = await db.getOrCreateUserUpgrades(userId);
