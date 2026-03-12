@@ -9648,6 +9648,10 @@ function showView(viewId) {
   if (targetView) {
     targetView.classList.remove('hidden');
   }
+
+  // Reset the main scroll container so every new view starts at the top
+  const wrap = document.querySelector('main.wrap');
+  if (wrap) wrap.scrollTop = 0;
 }
 
 /**

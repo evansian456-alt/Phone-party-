@@ -110,17 +110,25 @@
 }
 
 *{box-sizing:border-box}
+html{
+  height:100%;
+  overflow:hidden;
+  overscroll-behavior:none;
+}
 body{
   margin:0;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   background: var(--gradient-bg);
   color:var(--text);
-  min-height: 100vh;
-  min-height: 100dvh; /* dynamic viewport height for mobile browsers */
-  /* Prevent horizontal scroll on mobile */
-  overflow-x: hidden;
-  max-width: 100vw;
+  /* Fixed full-screen viewport shell — prevents whole-page drag/scroll */
+  height:100vh;
+  height:100dvh; /* dynamic viewport height for mobile browsers */
+  overflow:hidden;
+  overscroll-behavior:none;
+  max-width:100vw;
   padding-bottom: env(safe-area-inset-bottom); /* respect home-indicator / nav bar */
+  display:flex;
+  flex-direction:column;
 }
 .top{
   display:flex; justify-content:space-between; align-items:center;
@@ -132,6 +140,8 @@ body{
   -webkit-backdrop-filter: blur(10px);
   background: rgba(10, 10, 15, 0.85);
   box-shadow: 0 4px 20px rgba(157, 78, 221, 0.2);
+  flex-shrink:0; /* do not shrink in flex-column body */
+  z-index:10;
 }
 .brand{display:flex; gap:12px; align-items:center}
 .logo{
@@ -146,7 +156,17 @@ body{
 }
 .title{font-weight:900; font-size:18px; letter-spacing:0.5px}
 .subtitle{color:var(--muted); font-size:13px; margin-top:2px}
-.wrap{max-width:1000px; margin:0 auto; padding:18px}
+.wrap{
+  max-width:1000px; margin:0 auto; padding:18px;
+  /* Fills remaining viewport height below header; scrolls only within this area */
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
+  overflow-x:hidden;
+  overscroll-behavior-y:contain;
+  -webkit-overflow-scrolling:touch;
+  width:100%;
+}
 .card{
   background: rgba(10, 10, 15, 0.75);
   border:2px solid var(--border);
@@ -7788,18 +7808,16 @@ body.light-mode .input-field {
 }
 
 body {
-  /* Stretch to fill viewport including dynamic height (prevents keyboard-resize jump) */
-  min-height: 100dvh;
+  /* Safe-area insets for notch / home-bar (applied on top of flex-column shell) */
   padding-top:    var(--safe-top);
   padding-bottom: var(--safe-bottom);
   padding-left:   var(--safe-left);
   padding-right:  var(--safe-right);
 }
 
-/* Each full-screen view fills the visible area without double-scroll */
+/* Each full-screen view fills the scroll area; content that overflows scrolls within .wrap */
 .wrap > section {
-  min-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
-  overflow-y: auto;
+  min-height: 100%;
   box-sizing: border-box;
 }
 
