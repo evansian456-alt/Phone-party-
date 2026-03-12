@@ -3531,6 +3531,7 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
     // Tier-based fields (set by backend entitlement validation only)
     tier: null,
     maxPhones: null,
+    partyPassExpiresAt: null,
     // History fields for late joiners
     reactionHistory: [],
     currentTrack: null,
