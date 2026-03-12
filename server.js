@@ -4084,9 +4084,35 @@ app.get("/api/party-state", async (req, res) => {
     console.log(`[HTTP] Party state: ${code}, status: ${status}, track: ${currentTrack?.filename || currentTrack?.title || 'none'}, queue length: ${queue.length}`);
     
     // Return enhanced party state with playback info
-    // Wrapped in "party" object for backward compatibility with tests
+    // Includes both nested "party" object and top-level flat fields for backward compatibility
+    const tierInfo = {
+      tier: partyData.tier || null,
+      partyPassExpiresAt: partyData.partyPassExpiresAt || null,
+      maxPhones: partyData.maxPhones || null
+    };
+    const currentTrackObj = currentTrack ? {
+      trackId: currentTrack.trackId,
+      url: currentTrack.url || currentTrack.trackUrl,
+      filename: currentTrack.filename || currentTrack.title,
+      title: currentTrack.title,
+      durationMs: currentTrack.durationMs,
+      startAtServerMs: currentTrack.startAtServerMs,
+      startPosition: currentTrack.startPosition || currentTrack.startPositionSec,
+      startPositionSec: currentTrack.startPositionSec || currentTrack.startPosition,
+      status: currentTrack.status || 'playing',
+      pausedPositionSec: currentTrack.pausedPositionSec,
+      pausedAtServerMs: currentTrack.pausedAtServerMs
+    } : null;
     res.json({
       exists: true,
+      // Backward-compatible top-level flat fields
+      partyCode: code,
+      status,
+      guestCount: partyData.guestCount || 0,
+      tierInfo,
+      currentTrack: currentTrackObj,
+      queue,
+      // Nested party object for clients that use party.*
       party: {
         code: code,
         status,
@@ -4097,29 +4123,9 @@ app.get("/api/party-state", async (req, res) => {
         chatMode: partyData.chatMode || "OPEN",
         createdAt: partyData.createdAt,
         serverTime: now,
-        // Tier information (from backend entitlement validation)
-        tierInfo: {
-          tier: partyData.tier || null,
-          partyPassExpiresAt: partyData.partyPassExpiresAt || null,
-          maxPhones: partyData.maxPhones || null
-        },
-        // Playback state
-        currentTrack: currentTrack ? {
-          trackId: currentTrack.trackId,
-          url: currentTrack.url || currentTrack.trackUrl,
-          filename: currentTrack.filename || currentTrack.title,
-          title: currentTrack.title,
-          durationMs: currentTrack.durationMs,
-          startAtServerMs: currentTrack.startAtServerMs,
-          startPosition: currentTrack.startPosition || currentTrack.startPositionSec,
-          startPositionSec: currentTrack.startPositionSec || currentTrack.startPosition,
-          status: currentTrack.status || 'playing',
-          pausedPositionSec: currentTrack.pausedPositionSec,
-          pausedAtServerMs: currentTrack.pausedAtServerMs
-        } : null,
-        // Queue
-        queue: queue,
-        // DJ auto-messages
+        tierInfo,
+        currentTrack: currentTrackObj,
+        queue,
         djMessages: djMessages
       }
     });
