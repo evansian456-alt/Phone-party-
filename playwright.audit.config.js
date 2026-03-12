@@ -45,6 +45,9 @@ module.exports = defineConfig({
     screenshot: 'on',      // screenshot every test
     video: 'on',           // record video for every test
     actionTimeout: 15_000,
+    launchOptions: {
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    },
   },
 
   projects: [

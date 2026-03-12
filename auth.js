@@ -6,6 +6,42 @@
 
 const CURRENT_USER_KEY = 'syncspeaker_current_user';
 
+// Minimum milliseconds between consecutive auth API calls from the same client session.
+// This is a last-resort guard; the primary protection is the inFlight flags in app.js.
+const AUTH_MIN_INTERVAL_MS = 1000;
+// Tracks the timestamp of the last auth call to enforce AUTH_MIN_INTERVAL_MS.
+let _lastAuthCallAt = 0;
+
+/**
+ * Centralized auth error message mapper.
+ * Returns a user-friendly string for a given server error / HTTP status.
+ *
+ * @param {string|undefined} serverError
+ * @param {number|undefined} status
+ * @returns {string}
+ */
+function mapAuthError(serverError, status) {
+  if (status === 429 || (serverError && serverError.toLowerCase().includes('too many'))) {
+    return 'Too many attempts. Please wait a minute before trying again.';
+  }
+  if (status === 401) {
+    return 'Incorrect email or password. Please try again.';
+  }
+  if (status === 409) {
+    return 'An account with that email already exists.';
+  }
+  if (serverError && serverError.toLowerCase().includes('invalid email')) {
+    return 'Please enter a valid email address.';
+  }
+  if (serverError && serverError.toLowerCase().includes('password')) {
+    return 'Password must be at least 6 characters.';
+  }
+  if (serverError && serverError.toLowerCase().includes('network')) {
+    return 'Network error. Please check your connection and try again.';
+  }
+  return serverError || 'Something went wrong. Please try again.';
+}
+
 // User tier constants
 const TIER = {
   FREE: 'FREE',
@@ -55,6 +91,13 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
   if (!termsAccepted) {
     return { success: false, error: 'You must accept the Terms & Conditions and Privacy Policy' };
   }
+
+  // Enforce minimum interval between auth API calls to prevent rapid-fire requests.
+  const now = Date.now();
+  if (now - _lastAuthCallAt < AUTH_MIN_INTERVAL_MS) {
+    return { success: false, error: 'Please wait a moment before trying again.' };
+  }
+  _lastAuthCallAt = now;
 
   try {
     const response = await fetch('/api/auth/signup', {
@@ -120,6 +163,13 @@ async function logIn(email, password) {
   if (!isValidEmail(email)) {
     return { success: false, error: 'Invalid email address' };
   }
+
+  // Enforce minimum interval between auth API calls to prevent rapid-fire requests.
+  const now = Date.now();
+  if (now - _lastAuthCallAt < AUTH_MIN_INTERVAL_MS) {
+    return { success: false, error: 'Please wait a moment before trying again.' };
+  }
+  _lastAuthCallAt = now;
 
   try {
     const response = await fetch('/api/auth/login', {
@@ -335,6 +385,7 @@ if (typeof module !== 'undefined' && module.exports) {
     updateDJStats,
     updatePartyStats,
     requestPasswordReset,
-    resetPassword
+    resetPassword,
+    mapAuthError
   };
 }

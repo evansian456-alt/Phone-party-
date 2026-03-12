@@ -1140,3 +1140,165 @@ describe('WebSocket OFFICIAL_APP_SYNC_SELECT and TIME_PING', () => {
   }, 10000);
 });
 
+
+// ============================================================================
+// 9. Late-join hydration — guest receives current officialAppSync state on join
+// ============================================================================
+
+describe('WebSocket late-join hydration — OFFICIAL_APP_SYNC', () => {
+  let httpServer;
+  let wsUrl;
+  let serverModule;
+
+  beforeAll(async () => {
+    delete require.cache[require.resolve('./server.js')];
+    serverModule = require('./server.js');
+    httpServer = await serverModule.startServer();
+    const port = httpServer.address().port;
+    wsUrl = `ws://localhost:${port}`;
+    await serverModule.waitForRedis();
+  }, 20000);
+
+  afterAll(done => {
+    httpServer ? httpServer.close(done) : done();
+  });
+
+  beforeEach(async () => {
+    await serverModule.redis.flushall();
+    serverModule.parties.clear();
+  });
+
+  it('guest joining after YouTube track selected receives TRACK_SELECTED with correct fields', done => {
+    const WebSocket = require('ws');
+    let partyCode = null;
+    let resolved = false;
+
+    // Step 1: Host creates party
+    const hostWs = new WebSocket(wsUrl);
+    hostWs.once('open', () => {
+      hostWs.send(JSON.stringify({ t: 'CREATE', djName: 'LateJoinHost', source: 'local' }));
+    });
+
+    hostWs.on('message', data => {
+      if (resolved) return;
+      const msg = JSON.parse(data.toString());
+
+      if (msg.t === 'CREATED') {
+        partyCode = msg.code;
+
+        // Inject officialAppSync state (simulate host having already selected YouTube track)
+        const inMemParty = serverModule.parties.get(partyCode);
+        if (inMemParty) {
+          inMemParty.tier = 'PARTY_PASS';
+          inMemParty.officialAppSync = {
+            platform: 'youtube',
+            trackRef: 'dQw4w9WgXcQ',
+            playStartedAtMs: Date.now() - 15000, // 15s ago
+            seekOffsetSeconds: 0,
+            playing: true,
+            serverTimestampMs: Date.now() - 15000
+          };
+        }
+
+        // Step 2: Guest joins after track is selected
+        const guestWs = new WebSocket(wsUrl);
+        guestWs.once('open', () => {
+          guestWs.send(JSON.stringify({ t: 'JOIN', code: partyCode, name: 'LateGuest' }));
+        });
+
+        guestWs.on('message', gData => {
+          if (resolved) return;
+          const gMsg = JSON.parse(gData.toString());
+
+          if (gMsg.t === 'TRACK_SELECTED' && gMsg.mode === 'OFFICIAL_APP_SYNC') {
+            resolved = true;
+            expect(gMsg.platform).toBe('youtube');
+            expect(gMsg.trackRef).toBe('dQw4w9WgXcQ');
+            expect(gMsg.positionSeconds).toBeGreaterThanOrEqual(14); // ~15s elapsed
+            expect(gMsg.playing).toBe(true);
+            guestWs.close();
+            hostWs.close();
+            done();
+          }
+        });
+
+        guestWs.once('error', err => {
+          if (!resolved) { resolved = true; guestWs.close(); hostWs.close(); done(err); }
+        });
+      }
+    });
+
+    hostWs.once('error', err => {
+      if (!resolved) { resolved = true; hostWs.close(); done(err); }
+    });
+
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        hostWs.close();
+        done(new Error('Timeout: guest did not receive TRACK_SELECTED on late join'));
+      }
+    }, 8000);
+  }, 15000);
+
+  it('guest joining a party with no officialAppSync state does NOT receive TRACK_SELECTED', done => {
+    const WebSocket = require('ws');
+    let partyCode = null;
+    let resolved = false;
+    let receivedTrackSelected = false;
+
+    const hostWs = new WebSocket(wsUrl);
+    hostWs.once('open', () => {
+      hostWs.send(JSON.stringify({ t: 'CREATE', djName: 'NoSyncHost', source: 'local' }));
+    });
+
+    hostWs.on('message', data => {
+      if (resolved) return;
+      const msg = JSON.parse(data.toString());
+
+      if (msg.t === 'CREATED') {
+        partyCode = msg.code;
+
+        const guestWs = new WebSocket(wsUrl);
+        guestWs.once('open', () => {
+          guestWs.send(JSON.stringify({ t: 'JOIN', code: partyCode, name: 'EarlyGuest' }));
+        });
+
+        guestWs.on('message', gData => {
+          const gMsg = JSON.parse(gData.toString());
+          if (gMsg.t === 'TRACK_SELECTED' && gMsg.mode === 'OFFICIAL_APP_SYNC') {
+            receivedTrackSelected = true;
+          }
+          if (gMsg.t === 'JOINED') {
+            // After joining, wait briefly then conclude
+            setTimeout(() => {
+              if (!resolved) {
+                resolved = true;
+                expect(receivedTrackSelected).toBe(false);
+                guestWs.close();
+                hostWs.close();
+                done();
+              }
+            }, 500);
+          }
+        });
+
+        guestWs.once('error', err => {
+          if (!resolved) { resolved = true; guestWs.close(); hostWs.close(); done(err); }
+        });
+      }
+    });
+
+    hostWs.once('error', err => {
+      if (!resolved) { resolved = true; hostWs.close(); done(err); }
+    });
+
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        hostWs.close();
+        done(new Error('Timeout waiting for guest join confirmation'));
+      }
+    }, 8000);
+  }, 15000);
+});

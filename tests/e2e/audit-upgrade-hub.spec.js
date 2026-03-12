@@ -217,11 +217,22 @@ test.describe('Visual pack store', () => {
   });
 
   test('each visual pack has BUY button and hidden Activate button initially', async ({ page }) => {
-    await page.goto(BASE);
-    await page.evaluate(() => { document.getElementById('viewVisualPackStore')?.classList.remove('hidden'); });
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    const visualStore = page.locator('#viewVisualPackStore');
+    await visualStore.waitFor({ state: 'attached', timeout: 10000 });
+    await page.waitForLoadState('networkidle').catch(() => {});
+    await page.evaluate(() => {
+      if (typeof monetizationState !== 'undefined') {
+        monetizationState.ownedVisualPacks = [];
+        monetizationState.activeVisualPack = null;
+        if (typeof saveMonetizationState === 'function') saveMonetizationState();
+        if (typeof updateVisualPackStore === 'function') updateVisualPackStore();
+      }
+      document.getElementById('viewVisualPackStore')?.classList.remove('hidden');
+    });
     await page.waitForTimeout(300);
 
-    const items = page.locator('#viewVisualPackStore .store-item');
+    const items = visualStore.locator('.store-item');
     const count = await items.count();
     for (let i = 0; i < count; i++) {
       await expect(items.nth(i).locator('.btn-buy-pack')).toBeVisible();
@@ -326,11 +337,13 @@ test.describe('Party extensions store', () => {
 // ─────────────────────────────────────────────────────────────────
 test.describe('Hype effects store', () => {
   test('displays 4 hype effects with GBP prices', async ({ page }) => {
-    await page.goto(BASE);
-    await page.evaluate(() => { document.getElementById('viewHypeEffects')?.classList.remove('hidden'); });
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    const hypeView = page.locator('#viewHypeEffects');
+    await hypeView.waitFor({ state: 'attached', timeout: 10000 });
+    await hypeView.evaluate((el) => el.classList.remove('hidden'));
     await page.waitForTimeout(300);
 
-    const items = page.locator('#viewHypeEffects .store-item');
+    const items = hypeView.locator('.store-item');
     const count = await items.count();
     expect(count).toBeGreaterThanOrEqual(4);
     for (let i = 0; i < count; i++) {
@@ -340,11 +353,13 @@ test.describe('Hype effects store', () => {
   });
 
   test('hype quantity badges hidden before purchase', async ({ page }) => {
-    await page.goto(BASE);
-    await page.evaluate(() => { document.getElementById('viewHypeEffects')?.classList.remove('hidden'); });
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    const hypeView = page.locator('#viewHypeEffects');
+    await hypeView.waitFor({ state: 'attached', timeout: 10000 });
+    await hypeView.evaluate((el) => el.classList.remove('hidden'));
     await page.waitForTimeout(300);
 
-    const qtys = page.locator('#viewHypeEffects .hype-quantity');
+    const qtys = hypeView.locator('.hype-quantity');
     const count = await qtys.count();
     for (let i = 0; i < count; i++) {
       await expect(qtys.nth(i)).not.toBeVisible();

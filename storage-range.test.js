@@ -13,6 +13,10 @@ describe('Section 3: Storage Range Request Support', () => {
   const testDir = path.join(__dirname, 'test-storage-tmp');
   
   beforeAll(async () => {
+    // Ensure test storage directory exists before initializing the provider
+    if (!fs.existsSync(testDir)) {
+      fs.mkdirSync(testDir, { recursive: true });
+    }
     // Create test storage provider
     process.env.UPLOAD_DIR = testDir;
     provider = new LocalDiskProvider();
@@ -20,6 +24,10 @@ describe('Section 3: Storage Range Request Support', () => {
   });
 
   afterAll(async () => {
+    // Await any pending metadata writes before removing the directory
+    if (provider && provider.savePromise) {
+      await provider.savePromise;
+    }
     // Cleanup test directory
     if (fs.existsSync(testDir)) {
       const files = fs.readdirSync(testDir);
