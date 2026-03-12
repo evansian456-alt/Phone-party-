@@ -227,46 +227,52 @@ test.describe('Account lifecycle', () => {
     });
 
     await page.goto(BASE);
+    await page.waitForLoadState('load');
 
-    // Navigate to signup view
-    const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
-      .first();
+    // Wait for initAuthFlow to complete before navigating — without this, the boot
+    // sequence's showView('viewLanding') call races with the test's setView('signup')
+    // and can hide viewSignup just after the test opens it.
+    await page.waitForFunction(
+      () => window.location.hash !== '',
+      { timeout: 20_000 }
+    ).catch((e) => console.log('[lifecycle] initAuthFlow settle timed out:', e.message));
+
+    // Navigate to signup view using the landing page signup button (data-testid="signup-button")
+    const signupBtn = page.locator('[data-testid="signup-button"]');
     if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
       await signupBtn.click();
     } else {
       await page.evaluate(() => {
         if (typeof setView === 'function') setView('signup');
-      });
+      }).catch((e) => console.log('[lifecycle] setView fallback failed:', e.message));
     }
 
+    // Wait for the signup view to be shown before filling
+    await page.waitForFunction(
+      () => !document.getElementById('viewSignup')?.classList.contains('hidden'),
+      { timeout: 10_000 }
+    );
+
     // Fill with the same email
-    const emailField = page.locator('input[type="email"], input[id="signupEmail"]').first();
-    await emailField.fill(dupUser.email);
+    await page.locator('#signupEmail').fill(dupUser.email);
+    await page.locator('#signupPassword').fill(dupUser.password);
 
-    const passwordField = page.locator('input[type="password"], input[id="signupPassword"]').first();
-    await passwordField.fill(dupUser.password);
-
-    const djNameField = page.locator('input[name="djName"], input[id="signupDjName"]').first();
+    const djNameField = page.locator('#signupDjName');
     if (await djNameField.isVisible({ timeout: 2000 }).catch(() => false)) {
       await djNameField.fill(dupUser.djName);
     }
 
-    const termsCheckbox = page.locator('#signupTermsAccept, input[type="checkbox"]').first();
+    const termsCheckbox = page.locator('#signupTermsAccept');
     if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
       const checked = await termsCheckbox.isChecked().catch(() => false);
       if (!checked) await termsCheckbox.check();
     }
 
-    const submitBtn = page
-      .locator('button[type="submit"], button')
-      .filter({ hasText: /sign up|register|create/i })
-      .first();
-    await submitBtn.click();
+    // Submit using the signup form's own submit button
+    await page.locator('#formSignup button[type="submit"]').click();
 
     // Expect "Account already exists" message
-    const errorEl = page.locator('#signupError, [id*="signup"][id*="error"]');
+    const errorEl = page.locator('#signupError');
     try {
       await expect(errorEl).toContainText('Account already exists', { timeout: 8000 });
     } catch (err) {
@@ -275,8 +281,8 @@ test.describe('Account lifecycle', () => {
       throw err;
     }
 
-    // "Log In Instead" link should be visible
-    const loginInstead = page.locator('#signupLoginInstead, a').filter({ hasText: /log in instead/i }).first();
+    // "Log In Instead" link is dynamically appended to #signupError by handleSignup on 409
+    const loginInstead = page.locator('#signupLoginInstead');
     await expect(loginInstead).toBeVisible({ timeout: 5000 });
   });
 });

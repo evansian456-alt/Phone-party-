@@ -218,6 +218,11 @@ test.describe('Visual pack store', () => {
 
   test('each visual pack has BUY button and hidden Activate button initially', async ({ page }) => {
     await page.goto(BASE);
+    await page.waitForLoadState('load');
+    // Wait for initAuthFlow to settle — the boot sequence calls showView('viewLanding')
+    // which adds .hidden to ALL views including viewVisualPackStore; without this wait
+    // the race hides the store just after the test un-hides it.
+    await page.waitForFunction(() => window.location.hash !== '', { timeout: 20_000 }).catch((e) => console.log('[upgrade-hub] initAuthFlow settle timed out:', e.message));
     await page.evaluate(() => { document.getElementById('viewVisualPackStore')?.classList.remove('hidden'); });
     await page.waitForTimeout(300);
 
