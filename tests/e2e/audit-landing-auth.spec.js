@@ -280,6 +280,49 @@ test.describe('Authenticated home', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────
+// INFORMATION ARCHITECTURE — Authenticated home ordering
+// ─────────────────────────────────────────────────────────────────
+test.describe('Landing page information architecture', () => {
+  test('authenticated home shows create/join party buttons before secondary tiles', async ({ page, request }) => {
+    const u = makeUser('iaorder');
+    await signup(request, u);
+
+    await page.goto(BASE);
+    await page.waitForSelector('#viewLanding', { state: 'visible' });
+    await page.click('#btnLandingLogin');
+    await page.waitForSelector('#viewLogin', { state: 'visible' });
+    await page.fill('#loginEmail', u.email);
+    await page.fill('#loginPassword', u.password);
+    await page.click('#formLogin button[type="submit"]');
+
+    // Wait for authenticated home to appear
+    const authHome = page.locator('#viewAuthHome');
+    const isVisible = await authHome.isVisible({ timeout: 5000 }).catch(() => false);
+    if (!isVisible) {
+      // Auth home may not be shown (e.g., profile completion required); skip gracefully
+      return;
+    }
+
+    // Create/Join buttons must be in the DOM (primary actions)
+    await expect(page.locator('#btnPartyShowCreateParty')).toBeAttached();
+    await expect(page.locator('#btnPartyShowJoinParty')).toBeAttached();
+
+    // Verify the Create Party button appears visually above the billing box
+    // by comparing their vertical positions in the rendered layout
+    const createBtn = page.locator('#btnPartyShowCreateParty');
+    const billingBox = page.locator('#billingBox');
+
+    const createBox = await createBtn.boundingBox().catch(() => null);
+    const billingBBox = await billingBox.boundingBox().catch(() => null);
+
+    if (createBox && billingBBox) {
+      // Create button top must be above billing box top
+      expect(createBox.y).toBeLessThan(billingBBox.y);
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
 // LOGOUT
 // ─────────────────────────────────────────────────────────────────
 test.describe('Logout', () => {

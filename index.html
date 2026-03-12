@@ -263,33 +263,7 @@
         Connect your phones and turn up the volume!
       </p>
 
-      <!-- Upgrade / Pro status box (shown when logged in) -->
-      <div id="billingBox" class="hidden" style="margin-bottom:1rem;padding:0.75rem 1rem;border-radius:8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);">
-        <!-- FREE tier: show upgrade button -->
-        <div id="billingBoxFree">
-          <p style="margin:0 0 0.5rem;font-size:0.9rem;">✨ Upgrade to <strong>Pro</strong> for unlimited devices, uploads &amp; Official App Sync.</p>
-          <button id="btnUpgradeToPro" class="btn primary" style="width:100%;">🚀 Upgrade to Pro</button>
-        </div>
-        <!-- PRO tier: show status -->
-        <div id="billingBoxPro" class="hidden">
-          <p style="margin:0;font-size:0.9rem;">✅ You're Pro! <span id="billingProStatus"></span></p>
-        </div>
-      </div>
-
-      <!-- Referral hub promo tile -->
-      <div id="referralHubTile" style="margin-bottom:1rem;padding:0.75rem 1rem;border-radius:10px;background:rgba(157,78,221,0.12);border:1px solid rgba(157,78,221,0.3);display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
-        <div>
-          <div style="font-size:0.9rem;font-weight:600;">🎁 Refer Friends</div>
-          <div style="font-size:0.8rem;color:#aaa;margin-top:0.2rem;">
-            <span id="referralHubCount">0/3</span> referrals
-            &nbsp;·&nbsp;
-            <span id="referralHubNext">Next: 30 min Party Pass</span>
-          </div>
-        </div>
-        <button class="btn primary" id="btnHubShareInvite" style="padding:0.4rem 1rem;font-size:0.85rem;white-space:nowrap;">📤 Share Link</button>
-      </div>
-
-      <!-- Two Giant Neon Buttons -->
+      <!-- Two Giant Neon Buttons (primary actions first) -->
       <div class="start-join-buttons">
         <button class="btn-giant btn-create-party" id="btnPartyShowCreateParty" data-testid="create-party">
           <span class="btn-giant-icon">🎧</span>
@@ -329,6 +303,32 @@
           <div class="status-message" id="partyJoinStatusMessage">Waiting...</div>
         </div>
         <button class="btn secondary" id="btnHidePartyJoin" style="margin-top: 1rem;">← Back</button>
+      </div>
+
+      <!-- Upgrade / Pro status box (secondary — shown below primary actions) -->
+      <div id="billingBox" class="hidden" style="margin-top:1rem;padding:0.75rem 1rem;border-radius:8px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);">
+        <!-- FREE tier: show upgrade button -->
+        <div id="billingBoxFree">
+          <p style="margin:0 0 0.5rem;font-size:0.9rem;">✨ Upgrade to <strong>Pro</strong> for unlimited devices, uploads &amp; Official App Sync.</p>
+          <button id="btnUpgradeToPro" class="btn primary" style="width:100%;">🚀 Upgrade to Pro</button>
+        </div>
+        <!-- PRO tier: show status -->
+        <div id="billingBoxPro" class="hidden">
+          <p style="margin:0;font-size:0.9rem;">✅ You're Pro! <span id="billingProStatus"></span></p>
+        </div>
+      </div>
+
+      <!-- Referral hub promo tile (secondary — shown below primary actions) -->
+      <div id="referralHubTile" style="margin-top:1rem;padding:0.75rem 1rem;border-radius:10px;background:rgba(157,78,221,0.12);border:1px solid rgba(157,78,221,0.3);display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+        <div>
+          <div style="font-size:0.9rem;font-weight:600;">🎁 Refer Friends</div>
+          <div style="font-size:0.8rem;color:#aaa;margin-top:0.2rem;">
+            <span id="referralHubCount">0/3</span> referrals
+            &nbsp;·&nbsp;
+            <span id="referralHubNext">Next: 30 min Party Pass</span>
+          </div>
+        </div>
+        <button class="btn primary" id="btnHubShareInvite" style="padding:0.4rem 1rem;font-size:0.85rem;white-space:nowrap;">📤 Share Link</button>
       </div>
     </section>
 
