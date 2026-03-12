@@ -3486,7 +3486,7 @@ async function savePartyState(code, partyData) {
 
 // Shared party creation function used by both HTTP and WS paths
 // This ensures consistent party data structure across all creation methods
-async function createPartyCommon({ djName, source, hostId, hostConnected }) {
+async function createPartyCommon({ djName, source, hostId, hostConnected, hostUserId }) {
   // Check if we should use Redis or fallback
   const useRedis = redis && redisReady;
   
@@ -3524,13 +3524,13 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
     createdAt,
     hostId,
     hostConnected,
+    ...(hostUserId ? { hostUserId } : {}),
     guestCount: 0,
     guests: [],
     status: "active",
     expiresAt: createdAt + PARTY_TTL_MS,
     // Tier-based fields (set by backend entitlement validation only)
     tier: null,
-    partyPassExpiresAt: null,
     maxPhones: null,
     // History fields for late joiners
     reactionHistory: [],
@@ -3559,7 +3559,7 @@ async function createPartyCommon({ djName, source, hostId, hostConnected }) {
 }
 
 // POST /api/create-party - Create a new party
-app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
+app.post("/api/create-party", partyCreationLimiter, authMiddleware.optionalAuth, async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/create-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
@@ -3627,7 +3627,8 @@ app.post("/api/create-party", partyCreationLimiter, async (req, res) => {
       djName: djName,
       source: partySource,
       hostId: hostId,
-      hostConnected: false
+      hostConnected: false,
+      hostUserId: req.user && req.user.userId ? req.user.userId : undefined
     });
     
     console.log(`[HTTP] Party persisted to ${storageBackend}: ${code}`);
@@ -3710,7 +3711,8 @@ app.post("/api/join-party", async (req, res) => {
     const timestamp = new Date().toISOString();
     console.log(`[HTTP] POST /api/join-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
     
-    const { partyCode, nickname } = req.body;
+    const { partyCode: partyCodeField, code: codeField, nickname, djName } = req.body;
+    const partyCode = partyCodeField || codeField;
     
     if (!partyCode) {
       console.log("[join-party] end (missing party code)");
@@ -3730,7 +3732,7 @@ app.post("/api/join-party", async (req, res) => {
     // Use nanoid for HTTP guests to avoid collision with WS client IDs
     const guestId = `guest_${nanoid(10)}`;
     const guestNumber = nextHttpGuestSeq++;
-    const guestNickname = nickname || `Guest ${guestNumber}`;
+    const guestNickname = nickname || djName || `Guest ${guestNumber}`;
     
     console.log(`[join-party] Attempting to join party: ${code}, guestId: ${guestId}, nickname: ${guestNickname}, timestamp: ${timestamp}`);
     
@@ -3858,11 +3860,20 @@ app.post("/api/join-party", async (req, res) => {
     // Respond with success and guest info
     const response = { 
       ok: true,
+      success: true,
       guestId,
       nickname: guestNickname,
       partyCode: code,
       djName: partyData.djName || "DJ", // Fallback for backward compatibility with old parties
-      chatMode: partyData.chatMode || "OPEN" // Include chat mode for initial setup
+      chatMode: partyData.chatMode || "OPEN", // Include chat mode for initial setup
+      party: {
+        code,
+        status: partyData.status || "active",
+        ended: partyData.status === "ended",
+        guestCount: partyData.guestCount || 0,
+        chatMode: partyData.chatMode || "OPEN",
+        djName: partyData.djName || "DJ"
+      }
     };
     
     // Add warning if using fallback mode in production
@@ -3996,7 +4007,21 @@ app.get("/api/party", async (req, res) => {
       chatMode: partyData.chatMode || "OPEN",
       createdAt: partyData.createdAt,
       partyPro: !!partyData.partyPro, // Party-wide Pro status
-      source: partyData.source || "local" // Host-selected source
+      source: partyData.source || "local", // Host-selected source
+      party: {
+        code,
+        status,
+        ended: partyData.status === "ended",
+        guestCount: partyData.guestCount || 0,
+        guests: partyData.guests || [],
+        chatMode: partyData.chatMode || "OPEN",
+        djName: partyData.djName || "",
+        createdAt: partyData.createdAt,
+        expiresAt: partyData.expiresAt || (partyData.createdAt + PARTY_TTL_MS),
+        timeRemainingMs,
+        partyPro: !!partyData.partyPro,
+        source: partyData.source || "local"
+      }
     });
     
   } catch (error) {
@@ -4117,7 +4142,34 @@ app.get("/api/party-state", async (req, res) => {
       // Queue
       queue: queue,
       // DJ auto-messages
-      djMessages: djMessages
+      djMessages: djMessages,
+      // Nested party object for client compatibility
+      party: {
+        code,
+        status,
+        ended: partyData.status === "ended",
+        guestCount: partyData.guestCount || 0,
+        chatMode: partyData.chatMode || "OPEN",
+        createdAt: partyData.createdAt,
+        expiresAt: partyData.expiresAt || (partyData.createdAt + PARTY_TTL_MS),
+        timeRemainingMs,
+        serverTime: now,
+        currentTrack: currentTrack ? {
+          trackId: currentTrack.trackId,
+          url: currentTrack.url || currentTrack.trackUrl,
+          filename: currentTrack.filename || currentTrack.title,
+          title: currentTrack.title,
+          durationMs: currentTrack.durationMs,
+          startAtServerMs: currentTrack.startAtServerMs,
+          startPosition: currentTrack.startPosition || currentTrack.startPositionSec,
+          startPositionSec: currentTrack.startPositionSec || currentTrack.startPosition,
+          status: currentTrack.status || 'playing',
+          pausedPositionSec: currentTrack.pausedPositionSec,
+          pausedAtServerMs: currentTrack.pausedAtServerMs
+        } : null,
+        queue,
+        djMessages
+      }
     });
     
   } catch (error) {
@@ -4219,12 +4271,13 @@ app.post("/api/leave-party", async (req, res) => {
 });
 
 // POST /api/end-party - End party early (host only)
-app.post("/api/end-party", async (req, res) => {
+app.post("/api/end-party", apiLimiter, authMiddleware.optionalAuth, async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/end-party at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
   try {
-    const { partyCode } = req.body;
+    const { partyCode: partyCodeField, code: codeField } = req.body;
+    const partyCode = partyCodeField || codeField;
     
     if (!partyCode) {
       return res.status(400).json({ error: "Party code is required" });
@@ -4265,6 +4318,14 @@ app.post("/api/end-party", async (req, res) => {
     
     if (!partyData) {
       return res.status(404).json({ error: "Party not found or expired" });
+    }
+    
+    // Session-based host authorization: if the party has a hostUserId, only that user may end it
+    if (partyData.hostUserId) {
+      const requestingUserId = req.user && req.user.userId;
+      if (!requestingUserId || requestingUserId !== partyData.hostUserId) {
+        return res.status(403).json({ error: "Only the host can end the party" });
+      }
     }
     
     // Mark party as ended
@@ -4309,7 +4370,7 @@ app.post("/api/end-party", async (req, res) => {
       parties.delete(code);
     }
     
-    res.json({ ok: true });
+    res.json({ success: true, ok: true });
     
   } catch (error) {
     console.error(`[HTTP] Error ending party, instanceId: ${INSTANCE_ID}:`, error);
