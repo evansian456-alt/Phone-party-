@@ -66,8 +66,11 @@ jobs:
       - name: Apply database migrations
         run: npm run db:migrate
 
+      - name: Create required test directories
+        run: mkdir -p test-storage-tmp
+
       - name: Run unit tests
-        run: npm test -- --passWithNoTests --forceExit
+        run: npm test -- --passWithNoTests --forceExit --detectOpenHandles
 
       - name: Run performance smoke test
         run: npm run perf:smoke
