@@ -24,8 +24,8 @@ async function testUpload() {
   console.log('Starting upload tests...\n');
   
   // Load server
-  delete require.cache[require.resolve('./server.js')];
-  const { startServer } = require('./server.js');
+  delete require.cache[require.resolve('../server.js')];
+  const { startServer } = require('../server.js');
   const server = await startServer();
   
   if (!server) {
@@ -99,7 +99,7 @@ async function testUpload() {
     
     // Test 3: Check temp directory
     console.log('Test 3: Checking temp file cleanup...');
-    const tempDir = path.join(__dirname, 'uploads-temp');
+    const tempDir = path.join(__dirname, '..', 'uploads-temp');
     if (fs.existsSync(tempDir)) {
       const tempFiles = fs.readdirSync(tempDir);
       console.log(`✓ Temp directory exists: ${tempDir}`);

@@ -149,7 +149,8 @@ test.describe('Account lifecycle', () => {
   test('UI shows "Welcome to the party 🥳" on successful signup', async ({ page }) => {
     const freshUser = makeUser();
 
-    await page.goto(BASE);
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#viewLanding', { state: 'visible', timeout: 12000 }).catch(() => {});
 
     // Collect console errors for diagnostics
     const consoleErrors = [];
@@ -158,44 +159,38 @@ test.describe('Account lifecycle', () => {
     });
 
     // Navigate to signup view
-    const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
-      .first();
-    if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    const signupBtn = page.locator('#btnLandingSignup, button, a').filter({ hasText: /sign up|register|create account/i }).first();
+    if (await signupBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await signupBtn.click();
-    } else {
-      await page.evaluate(() => {
-        if (typeof setView === 'function') setView('signup');
-      });
     }
+    const signupVisible = await page.locator('#viewSignup').isVisible();
+    if (!signupVisible) {
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.evaluate(() => { if (typeof setView === 'function') setView('signup'); });
+    }
+    await page.waitForSelector('#viewSignup', { state: 'visible', timeout: 12000 });
+    await page.waitForSelector('#formSignup', { state: 'visible', timeout: 12000 });
 
     // Fill signup form
-    const emailField = page.locator('input[type="email"], input[id="signupEmail"]').first();
+    const emailField = page.locator('#signupEmail');
+    await emailField.waitFor({ state: 'visible', timeout: 8000 });
     await emailField.fill(freshUser.email);
 
-    const passwordField = page.locator('input[type="password"], input[id="signupPassword"]').first();
+    const passwordField = page.locator('#signupPassword');
     await passwordField.fill(freshUser.password);
 
-    const djNameField = page
-      .locator('input[name="djName"], input[id="signupDjName"]')
-      .first();
-    if (await djNameField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await djNameField.fill(freshUser.djName);
-    }
+    const djNameField = page.locator('#signupDjName');
+    await djNameField.waitFor({ state: 'visible', timeout: 8000 });
+    await djNameField.fill(freshUser.djName);
 
     // Accept terms if present
-    const termsCheckbox = page.locator('#signupTermsAccept, input[type="checkbox"]').first();
-    if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const checked = await termsCheckbox.isChecked().catch(() => false);
-      if (!checked) await termsCheckbox.check();
-    }
+    const termsCheckbox = page.locator('#signupTermsAccept');
+    await termsCheckbox.waitFor({ state: 'visible', timeout: 8000 });
+    const checked = await termsCheckbox.isChecked().catch(() => false);
+    if (!checked) await termsCheckbox.check();
 
     // Submit
-    const submitBtn = page
-      .locator('button[type="submit"], button')
-      .filter({ hasText: /sign up|register|create/i })
-      .first();
+    const submitBtn = page.locator('#formSignup button[type="submit"]').first();
     await submitBtn.click();
 
     // Wait for success message or authenticated state
@@ -226,43 +221,40 @@ test.describe('Account lifecycle', () => {
       },
     });
 
-    await page.goto(BASE);
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#viewLanding', { state: 'visible', timeout: 12000 }).catch(() => {});
 
     // Navigate to signup view
-    const signupBtn = page
-      .locator('button, a')
-      .filter({ hasText: /sign up|register|create account/i })
-      .first();
-    if (await signupBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    const signupBtn = page.locator('#btnLandingSignup, button, a').filter({ hasText: /sign up|register|create account/i }).first();
+    if (await signupBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await signupBtn.click();
-    } else {
-      await page.evaluate(() => {
-        if (typeof setView === 'function') setView('signup');
-      });
     }
+    const signupVisible = await page.locator('#viewSignup').isVisible();
+    if (!signupVisible) {
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await page.evaluate(() => { if (typeof setView === 'function') setView('signup'); });
+    }
+    await page.waitForSelector('#viewSignup', { state: 'visible', timeout: 12000 });
+    await page.waitForSelector('#formSignup', { state: 'visible', timeout: 12000 });
 
     // Fill with the same email
-    const emailField = page.locator('input[type="email"], input[id="signupEmail"]').first();
+    const emailField = page.locator('#signupEmail');
+    await emailField.waitFor({ state: 'visible', timeout: 8000 });
     await emailField.fill(dupUser.email);
 
-    const passwordField = page.locator('input[type="password"], input[id="signupPassword"]').first();
+    const passwordField = page.locator('#signupPassword');
     await passwordField.fill(dupUser.password);
 
-    const djNameField = page.locator('input[name="djName"], input[id="signupDjName"]').first();
-    if (await djNameField.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await djNameField.fill(dupUser.djName);
-    }
+    const djNameField = page.locator('#signupDjName');
+    await djNameField.waitFor({ state: 'visible', timeout: 8000 });
+    await djNameField.fill(dupUser.djName);
 
-    const termsCheckbox = page.locator('#signupTermsAccept, input[type="checkbox"]').first();
-    if (await termsCheckbox.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const checked = await termsCheckbox.isChecked().catch(() => false);
-      if (!checked) await termsCheckbox.check();
-    }
+    const termsCheckbox = page.locator('#signupTermsAccept');
+    await termsCheckbox.waitFor({ state: 'visible', timeout: 8000 });
+    const checked = await termsCheckbox.isChecked().catch(() => false);
+    if (!checked) await termsCheckbox.check();
 
-    const submitBtn = page
-      .locator('button[type="submit"], button')
-      .filter({ hasText: /sign up|register|create/i })
-      .first();
+    const submitBtn = page.locator('#formSignup button[type="submit"]').first();
     await submitBtn.click();
 
     // Expect "Account already exists" message

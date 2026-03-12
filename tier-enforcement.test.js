@@ -54,7 +54,7 @@ describe('Tier Enforcement', () => {
       const partyDataRaw = await redis.get(`party:${testPartyCode}`);
       expect(partyDataRaw).toBeTruthy();
       const partyData = JSON.parse(partyDataRaw);
-      expect(partyData.partyPassExpiresAt).toBeUndefined();
+      expect(partyData.partyPassExpiresAt).toBeNull();
     });
 
     it('should not have Party Pass expiration time in free party', async () => {
@@ -62,7 +62,7 @@ describe('Tier Enforcement', () => {
       const partyDataRaw = await redis.get(`party:${testPartyCode}`);
       expect(partyDataRaw).toBeTruthy();
       const partyData = JSON.parse(partyDataRaw);
-      expect(partyData.partyPassExpiresAt).toBeUndefined();
+      expect(partyData.partyPassExpiresAt).toBeNull();
     });
 
     it('should have Party Pass expiration time in paid party', async () => {
@@ -213,7 +213,7 @@ describe('Tier Enforcement', () => {
         const partyDataRaw = await redis.get(`party:${res.body.code}`);
         expect(partyDataRaw).toBeTruthy();
         const partyData = JSON.parse(partyDataRaw);
-        expect(partyData.partyPassExpiresAt).toBeUndefined();
+        expect(partyData.partyPassExpiresAt).toBeNull();
         
         // Cleanup
         await redis.del(`party:${res.body.code}`);

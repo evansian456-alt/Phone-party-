@@ -64,9 +64,8 @@ describe('DJ Short Messages', () => {
       const partyDataRaw = await redis.get(`party:${testPartyCode}`);
       expect(partyDataRaw).toBeTruthy();
       const partyData = JSON.parse(partyDataRaw);
-      expect(partyData.partyPassExpiresAt).toBeUndefined();
-    });
-  });
+      expect(partyData.partyPassExpiresAt).toBeNull();
+    });  });
 
   describe('Message Validation', () => {
     it('should trim and limit DJ short messages to 30 characters', () => {
@@ -132,7 +131,7 @@ describe('DJ Short Messages', () => {
       const partyData = JSON.parse(partyDataRaw);
       
       // Verify free party doesn't have Party Pass
-      expect(partyData.partyPassExpiresAt).toBeUndefined();
+      expect(partyData.partyPassExpiresAt).toBeNull();
       
       // In the actual handler, this would result in an error message
       const hasAccess = partyData.partyPassExpiresAt && partyData.partyPassExpiresAt > Date.now();
