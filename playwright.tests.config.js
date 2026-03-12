@@ -43,6 +43,9 @@ module.exports = defineConfig({
     baseURL: process.env.BASE_URL || 'http://localhost:8080',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    launchOptions: {
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    },
   },
 
   projects: [
