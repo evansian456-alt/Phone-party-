@@ -7254,19 +7254,19 @@ async function handleBillingReturn() {
     console.log("[UI] Free tier selected");
     state.selectedTier = USER_TIER.FREE;
     state.userTier = USER_TIER.FREE;
-    showAccountCreation();
+    setView('signup');
   };
 
   el("btnSelectPartyPass").onclick = () => {
     console.log("[UI] Party Pass tier selected");
     state.selectedTier = USER_TIER.PARTY_PASS;
-    showAccountCreation();
+    setView('signup');
   };
 
   el("btnSelectPro").onclick = () => {
     console.log("[UI] Pro tier selected");
     state.selectedTier = USER_TIER.PRO;
-    showAccountCreation();
+    setView('signup');
   };
 
   el("btnBackToLanding").onclick = () => {
@@ -9838,6 +9838,16 @@ function setupAuthEventListeners() {
       }
     });
   });
+
+  // Old account creation form (viewAccountCreation) — redirect to the new signup view.
+  // The old form lacks a terms checkbox so we forward users to the canonical signup form.
+  const btnCreateAccountSubmit = document.getElementById('btnCreateAccountSubmit');
+  if (btnCreateAccountSubmit) {
+    btnCreateAccountSubmit.addEventListener('click', (e) => {
+      e.preventDefault();
+      setView('signup');
+    });
+  }
 }
 
 /**
