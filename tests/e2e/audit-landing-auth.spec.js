@@ -59,6 +59,13 @@ test.describe('Landing page', () => {
     // Should mention £ (GBP) not $ (USD)
     expect(bodyText).toContain('£');
   });
+
+  test('landing page does not show Invite Friends banner', async ({ page }) => {
+    await page.goto(BASE);
+    await expect(page.locator('#viewLanding')).toBeVisible();
+    // The referral promo banner must not appear on the landing page
+    await expect(page.locator('#referralLandingBanner')).not.toBeAttached();
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────

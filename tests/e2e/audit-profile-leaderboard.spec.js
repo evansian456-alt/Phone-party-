@@ -119,6 +119,14 @@ test.describe('Profile view — /api/me accuracy', () => {
     await expect(page.locator('#profileGuestNameInput')).toBeAttached();
   });
 
+  test('profile page renders Invite Friends button', async ({ page }) => {
+    await page.goto(BASE);
+    await page.evaluate(() => { document.getElementById('viewProfile')?.classList.remove('hidden'); });
+    await page.waitForTimeout(300);
+    // Invite Friends should live on the profile page, not the landing page
+    await expect(page.locator('#btnSettingsInviteFriends')).toBeAttached();
+  });
+
   test('updating DJ name via API reflects in /api/me', async ({ request }) => {
     const u = makeUser('nameupdate');
     await request.post(`${BASE}/api/auth/signup`, { data: { email: u.email, password: u.password, djName: u.djName, termsAccepted: true } });
