@@ -13298,7 +13298,6 @@ async function submitCopyrightReport() {
   const description = descEl ? descEl.value.trim() : '';
   const trackId = _copyrightReportTrackId || state.guestTrackId || null;
   const partyId = state.partyCode || null;
-  const reporterUserId = state.userId || null;
 
   if (submitBtn) {
     submitBtn.disabled = true;
@@ -13312,7 +13311,6 @@ async function submitCopyrightReport() {
       body: JSON.stringify({
         trackId,
         partyId,
-        reporterUserId,
         reason,
         description,
         timestamp: new Date().toISOString()
