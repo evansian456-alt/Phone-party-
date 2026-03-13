@@ -6194,7 +6194,7 @@ app.get('/api/streaming/access', apiLimiter, authMiddleware.requireAuth, async (
 
 const STRIPE_PRICE_PARTY_PASS = process.env.STRIPE_PRICE_PARTY_PASS || 'price_1T730tK3GhmyOKSB36mifw84';
 const STRIPE_PRICE_PRO_MONTHLY = process.env.STRIPE_PRICE_PRO_MONTHLY || 'price_1T733rK3GhmyOKSBsghjQPUZ';
-const STRIPE_SERVICE_URL = 'https://syncspeaker-262593928124.us-central1.run.app';
+const STRIPE_SERVICE_URL = 'https://app.phone-party.com';
 const STRIPE_SUCCESS_URL = (process.env.PUBLIC_BASE_URL || STRIPE_SERVICE_URL) + '/payment-success';
 const STRIPE_CANCEL_URL = (process.env.PUBLIC_BASE_URL || STRIPE_SERVICE_URL) + '/payment-cancel';
 

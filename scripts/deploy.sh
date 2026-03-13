@@ -31,7 +31,7 @@ REGION="${2:-${GCP_REGION:-us-central1}}"
 PROJECT="${3:-${GCP_PROJECT_ID:?GCP_PROJECT_ID must be set}}"
 DATABASE_URL="${DATABASE_URL:-}"
 REDIS_URL="${REDIS_URL:-}"
-PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-}"
+PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-https://app.phone-party.com}"
 
 echo "Deploying $SERVICE to Cloud Run (region=$REGION, project=$PROJECT) ..."
 
