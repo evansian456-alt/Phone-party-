@@ -114,6 +114,7 @@ document.body.innerHTML = `
     <section class="card hidden" id="viewInviteFriends"><h1>Invite Friends</h1></section>
     <section class="card hidden" id="viewTerms"><h1>Terms</h1></section>
     <section class="card hidden" id="viewPrivacy"><h1>Privacy</h1></section>
+    <section class="card hidden" id="viewYoutubeService"><h1>YouTube Service</h1></section>
     <input id="joinCode" /><input id="guestName" />
     <input id="accountDjName" /><input id="accountEmail" /><input id="accountPassword" />
     <div id="selectedTierInfo">

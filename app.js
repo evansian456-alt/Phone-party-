@@ -49,7 +49,8 @@ const SYNC_QUALITY_POOR = "Poor";
 const ALL_VIEWS = ['viewLanding', 'viewChooseTier', 'viewAccountCreation', 'viewHome', 'viewAuthHome', 'viewParty', 'viewPayment', 'viewGuest', 
                    'viewLogin', 'viewSignup', 'viewPasswordReset', 'viewProfile', 'viewUpgradeHub', 'viewVisualPackStore',
                    'viewProfileUpgrades', 'viewPartyExtensions', 'viewDjTitleStore', 'viewLeaderboard', 'viewMyProfile',
-                   'viewCompleteProfile', 'viewAdminDashboard', 'viewInviteFriends', 'viewTerms', 'viewPrivacy'];
+                   'viewCompleteProfile', 'viewAdminDashboard', 'viewInviteFriends', 'viewTerms', 'viewPrivacy',
+                   'viewYoutubeService'];
 
 // ============================================================
 // PROFILE SCHEMA (versioned localStorage helpers)
@@ -121,6 +122,7 @@ const VIEWS = {
   inviteFriends:   { id: 'viewInviteFriends',     requiresAuth: true,  hash: 'invite',           onEnter: () => { if (window._referralUI) { window._referralUI._buildInvitePage(); window._referralUI.startPolling(); } } },
   terms:           { id: 'viewTerms',              requiresAuth: false, hash: 'terms' },
   privacy:         { id: 'viewPrivacy',            requiresAuth: false, hash: 'privacy' },
+  youtubeService:  { id: 'viewYoutubeService',     requiresAuth: true,  hash: 'youtube-service', onEnter: () => showYoutubeServiceView() },
 };
 /* eslint-enable no-use-before-define */
 
@@ -2368,6 +2370,41 @@ function handleServer(msg) {
     
     return;
   }
+
+  // YOUTUBE PARTY PLAYER — incoming sync messages
+  if (msg.t === "YOUTUBE_VIDEO") {
+    // Guest receives: host loaded a new video
+    console.log("[YouTubePlayer] Guest received YOUTUBE_VIDEO:", msg.videoId);
+    if (!state.isHost) {
+      // Ensure the YouTube section is visible for guests
+      var ytSection = document.getElementById('youtubePartySection');
+      if (ytSection) ytSection.classList.remove('hidden');
+      var ytPlayerBox = document.getElementById('youtubePartyPlayerBox');
+      if (ytPlayerBox) ytPlayerBox.classList.remove('hidden');
+      var ytUpgradeBox = document.getElementById('youtubePartyUpgradeBox');
+      if (ytUpgradeBox) ytUpgradeBox.classList.add('hidden');
+      ytGuestLoadVideo(msg.videoId, msg.title || null);
+    }
+    return;
+  }
+
+  if (msg.t === "YOUTUBE_PLAY") {
+    // Guest receives: host pressed play
+    console.log("[YouTubePlayer] Guest received YOUTUBE_PLAY at", msg.currentTime);
+    if (!state.isHost) {
+      ytGuestPlay(msg.currentTime || 0);
+    }
+    return;
+  }
+
+  if (msg.t === "YOUTUBE_PAUSE") {
+    // Guest receives: host pressed pause
+    console.log("[YouTubePlayer] Guest received YOUTUBE_PAUSE");
+    if (!state.isHost) {
+      ytGuestPause();
+    }
+    return;
+  }
 }
 
 function showHome() {
@@ -2561,6 +2598,11 @@ function showParty() {
     // Start polling for party status updates (guest joins)
     startPartyStatusPolling();
   }
+
+  // Initialize YouTube Party Player section
+  updateYoutubePartySection();
+  initYoutubePartyControls();
+  loadYouTubeIframeAPI();
 }
 
 // Show tier selection screen
@@ -7488,6 +7530,9 @@ async function handleBillingReturn() {
       // Show party view
       showParty();
       
+      // Show YouTube service selection screen for hosts (post-create interstitial)
+      setView('youtubeService');
+      
       // Show success toast
       toast(`Party created: ${partyCode}`);
       
@@ -12399,8 +12444,534 @@ function handleOfficialAppSyncTrackSelected(msg) {
 })();
 
 // ============================================================================
-// STREAMING PARTY — Sync Modal, Sync Coach, TrackDescriptor
+// YOUTUBE PARTY PLAYER — Embedded IFrame player with sync engine integration
 // ============================================================================
+
+/**
+ * State for the embedded YouTube Party Player.
+ */
+var _ytPlayer = {
+  player: null,        // YT.Player instance
+  ready: false,        // IFrame API loaded
+  videoId: null,       // Currently loaded videoId
+  isPlaying: false,    // Local playing flag
+  apiLoaded: false,    // Whether script tag was injected
+  initPending: false,  // Whether init is queued
+};
+
+/**
+ * Load the YouTube IFrame API once and call onYouTubeIframeAPIReady when ready.
+ */
+function loadYouTubeIframeAPI() {
+  if (_ytPlayer.apiLoaded) return;
+  _ytPlayer.apiLoaded = true;
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  const firstScriptTag = document.getElementsByTagName('script')[0];
+  if (firstScriptTag && firstScriptTag.parentNode) {
+    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+  } else {
+    document.head.appendChild(tag);
+  }
+}
+
+/**
+ * Called automatically by the YouTube IFrame API when it is ready.
+ * Exposed on window so the YouTube SDK can call it.
+ */
+window.onYouTubeIframeAPIReady = function() {
+  _ytPlayer.ready = true;
+  console.log('[YouTubePlayer] IFrame API ready');
+  if (_ytPlayer.initPending) {
+    _ytPlayer.initPending = false;
+    initYouTubePlayer();
+  }
+};
+
+/**
+ * Initialize the YT.Player instance.
+ * Safe to call multiple times — only initialises once.
+ */
+function initYouTubePlayer() {
+  if (_ytPlayer.player) return; // Already initialised
+  const container = document.getElementById('youtubePlayer');
+  if (!container) return;
+
+  if (!_ytPlayer.ready) {
+    // API not ready yet — defer
+    _ytPlayer.initPending = true;
+    loadYouTubeIframeAPI();
+    return;
+  }
+
+  if (typeof YT === 'undefined' || typeof YT.Player === 'undefined') {
+    // YT global not available yet
+    _ytPlayer.initPending = true;
+    return;
+  }
+
+  _ytPlayer.player = new YT.Player('youtubePlayer', {
+    height: '100%',
+    width: '100%',
+    playerVars: {
+      autoplay: 0,
+      controls: 0,        // Host controls via our UI
+      rel: 0,
+      modestbranding: 1,
+      playsinline: 1
+    },
+    events: {
+      onReady: function(event) {
+        console.log('[YouTubePlayer] Player ready');
+        var ph = document.getElementById('youtubePlayerPlaceholder');
+        if (ph) ph.style.display = 'none';
+      },
+      onStateChange: function(event) {
+        _ytPlayer.isPlaying = (event.data === YT.PlayerState.PLAYING);
+        var statusEl = document.getElementById('youtubePlayerStatus');
+        if (statusEl) {
+          if (event.data === YT.PlayerState.PLAYING) statusEl.textContent = 'Playing';
+          else if (event.data === YT.PlayerState.PAUSED) statusEl.textContent = 'Paused';
+          else if (event.data === YT.PlayerState.BUFFERING) statusEl.textContent = 'Buffering…';
+          else if (event.data === YT.PlayerState.ENDED) statusEl.textContent = 'Ended';
+        }
+      },
+      onError: function(event) {
+        console.error('[YouTubePlayer] Player error:', event.data);
+        var statusEl = document.getElementById('youtubePlayerStatus');
+        if (statusEl) statusEl.textContent = 'Playback error — check the video ID';
+      }
+    }
+  });
+}
+
+/**
+ * Extract an 11-character YouTube video ID from a URL or raw ID.
+ * Returns null if the input is not a valid YouTube reference.
+ * @param {string} ref
+ * @returns {string|null}
+ */
+function extractYouTubeVideoId(ref) {
+  if (!ref || typeof ref !== 'string') return null;
+  var trimmed = ref.trim();
+  try {
+    var url = new URL(trimmed);
+    if (url.hostname === 'youtu.be') {
+      var id = url.pathname.slice(1).split('?')[0].split('/')[0];
+      if (id && /^[a-zA-Z0-9_-]{11}$/.test(id)) return id;
+    }
+    if (url.hostname === 'youtube.com' || url.hostname === 'www.youtube.com' ||
+        url.hostname === 'm.youtube.com' || url.hostname === 'youtube-nocookie.com' ||
+        url.hostname === 'www.youtube-nocookie.com') {
+      var v = url.searchParams.get('v');
+      if (v && /^[a-zA-Z0-9_-]{11}$/.test(v)) return v;
+      var m = url.pathname.match(/\/(?:shorts|embed|v)\/([a-zA-Z0-9_-]{11})/);
+      if (m) return m[1];
+    }
+  } catch (_) {
+    // Not a URL — fall through
+  }
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+  return null;
+}
+
+/**
+ * Load a YouTube video into the embedded player and broadcast to guests.
+ * @param {string} videoId  - 11-char YouTube video ID
+ * @param {string} [title]  - Optional display title
+ */
+function ytLoadVideo(videoId, title) {
+  _ytPlayer.videoId = videoId;
+
+  // Show player UI elements
+  var container = document.getElementById('youtubePlayerContainer');
+  var controls = document.getElementById('youtubePlayerControls');
+  var nowPlaying = document.getElementById('youtubeNowPlaying');
+  var titleEl = document.getElementById('youtubeNowPlayingTitle');
+  var statusEl = document.getElementById('youtubePlayerStatus');
+  var ph = document.getElementById('youtubePlayerPlaceholder');
+
+  if (container) container.style.display = '';
+  if (controls) controls.classList.remove('hidden');
+  if (nowPlaying && title) {
+    nowPlaying.classList.remove('hidden');
+    if (titleEl) titleEl.textContent = title;
+  }
+  if (statusEl) statusEl.textContent = 'Loading…';
+  if (ph) ph.style.display = 'none';
+
+  // Ensure player exists before loading
+  if (_ytPlayer.player && typeof _ytPlayer.player.loadVideoById === 'function') {
+    _ytPlayer.player.loadVideoById(videoId);
+  } else {
+    // Player not initialised yet — init it and load after ready
+    if (!_ytPlayer.player) {
+      initYouTubePlayer();
+    }
+    // Will auto-load once player is ready via the stored videoId
+    // We store it and rely on initYouTubePlayer + onReady
+  }
+
+  // Broadcast video change to guests (host only)
+  if (state.isHost) {
+    send({
+      t: 'HOST_YOUTUBE_VIDEO',
+      videoId: videoId,
+      title: title || null
+    });
+    console.log('[YouTubePlayer] Broadcast HOST_YOUTUBE_VIDEO:', videoId);
+  }
+}
+
+/**
+ * Host: play the YouTube video and broadcast play event to guests.
+ */
+function ytHostPlay() {
+  if (!_ytPlayer.player || !_ytPlayer.videoId) return;
+  var currentTime = 0;
+  try {
+    currentTime = _ytPlayer.player.getCurrentTime() || 0;
+  } catch (_) { /* ignore */ }
+
+  _ytPlayer.player.playVideo();
+
+  // Broadcast to guests
+  if (state.isHost) {
+    send({
+      t: 'HOST_YOUTUBE_PLAY',
+      videoId: _ytPlayer.videoId,
+      currentTime: currentTime
+    });
+    console.log('[YouTubePlayer] Broadcast HOST_YOUTUBE_PLAY at', currentTime);
+  }
+}
+
+/**
+ * Host: pause the YouTube video and broadcast pause event to guests.
+ */
+function ytHostPause() {
+  if (!_ytPlayer.player || !_ytPlayer.videoId) return;
+  var currentTime = 0;
+  try {
+    currentTime = _ytPlayer.player.getCurrentTime() || 0;
+  } catch (_) { /* ignore */ }
+
+  _ytPlayer.player.pauseVideo();
+
+  // Broadcast to guests
+  if (state.isHost) {
+    send({
+      t: 'HOST_YOUTUBE_PAUSE',
+      videoId: _ytPlayer.videoId,
+      currentTime: currentTime
+    });
+    console.log('[YouTubePlayer] Broadcast HOST_YOUTUBE_PAUSE at', currentTime);
+  }
+}
+
+/**
+ * Guest: receive a youtube video change and load it.
+ * @param {string} videoId
+ * @param {string|null} title
+ */
+function ytGuestLoadVideo(videoId, title) {
+  _ytPlayer.videoId = videoId;
+  var ph = document.getElementById('youtubePlayerPlaceholder');
+  var controls = document.getElementById('youtubePlayerControls');
+  var nowPlaying = document.getElementById('youtubeNowPlaying');
+  var titleEl = document.getElementById('youtubeNowPlayingTitle');
+  var statusEl = document.getElementById('youtubePlayerStatus');
+
+  if (ph) ph.style.display = 'none';
+  if (controls) controls.classList.remove('hidden');
+  if (nowPlaying && title) {
+    nowPlaying.classList.remove('hidden');
+    if (titleEl) titleEl.textContent = title;
+  }
+  if (statusEl) statusEl.textContent = 'Loading…';
+
+  if (_ytPlayer.player && typeof _ytPlayer.player.loadVideoById === 'function') {
+    _ytPlayer.player.loadVideoById(videoId);
+    // Pause immediately — wait for host play command
+    setTimeout(function() {
+      if (_ytPlayer.player && typeof _ytPlayer.player.pauseVideo === 'function') {
+        _ytPlayer.player.pauseVideo();
+      }
+    }, 1000);
+  } else {
+    initYouTubePlayer();
+  }
+}
+
+/**
+ * Guest: receive host play command and sync playback.
+ * @param {number} hostTime - Host's current playback position in seconds
+ */
+function ytGuestPlay(hostTime) {
+  if (!_ytPlayer.player) return;
+  var seekTarget = (typeof hostTime === 'number' && hostTime >= 0) ? hostTime : 0;
+  // Small network latency compensation (~0.3s)
+  seekTarget += 0.3;
+  try {
+    _ytPlayer.player.seekTo(seekTarget, true);
+    _ytPlayer.player.playVideo();
+    console.log('[YouTubePlayer] Guest synced play at', seekTarget);
+  } catch (e) {
+    console.error('[YouTubePlayer] Guest play error:', e);
+  }
+}
+
+/**
+ * Guest: receive host pause command and pause playback.
+ */
+function ytGuestPause() {
+  if (!_ytPlayer.player) return;
+  try {
+    _ytPlayer.player.pauseVideo();
+    console.log('[YouTubePlayer] Guest paused');
+  } catch (e) {
+    console.error('[YouTubePlayer] Guest pause error:', e);
+  }
+}
+
+/**
+ * Show / hide the YouTube Party Player section based on user tier.
+ * Called from showParty().
+ */
+function updateYoutubePartySection() {
+  var section = document.getElementById('youtubePartySection');
+  if (!section) return;
+
+  var playerBox = document.getElementById('youtubePartyPlayerBox');
+  var upgradeBox = document.getElementById('youtubePartyUpgradeBox');
+
+  if (!state.isHost) {
+    // Guests always see the player (controlled by host)
+    section.classList.remove('hidden');
+    if (playerBox) playerBox.classList.remove('hidden');
+    if (upgradeBox) upgradeBox.classList.add('hidden');
+    initYouTubePlayer();
+    loadYouTubeIframeAPI();
+    return;
+  }
+
+  var eligible = hasPartyPassEntitlement();
+  section.classList.remove('hidden');
+
+  if (eligible) {
+    if (playerBox) playerBox.classList.remove('hidden');
+    if (upgradeBox) upgradeBox.classList.add('hidden');
+    initYouTubePlayer();
+    loadYouTubeIframeAPI();
+  } else {
+    if (playerBox) playerBox.classList.add('hidden');
+    if (upgradeBox) upgradeBox.classList.remove('hidden');
+  }
+}
+
+/**
+ * Initialise the YouTube search/URL input inside the party view.
+ * Called once when the party view is first shown.
+ */
+function initYoutubePartyControls() {
+  var searchBtn = document.getElementById('btnYoutubeSearch');
+  var searchInput = document.getElementById('youtubeSearchInput');
+  var playBtn = document.getElementById('btnYoutubePlay');
+  var pauseBtn = document.getElementById('btnYoutubePause');
+  var closeBtn = document.getElementById('btnCloseYoutubePlayer');
+
+  if (searchBtn && searchBtn._ytInitDone) return; // Already wired
+
+  if (searchBtn) {
+    searchBtn._ytInitDone = true;
+    searchBtn.addEventListener('click', function() {
+      var query = searchInput ? searchInput.value.trim() : '';
+      if (!query) return;
+
+      // Try to extract a direct video ID from URL first
+      var videoId = extractYouTubeVideoId(query);
+      if (videoId) {
+        ytLoadVideo(videoId, query.startsWith('http') ? null : query);
+        var resultsEl = document.getElementById('youtubeSearchResults');
+        if (resultsEl) resultsEl.classList.add('hidden');
+        return;
+      }
+
+      // Otherwise search via API
+      performYoutubeSearch(query);
+    });
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        if (searchBtn) searchBtn.click();
+      }
+    });
+  }
+
+  if (playBtn) {
+    playBtn.addEventListener('click', function() {
+      ytHostPlay();
+    });
+  }
+
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', function() {
+      ytHostPause();
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function() {
+      var section = document.getElementById('youtubePartySection');
+      if (section) section.classList.add('hidden');
+    });
+  }
+}
+
+/**
+ * Search YouTube for videos via /api/streaming/search and render results.
+ * @param {string} query
+ */
+function performYoutubeSearch(query) {
+  var statusEl = document.getElementById('youtubeSearchStatus');
+  var resultsEl = document.getElementById('youtubeSearchResults');
+  var listEl = document.getElementById('youtubeResultsList');
+
+  if (statusEl) {
+    statusEl.textContent = 'Searching…';
+    statusEl.classList.remove('hidden');
+  }
+  if (resultsEl) resultsEl.classList.add('hidden');
+
+  fetch('/api/streaming/search?provider=youtube&q=' + encodeURIComponent(query))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (statusEl) statusEl.classList.add('hidden');
+
+      if (data.warning || !data.results || data.results.length === 0) {
+        if (statusEl) {
+          statusEl.textContent = data.warning
+            ? 'Search unavailable (no API key configured). Paste a YouTube URL or video ID.'
+            : 'No results found.';
+          statusEl.classList.remove('hidden');
+        }
+        return;
+      }
+
+      // Render results
+      if (listEl) {
+        listEl.innerHTML = '';
+        data.results.forEach(function(item) {
+          var row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.4rem;background:rgba(255,255,255,0.05);border-radius:6px;cursor:pointer;';
+          row.setAttribute('data-testid', 'youtube-result-item');
+          row.setAttribute('data-video-id', item.id);
+
+          if (item.artwork) {
+            var thumb = document.createElement('img');
+            thumb.src = item.artwork;
+            thumb.alt = '';
+            thumb.style.cssText = 'width:48px;height:36px;object-fit:cover;border-radius:4px;flex-shrink:0;';
+            row.appendChild(thumb);
+          }
+
+          var info = document.createElement('div');
+          info.style.cssText = 'flex:1;min-width:0;';
+          var titleDiv = document.createElement('div');
+          titleDiv.style.cssText = 'font-size:0.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+          titleDiv.textContent = item.title || 'Unknown';
+          var artistDiv = document.createElement('div');
+          artistDiv.className = 'tiny muted';
+          artistDiv.textContent = item.artist || '';
+          info.appendChild(titleDiv);
+          info.appendChild(artistDiv);
+          row.appendChild(info);
+
+          var playBtn = document.createElement('button');
+          playBtn.className = 'btn primary';
+          playBtn.style.cssText = 'font-size:0.75rem;padding:4px 10px;flex-shrink:0;';
+          playBtn.textContent = '▶ Play';
+          playBtn.setAttribute('data-testid', 'youtube-result-play');
+          row.appendChild(playBtn);
+
+          row.addEventListener('click', function() {
+            ytLoadVideo(item.id, item.title);
+            if (resultsEl) resultsEl.classList.add('hidden');
+            var searchInput = document.getElementById('youtubeSearchInput');
+            if (searchInput) searchInput.value = item.title || item.id;
+          });
+
+          listEl.appendChild(row);
+        });
+      }
+
+      if (resultsEl) resultsEl.classList.remove('hidden');
+    })
+    .catch(function(err) {
+      console.error('[YouTubeSearch] Error:', err);
+      if (statusEl) {
+        statusEl.textContent = 'Search failed. Paste a YouTube URL instead.';
+        statusEl.classList.remove('hidden');
+      }
+    });
+}
+
+/**
+ * Show the YouTube Service selection screen (post-party-creation interstitial).
+ * Called right after showParty() completes when a party is first created.
+ */
+function showYoutubeServiceView() {
+  var eligible = hasPartyPassEntitlement();
+  var eligibleBox = document.getElementById('ytServiceEligible');
+  var upgradeBox = document.getElementById('ytServiceUpgrade');
+
+  if (eligibleBox) eligibleBox.classList[eligible ? 'remove' : 'add']('hidden');
+  if (upgradeBox) upgradeBox.classList[eligible ? 'add' : 'remove']('hidden');
+
+  // Wire buttons once
+  var useBtn = document.getElementById('btnUseYoutubePlayer');
+  var skipBtn = document.getElementById('btnSkipYoutubeService');
+  var skipUpgradeBtn = document.getElementById('btnSkipYoutubeServiceUpgrade');
+
+  if (useBtn && !useBtn._ytServiceWired) {
+    useBtn._ytServiceWired = true;
+    useBtn.addEventListener('click', function() {
+      setView('party');
+      // Open the YouTube player section
+      setTimeout(function() {
+        var section = document.getElementById('youtubePartySection');
+        if (section) section.classList.remove('hidden');
+        var searchInput = document.getElementById('youtubeSearchInput');
+        if (searchInput) {
+          searchInput.focus();
+          searchInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 300);
+    });
+  }
+
+  if (skipBtn && !skipBtn._ytServiceWired) {
+    skipBtn._ytServiceWired = true;
+    skipBtn.addEventListener('click', function() {
+      setView('party');
+    });
+  }
+
+  if (skipUpgradeBtn && !skipUpgradeBtn._ytServiceWired) {
+    skipUpgradeBtn._ytServiceWired = true;
+    skipUpgradeBtn.addEventListener('click', function() {
+      setView('party');
+    });
+  }
+}
+
+// ============================================================================
+// END YOUTUBE PARTY PLAYER
+// ============================================================================
+
+
 
 /**
  * TrackDescriptor model — describes a track from any source.
@@ -12679,5 +13250,14 @@ if (typeof module !== 'undefined' && module.exports) {
     openSyncCoach,
     closeSyncCoach,
     handleSyncCoachAction,
+    extractYouTubeVideoId,
+    ytLoadVideo,
+    ytHostPlay,
+    ytHostPause,
+    ytGuestLoadVideo,
+    ytGuestPlay,
+    ytGuestPause,
+    updateYoutubePartySection,
+    showYoutubeServiceView,
   };
 }

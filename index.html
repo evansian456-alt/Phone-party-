@@ -846,6 +846,91 @@
 
       <div id="members"></div>
 
+      <!-- YouTube Party Player Section (Party Pass + Pro Only) -->
+      <div id="youtubePartySection" class="hidden" style="margin-top:1rem;" data-testid="youtube-party-section">
+        <div class="line"></div>
+
+        <!-- Eligible user: embedded YouTube player -->
+        <div id="youtubePartyPlayerBox" class="box hidden" data-testid="youtube-party-player-box">
+          <div class="row space" style="margin-bottom:0.75rem;">
+            <h3>▶ YouTube Party Player</h3>
+            <button class="btn" id="btnCloseYoutubePlayer" data-testid="btn-close-youtube-player">✕ Close</button>
+          </div>
+
+          <!-- Search / URL input -->
+          <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem;">
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+              <input class="input" id="youtubeSearchInput" placeholder="Search YouTube or paste URL…"
+                     style="flex:1;" data-testid="youtube-search-input" />
+              <button class="btn primary" id="btnYoutubeSearch" data-testid="btn-youtube-search">🔍 Search</button>
+            </div>
+            <div id="youtubeSearchStatus" class="tiny muted hidden" data-testid="youtube-search-status"></div>
+          </div>
+
+          <!-- Search results list -->
+          <div id="youtubeSearchResults" class="hidden" style="margin-bottom:0.75rem;" data-testid="youtube-search-results">
+            <div class="tiny muted" style="margin-bottom:0.4rem;">Results:</div>
+            <div id="youtubeResultsList" style="display:flex;flex-direction:column;gap:0.4rem;max-height:220px;overflow-y:auto;"></div>
+          </div>
+
+          <!-- Player container -->
+          <div id="youtubePlayerContainer" style="width:100%;max-width:900px;aspect-ratio:16/9;margin:0 auto 0.75rem auto;background:#000;border-radius:8px;overflow:hidden;position:relative;"
+               data-testid="youtube-player-container">
+            <div id="youtubePlayerPlaceholder" style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.3);font-size:0.9rem;">
+              Search or paste a URL above to load a video
+            </div>
+            <div id="youtubePlayer" style="position:absolute;inset:0;"></div>
+          </div>
+
+          <!-- Player controls -->
+          <div id="youtubePlayerControls" class="hidden" style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;" data-testid="youtube-player-controls">
+            <button class="btn primary" id="btnYoutubePlay" data-testid="btn-youtube-play">▶ Play</button>
+            <button class="btn" id="btnYoutubePause" data-testid="btn-youtube-pause">⏸ Pause</button>
+            <span class="tiny muted" id="youtubePlayerStatus" data-testid="youtube-player-status">Ready</span>
+          </div>
+
+          <!-- Now playing info -->
+          <div id="youtubeNowPlaying" class="hidden" style="margin-bottom:0.5rem;" data-testid="youtube-now-playing">
+            <div class="tiny muted">Now playing:</div>
+            <div id="youtubeNowPlayingTitle" style="font-size:0.9rem;font-weight:600;"></div>
+          </div>
+
+          <p class="tiny muted" style="font-size:0.65rem;opacity:0.7;margin-top:0.25rem;">
+            All party members watch in sync. Host controls playback.
+          </p>
+        </div>
+
+        <!-- Upgrade prompt for FREE users -->
+        <div id="youtubePartyUpgradeBox" class="box hidden" data-testid="youtube-party-upgrade-box">
+          <div class="row space" style="margin-bottom:0.5rem;">
+            <h3>▶ YouTube Party Player</h3>
+            <span class="badge" style="background:rgba(255,255,255,0.1);color:#fff;font-size:0.7rem;">🔒 LOCKED</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;opacity:0.5;">
+            <img src="/public/assets/providers/youtube.svg" alt="YouTube" style="height:24px;width:auto;filter:grayscale(1);" loading="lazy" />
+          </div>
+          <p class="tiny" style="margin-bottom:0.5rem;" data-testid="youtube-party-upgrade-msg">
+            Watch and sync YouTube videos together inside the app.<br>
+            Available for <strong>Party Pass</strong> and <strong>Pro</strong> users.
+          </p>
+          <button class="btn primary" onclick="setView('upgradeHub')" data-testid="btn-youtube-party-upgrade">
+            ⬆️ Upgrade to Unlock
+          </button>
+        </div>
+      </div>
+
+      <div class="line"></div>
+
+      <div class="row space">
+        <h3>Friends connected</h3>
+        <div class="row gap">
+          <button class="btn" id="btnAddPhone">Add another phone</button>
+          <button class="btn" id="btnSpeaker">Use a speaker</button>
+        </div>
+      </div>
+
+      <div id="members"></div>
+
       <div class="tiny muted" style="margin-top:10px">
         Browser prototype — next step is the real Android app for proper sync.
       </div>
@@ -2918,6 +3003,71 @@
         <a href="#" class="link-to-terms">Terms &amp; Conditions</a>
         <span>·</span>
         <a href="#" class="link-to-landing-from-legal" id="linkPrivacyBack">← Back</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- YouTube Party Service Screen (shown after party creation) -->
+  <section class="card hidden" id="viewYoutubeService" data-testid="view-youtube-service">
+    <div style="max-width:500px;margin:0 auto;padding:1rem;">
+      <div style="text-align:center;margin-bottom:1.5rem;">
+        <div style="font-size:3rem;margin-bottom:0.5rem;">▶</div>
+        <h2 style="margin-bottom:0.25rem;">YouTube Party Player</h2>
+        <p class="muted" style="margin-bottom:0;">Watch and sync YouTube videos together — inside the app.</p>
+      </div>
+
+      <!-- Eligible user card -->
+      <div id="ytServiceEligible" class="box hidden" data-testid="yt-service-eligible">
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;">
+          <img src="/public/assets/providers/youtube.svg" alt="YouTube" style="height:32px;width:auto;" loading="lazy" />
+          <div>
+            <div style="font-weight:700;font-size:1rem;">YouTube Party Player</div>
+            <div class="tiny muted">Party Pass &amp; Pro users</div>
+          </div>
+        </div>
+        <ul class="tiny muted" style="margin:0 0 1rem 1.2rem;padding:0;line-height:1.8;">
+          <li>Search YouTube music &amp; videos</li>
+          <li>Embedded player — no external app needed</li>
+          <li>Host controls playback for all guests</li>
+          <li>Synced across all devices in real time</li>
+        </ul>
+        <button class="btn primary" id="btnUseYoutubePlayer" data-testid="btn-use-youtube-player"
+                style="width:100%;margin-bottom:0.5rem;">
+          ▶ Use YouTube Player
+        </button>
+        <button class="btn" id="btnSkipYoutubeService" data-testid="btn-skip-youtube-service"
+                style="width:100%;">
+          Skip for now
+        </button>
+      </div>
+
+      <!-- Free user upgrade card -->
+      <div id="ytServiceUpgrade" class="box hidden" data-testid="yt-service-upgrade">
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;opacity:0.6;">
+          <img src="/public/assets/providers/youtube.svg" alt="YouTube" style="height:32px;width:auto;filter:grayscale(1);" loading="lazy" />
+          <div>
+            <div style="font-weight:700;font-size:1rem;">YouTube Party Player</div>
+            <div class="tiny muted">🔒 Requires upgrade</div>
+          </div>
+        </div>
+        <div class="box" style="background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.3);margin-bottom:0.75rem;">
+          <p class="tiny" data-testid="yt-service-upgrade-msg">
+            <strong>Upgrade Required</strong><br>
+            This feature requires <strong>Party Pass</strong> or <strong>Pro Monthly</strong>.
+          </p>
+        </div>
+        <button class="btn primary" onclick="setView('upgradeHub')" data-testid="btn-yt-service-go-upgrade"
+                style="width:100%;margin-bottom:0.5rem;">
+          ⬆️ Upgrade to Unlock
+        </button>
+        <button class="btn" id="btnSkipYoutubeServiceUpgrade" data-testid="btn-skip-youtube-service-upgrade"
+                style="width:100%;">
+          Continue without YouTube
+        </button>
+      </div>
+
+      <div class="tiny muted" style="text-align:center;margin-top:1rem;opacity:0.6;">
+        You can access this from the party screen at any time.
       </div>
     </div>
   </section>
