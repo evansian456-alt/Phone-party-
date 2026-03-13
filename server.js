@@ -7673,6 +7673,15 @@ async function handleMessage(ws, msg) {
     case "OFFICIAL_APP_SYNC_SELECT":
       handleOfficialAppSyncSelect(ws, sanitizedMsg);
       break;
+    case "HOST_YOUTUBE_VIDEO":
+      handleHostYouTubeVideo(ws, sanitizedMsg);
+      break;
+    case "HOST_YOUTUBE_PLAY":
+      handleHostYouTubePlay(ws, sanitizedMsg);
+      break;
+    case "HOST_YOUTUBE_PAUSE":
+      handleHostYouTubePause(ws, sanitizedMsg);
+      break;
     default: {
       // Cap the echoed type to prevent log/response bloat
       const safeType = String(sanitizedMsg.t).substring(0, 50);
@@ -9187,6 +9196,157 @@ function handleOfficialAppSyncSelect(ws, msg) {
 
   console.log(`[OfficialAppSync] changerVersion=${CHANGER_VERSION} platform=${platform} trackRef=${normalizedRef} party=${client.party}`);
 }
+
+// ============================================================================
+// YOUTUBE PARTY PLAYER — WebSocket sync handlers
+// ============================================================================
+
+/**
+ * Handle HOST_YOUTUBE_VIDEO — host loaded a new YouTube video.
+ * Validates host authority + tier, then broadcasts YOUTUBE_VIDEO to all guests.
+ */
+function handleHostYouTubeVideo(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'youtube video');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('youtube video', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+
+  // Tier check: YouTube Party Player requires Party Pass or Pro
+  if (!isPaidForOfficialAppSyncParty(party)) {
+    safeSend(ws, JSON.stringify({
+      t: 'ERROR',
+      errorType: 'TIER_NOT_PAID',
+      message: 'YouTube Party Player is only available for Party Pass and Pro Monthly subscribers.'
+    }));
+    return;
+  }
+
+  const videoId = (msg.videoId || '').trim();
+  if (!videoId || videoId.length !== 11 || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    safeSend(ws, JSON.stringify({
+      t: 'ERROR',
+      errorType: 'INVALID_PAYLOAD',
+      message: 'A valid 11-character YouTube videoId is required.'
+    }));
+    return;
+  }
+
+  const title = (msg.title || null);
+
+  // Store YouTube state on party
+  party.youtubeSync = {
+    videoId,
+    title,
+    isPlaying: false,
+    currentTime: 0,
+    updatedAtMs: Date.now()
+  };
+
+  // Broadcast to all guests (exclude sender)
+  broadcastToParty(client.party, {
+    t: 'YOUTUBE_VIDEO',
+    videoId,
+    title
+  });
+
+  console.log(`[YouTubeParty] HOST_YOUTUBE_VIDEO videoId=${videoId} party=${client.party}`);
+}
+
+/**
+ * Handle HOST_YOUTUBE_PLAY — host pressed play.
+ * Broadcasts YOUTUBE_PLAY to all guests with current timestamp.
+ */
+function handleHostYouTubePlay(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'youtube play');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('youtube play', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+
+  if (!isPaidForOfficialAppSyncParty(party)) {
+    safeSend(ws, JSON.stringify({
+      t: 'ERROR',
+      errorType: 'TIER_NOT_PAID',
+      message: 'YouTube Party Player is only available for Party Pass and Pro Monthly subscribers.'
+    }));
+    return;
+  }
+
+  const videoId = (msg.videoId || (party.youtubeSync && party.youtubeSync.videoId) || '').trim();
+  const currentTime = typeof msg.currentTime === 'number' ? msg.currentTime : 0;
+
+  if (party.youtubeSync) {
+    party.youtubeSync.isPlaying = true;
+    party.youtubeSync.currentTime = currentTime;
+    party.youtubeSync.updatedAtMs = Date.now();
+  }
+
+  broadcastToParty(client.party, {
+    t: 'YOUTUBE_PLAY',
+    videoId,
+    currentTime
+  });
+
+  console.log(`[YouTubeParty] HOST_YOUTUBE_PLAY videoId=${videoId} currentTime=${currentTime} party=${client.party}`);
+}
+
+/**
+ * Handle HOST_YOUTUBE_PAUSE — host pressed pause.
+ * Broadcasts YOUTUBE_PAUSE to all guests.
+ */
+function handleHostYouTubePause(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'youtube pause');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('youtube pause', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+
+  if (!isPaidForOfficialAppSyncParty(party)) {
+    safeSend(ws, JSON.stringify({
+      t: 'ERROR',
+      errorType: 'TIER_NOT_PAID',
+      message: 'YouTube Party Player is only available for Party Pass and Pro Monthly subscribers.'
+    }));
+    return;
+  }
+
+  const videoId = (msg.videoId || (party.youtubeSync && party.youtubeSync.videoId) || '').trim();
+  const currentTime = typeof msg.currentTime === 'number' ? msg.currentTime : 0;
+
+  if (party.youtubeSync) {
+    party.youtubeSync.isPlaying = false;
+    party.youtubeSync.currentTime = currentTime;
+    party.youtubeSync.updatedAtMs = Date.now();
+  }
+
+  broadcastToParty(client.party, {
+    t: 'YOUTUBE_PAUSE',
+    videoId,
+    currentTime
+  });
+
+  console.log(`[YouTubeParty] HOST_YOUTUBE_PAUSE videoId=${videoId} currentTime=${currentTime} party=${client.party}`);
+}
+
+// ============================================================================
+// END YOUTUBE PARTY PLAYER
+// ============================================================================
 
 function handleHostNextTrackQueued(ws, msg) {
   const client = clients.get(ws);
