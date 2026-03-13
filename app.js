@@ -7087,24 +7087,13 @@ function initBillingBox() {
     if (proSection) proSection.classList.add('hidden');
     if (btnUpgrade && !btnUpgrade.dataset.wired) {
       btnUpgrade.dataset.wired = '1';
-      btnUpgrade.addEventListener('click', async () => {
-        btnUpgrade.disabled = true;
-        btnUpgrade.textContent = '⏳ Loading…';
-        try {
-          const res = await fetch('/api/billing/create-checkout-session', { method: 'POST' });
-          if (!res.ok) {
-            const err = await res.json();
-            toast('❌ ' + (err.error || 'Could not start checkout'));
-            btnUpgrade.disabled = false;
-            btnUpgrade.textContent = '🚀 Upgrade to Pro';
-            return;
-          }
-          const { url } = await res.json();
-          window.location.href = url;
-        } catch (e) {
-          toast('❌ Network error – please try again');
-          btnUpgrade.disabled = false;
-          btnUpgrade.textContent = '🚀 Upgrade to Pro';
+      btnUpgrade.addEventListener('click', () => {
+        // Navigate to the upgrade hub pricing screen where the user can choose
+        // their tier and initiate checkout.
+        if (typeof setView === 'function') {
+          setView('upgradeHub');
+        } else if (typeof showView === 'function') {
+          showView('viewUpgradeHub');
         }
       });
     }
