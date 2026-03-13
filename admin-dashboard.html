@@ -402,6 +402,10 @@
 
     // ===== MODERATION =====
 
+    function escAttr(str) {
+      return String(str || '').replace(/[&'"<>`]/g, c => ({'&':'&amp;',"'":'&#39;','"':'&quot;','<':'&lt;','>':'&gt;','`':'&#96;'}[c]));
+    }
+
     function switchModTab(tab) {
       ['reports','flagged','users'].forEach(t => {
         document.getElementById('modTab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.add('hidden');
@@ -483,13 +487,13 @@
                 <td>${new Date(r.created_at).toLocaleString()}</td>
                 <td>${statusBadge}</td>
                 <td style="white-space:nowrap">
-                  <button class="btn-mod-action" onclick="adminAction('${r.id}',null,'${r.reported_user_id||''}','dismiss')">✓ Dismiss</button>
-                  <button class="btn-mod-action" onclick="adminAction('${r.id}',null,'${r.reported_user_id||''}','mark_resolved')">Resolve</button>
-                  ${r.reported_user_id ? `<button class="btn-mod-action" onclick="adminAction('${r.id}',null,'${r.reported_user_id}','warn','Warned via report ${r.id}')">⚠️ Warn</button>` : ''}
-                  ${r.reported_user_id ? `<button class="btn-mod-action" onclick="adminAction('${r.id}',null,'${r.reported_user_id}','suspend','Suspended via report ${r.id}')">⏸ Suspend</button>` : ''}
-                  ${r.reported_user_id ? `<button class="btn-mod-danger" onclick="if(confirm('Ban this user?')) adminAction('${r.id}',null,'${r.reported_user_id}','ban','Banned via report ${r.id}')">🚫 Ban</button>` : ''}
-                  ${r.type==='track' ? `<button class="btn-mod-action" onclick="adminAction('${r.id}',null,null,'remove_track')">🗑 Remove Track</button>` : ''}
-                  ${r.type==='message' ? `<button class="btn-mod-action" onclick="adminAction('${r.id}',null,null,'delete_message')">🗑 Delete Msg</button>` : ''}
+                  <button class="btn-mod-action" onclick="adminAction('${escAttr(r.id)}',null,'${escAttr(r.reported_user_id||'')}','dismiss')">✓ Dismiss</button>
+                  <button class="btn-mod-action" onclick="adminAction('${escAttr(r.id)}',null,'${escAttr(r.reported_user_id||'')}','mark_resolved')">Resolve</button>
+                  ${r.reported_user_id ? `<button class="btn-mod-action" onclick="adminAction('${escAttr(r.id)}',null,'${escAttr(r.reported_user_id)}','warn','Warned via report')">⚠️ Warn</button>` : ''}
+                  ${r.reported_user_id ? `<button class="btn-mod-action" onclick="adminAction('${escAttr(r.id)}',null,'${escAttr(r.reported_user_id)}','suspend','Suspended via report')">⏸ Suspend</button>` : ''}
+                  ${r.reported_user_id ? `<button class="btn-mod-danger" onclick="if(confirm('Ban this user?')) adminAction('${escAttr(r.id)}',null,'${escAttr(r.reported_user_id)}','ban','Banned via report')">🚫 Ban</button>` : ''}
+                  ${r.type==='track' ? `<button class="btn-mod-action" onclick="adminAction('${escAttr(r.id)}',null,null,'remove_track')">🗑 Remove Track</button>` : ''}
+                  ${r.type==='message' ? `<button class="btn-mod-action" onclick="adminAction('${escAttr(r.id)}',null,null,'delete_message')">🗑 Delete Msg</button>` : ''}
                 </td>
               </tr>`;
             }).join('');
@@ -539,9 +543,9 @@
                 <td>${new Date(m.created_at).toLocaleString()}</td>
                 <td>${statusBadge}</td>
                 <td style="white-space:nowrap">
-                  <button class="btn-mod-action" onclick="adminAction(null,'${m.id}','${m.user_id||''}','dismiss')">✓ Dismiss</button>
-                  ${m.user_id ? `<button class="btn-mod-action" onclick="adminAction(null,'${m.id}','${m.user_id}','warn','Warned for flagged message ${m.id}')">⚠️ Warn</button>` : ''}
-                  ${m.user_id ? `<button class="btn-mod-danger" onclick="if(confirm('Ban this user?')) adminAction(null,'${m.id}','${m.user_id}','ban','Banned for flagged message ${m.id}')">🚫 Ban</button>` : ''}
+                  <button class="btn-mod-action" onclick="adminAction(null,'${escAttr(m.id)}','${escAttr(m.user_id||'')}','dismiss')">✓ Dismiss</button>
+                  ${m.user_id ? `<button class="btn-mod-action" onclick="adminAction(null,'${escAttr(m.id)}','${escAttr(m.user_id)}','warn','Warned for flagged message')">⚠️ Warn</button>` : ''}
+                  ${m.user_id ? `<button class="btn-mod-danger" onclick="if(confirm('Ban this user?')) adminAction(null,'${escAttr(m.id)}','${escAttr(m.user_id)}','ban','Banned for flagged message')">🚫 Ban</button>` : ''}
                 </td>
               </tr>`;
             }).join('');
@@ -578,9 +582,9 @@
               ${h.ban_reason ? `<p>Ban reason: ${h.ban_reason}</p>` : ''}
               ${h.last_action_at ? `<p>Last action: ${new Date(h.last_action_at).toLocaleString()} by ${h.last_action_by || 'admin'}</p>` : ''}
               <div style="margin:1rem 0;display:flex;gap:0.5rem;flex-wrap:wrap;">
-                <button class="btn-mod-action" onclick="adminAction(null,null,'${userId}','warn','Manual warn')">⚠️ Warn</button>
-                <button class="btn-mod-action" onclick="adminAction(null,null,'${userId}','suspend','Manual suspend')">⏸ Suspend</button>
-                <button class="btn-mod-danger" onclick="if(confirm('Ban user ${userId}?')) adminAction(null,null,'${userId}','ban','Manual ban')">🚫 Ban</button>
+                <button class="btn-mod-action" onclick="adminAction(null,null,'${escAttr(userId)}','warn','Manual warn')">⚠️ Warn</button>
+                <button class="btn-mod-action" onclick="adminAction(null,null,'${escAttr(userId)}','suspend','Manual suspend')">⏸ Suspend</button>
+                <button class="btn-mod-danger" onclick="if(confirm('Ban this user?')) adminAction(null,null,'${escAttr(userId)}','ban','Manual ban')">🚫 Ban</button>
               </div>
             ` : '<p>No moderation history found for this user.</p>'}
             <h4 style="margin:1rem 0 0.5rem 0">Reports involving this user (${data.reports.length})</h4>

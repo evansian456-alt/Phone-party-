@@ -5899,7 +5899,7 @@ app.post('/api/report', apiLimiter, authMiddleware.optionalAuth, async (req, res
  * Internal endpoint: abuse filter flags a message for admin review.
  * No auth required (called from client-side filter).
  */
-app.post('/api/moderation/flag-message', rateLimit({ windowMs: 60000, max: 200 }), async (req, res) => {
+app.post('/api/moderation/flag-message', rateLimit({ windowMs: 60000, max: 30 }), async (req, res) => {
   try {
     const { userId, partyId, messageText, filterReason, severity } = req.body;
 

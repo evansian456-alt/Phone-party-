@@ -258,7 +258,10 @@ describe('POST /api/report', () => {
       if (!targetId) return res.status(400).json({ error: 'targetId is required' });
       if (!reason) return res.status(400).json({ error: 'reason is required' });
       const db = require('./database');
-      await db.query('INSERT INTO reports VALUES', [type, targetId, partyId, null, reportedUserId, reason, description, evidence ? JSON.stringify(evidence) : null]);
+      await db.query(
+        'INSERT INTO reports (type, target_id, party_id, reporter_user_id, reported_user_id, reason, description, evidence_json) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+        [type, targetId, partyId, null, reportedUserId, reason, description, evidence ? JSON.stringify(evidence) : null]
+      );
       return res.json({ success: true, message: 'Report submitted. Our team will review it.' });
     });
   });
@@ -338,7 +341,10 @@ describe('POST /api/moderation/flag-message', () => {
       const { userId, partyId, messageText, filterReason, severity } = req.body;
       if (!filterReason) return res.status(400).json({ error: 'filterReason is required' });
       const db = require('./database');
-      await db.query('INSERT INTO message_moderation_events VALUES', [userId, partyId, messageText, filterReason, severity || 'mild']);
+      await db.query(
+        'INSERT INTO message_moderation_events (user_id, party_id, message_text, filter_reason, severity) VALUES ($1,$2,$3,$4,$5)',
+        [userId, partyId, messageText, filterReason, severity || 'mild']
+      );
       return res.json({ success: true });
     });
   });

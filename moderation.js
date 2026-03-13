@@ -20,9 +20,9 @@ const SAFETY = {
   reportedUsers: new Set()
 };
 
-// Mild/moderate abuse keywords (replaced with asterisks)
+// Mild/moderate abuse keywords (replaced with asterisks).
+// This is a minimal starter list; expand or replace with a vetted word list for production.
 const MILD_ABUSE_WORDS = [
-  'badword1', 'badword2', 'badword3',
   'spam', 'scam', 'hack',
   'stupid', 'idiot', 'loser', 'moron'
 ];

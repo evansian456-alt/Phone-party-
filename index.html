@@ -3547,6 +3547,35 @@
         if (m && e.target === m) closeModerationModal(id);
       });
     });
+
+    // Event delegation: handle data-attribute driven report/remove buttons
+    document.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-report-track]');
+      if (btn) {
+        openReportTrackModal({
+          id: btn.dataset.trackId || '',
+          title: btn.dataset.trackTitle || '',
+          provider: btn.dataset.trackProvider || '',
+          providerRef: btn.dataset.trackRef || '',
+          queuePosition: parseInt(btn.dataset.queuePos, 10) || 0
+        });
+        return;
+      }
+
+      var msgBtn = e.target.closest('[data-report-msg]');
+      if (msgBtn) {
+        var msgEl = msgBtn.closest('[data-testid="message-item"]') || msgBtn.closest('.dj-message') || msgBtn.closest('.guest-feed-item');
+        var msgText = msgEl ? (msgEl.querySelector('.dj-message-text, .guest-feed-content') || {}).textContent || '' : '';
+        openReportMessageModal(msgBtn.dataset.msgId || '', msgText, msgBtn.dataset.msgSender || '');
+        return;
+      }
+
+      var removeBtn = e.target.closest('[data-remove-msg]');
+      if (removeBtn) {
+        if (typeof hostRemoveMessage === 'function') hostRemoveMessage(removeBtn.dataset.msgId || '');
+        return;
+      }
+    });
   </script>
 
 </body>

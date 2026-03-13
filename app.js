@@ -4248,12 +4248,18 @@ function updateHostQueueUI() {
     queueEl.innerHTML = musicState.queue.map((track, index) => `
       <div class="queue-item" data-track-id="${track.trackId}" data-index="${index}">
         <span class="queue-number">${index + 1}.</span>
-        <span class="queue-title">${track.title || 'Unknown Track'}</span>
+        <span class="queue-title">${escapeHtml(track.title || 'Unknown Track')}</span>
         <div class="queue-controls queue-item-actions">
           ${index > 0 ? '<button class="queue-btn-up" onclick="moveQueueTrackUp(' + index + ')">↑</button>' : ''}
           ${index < musicState.queue.length - 1 ? '<button class="queue-btn-down" onclick="moveQueueTrackDown(' + index + ')">↓</button>' : ''}
-          <button class="queue-btn-remove" onclick="removeQueueTrack('${track.trackId}')">×</button>
-          <button class="btn-report-small" onclick="openReportTrackModal({id:'${track.trackId}',title:'${(track.title||'').replace(/'/g,"\\'")}',provider:'${track.provider||''}',providerRef:'${track.providerRef||''}',queuePosition:${index}})">🚩</button>
+          <button class="queue-btn-remove" onclick="removeQueueTrack('${escapeHtml(track.trackId)}')">×</button>
+          <button class="btn-report-small"
+            data-report-track="1"
+            data-track-id="${escapeHtml(track.trackId||'')}"
+            data-track-title="${escapeHtml(track.title||'')}"
+            data-track-provider="${escapeHtml(track.provider||'')}"
+            data-track-ref="${escapeHtml(track.providerRef||'')}"
+            data-queue-pos="${index}">🚩</button>
         </div>
       </div>
     `).join('');
@@ -4277,9 +4283,14 @@ function updateGuestQueue(queue) {
   queueEl.innerHTML = queue.map((track, index) => `
     <div class="queue-item">
       <span class="queue-number">${index + 1}.</span>
-      <span class="queue-title">${track.title || 'Unknown Track'}</span>
+      <span class="queue-title">${escapeHtml(track.title || 'Unknown Track')}</span>
       <div class="queue-item-actions">
-        <button class="btn-report-small" onclick="openReportTrackModal({id:'${track.trackId||''}',title:'${(track.title||'').replace(/'/g,"\\'")}',provider:'${track.provider||''}',queuePosition:${index}})">🚩</button>
+        <button class="btn-report-small"
+          data-report-track="1"
+          data-track-id="${escapeHtml(track.trackId||'')}"
+          data-track-title="${escapeHtml(track.title||'')}"
+          data-track-provider="${escapeHtml(track.provider||'')}"
+          data-queue-pos="${index}">🚩</button>
       </div>
     </div>
   `).join('');
@@ -4752,8 +4763,11 @@ function renderUnifiedFeed() {
           <div class="dj-message-text">${safeContent}</div>
           <div class="dj-message-sender">${safeSender}</div>
           <div class="dj-message-actions" style="margin-top:2px;display:flex;gap:4px;">
-            <button class="btn-report-small" onclick="openReportMessageModal('${safeId}','${safeContent.replace(/'/g,"\\'")}','${safeSenderId}')">🚩 Report</button>
-            ${isHost ? `<button class="btn-host-action-small" onclick="hostRemoveMessage('${safeId}')">✕ Remove</button>` : ''}
+            <button class="btn-report-small"
+              data-report-msg="1"
+              data-msg-id="${safeId}"
+              data-msg-sender="${safeSenderId}">🚩 Report</button>
+            ${isHost ? `<button class="btn-host-action-small" data-remove-msg="1" data-msg-id="${safeId}">✕ Remove</button>` : ''}
           </div>
         `;
         fragment.appendChild(messageEl);
@@ -4804,7 +4818,10 @@ function renderGuestUnifiedFeed() {
           <div class="guest-feed-content">${safeContent}</div>
           <div class="guest-feed-sender">${safeSender}</div>
           <div style="margin-top:2px;">
-            <button class="btn-report-small" onclick="openReportMessageModal('${safeId}','${safeContent.replace(/'/g,"\\'")}','${safeSenderId}')">🚩 Report</button>
+            <button class="btn-report-small"
+              data-report-msg="1"
+              data-msg-id="${safeId}"
+              data-msg-sender="${safeSenderId}">🚩 Report</button>
           </div>
         `;
         fragment.appendChild(messageEl);
