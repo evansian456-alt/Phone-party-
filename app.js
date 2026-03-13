@@ -4248,11 +4248,18 @@ function updateHostQueueUI() {
     queueEl.innerHTML = musicState.queue.map((track, index) => `
       <div class="queue-item" data-track-id="${track.trackId}" data-index="${index}">
         <span class="queue-number">${index + 1}.</span>
-        <span class="queue-title">${track.title || 'Unknown Track'}</span>
-        <div class="queue-controls">
+        <span class="queue-title">${escapeHtml(track.title || 'Unknown Track')}</span>
+        <div class="queue-controls queue-item-actions">
           ${index > 0 ? '<button class="queue-btn-up" onclick="moveQueueTrackUp(' + index + ')">↑</button>' : ''}
           ${index < musicState.queue.length - 1 ? '<button class="queue-btn-down" onclick="moveQueueTrackDown(' + index + ')">↓</button>' : ''}
-          <button class="queue-btn-remove" onclick="removeQueueTrack('${track.trackId}')">×</button>
+          <button class="queue-btn-remove" onclick="removeQueueTrack('${escapeHtml(track.trackId)}')">×</button>
+          <button class="btn-report-small"
+            data-report-track="1"
+            data-track-id="${escapeHtml(track.trackId||'')}"
+            data-track-title="${escapeHtml(track.title||'')}"
+            data-track-provider="${escapeHtml(track.provider||'')}"
+            data-track-ref="${escapeHtml(track.providerRef||'')}"
+            data-queue-pos="${index}">🚩</button>
         </div>
       </div>
     `).join('');
@@ -4276,7 +4283,15 @@ function updateGuestQueue(queue) {
   queueEl.innerHTML = queue.map((track, index) => `
     <div class="queue-item">
       <span class="queue-number">${index + 1}.</span>
-      <span class="queue-title">${track.title || 'Unknown Track'}</span>
+      <span class="queue-title">${escapeHtml(track.title || 'Unknown Track')}</span>
+      <div class="queue-item-actions">
+        <button class="btn-report-small"
+          data-report-track="1"
+          data-track-id="${escapeHtml(track.trackId||'')}"
+          data-track-title="${escapeHtml(track.title||'')}"
+          data-track-provider="${escapeHtml(track.provider||'')}"
+          data-queue-pos="${index}">🚩</button>
+      </div>
     </div>
   `).join('');
 }
@@ -4673,6 +4688,20 @@ function handleGuestPauseRequest(guestName, guestId) {
  * @param {string} id - Optional stable event ID (for FEED_EVENT dedupe)
  */
 let feedItemCounter = 0; // Counter to ensure unique IDs
+
+/**
+ * Host removes a message from the unified feed (party-level only)
+ */
+function hostRemoveMessage(messageId) {
+  if (!state.isHost) return;
+  const idx = state.unifiedFeed.findIndex(item => item.id === messageId);
+  if (idx !== -1) {
+    state.unifiedFeed.splice(idx, 1);
+    renderDJUnifiedFeed();
+    if (typeof showModerationToast === 'function') showModerationToast('Message removed from party');
+  }
+}
+
 function addToUnifiedFeed(sender, senderName, type, content, isEmoji = false, id = null) {
   const feedItem = {
     id: id || `${Date.now()}-${++feedItemCounter}`, // Use provided ID or generate one
@@ -4725,9 +4754,21 @@ function renderUnifiedFeed() {
       state.unifiedFeed.forEach(item => {
         const messageEl = document.createElement("div");
         messageEl.className = item.isEmoji ? "dj-message dj-message-emoji" : "dj-message";
+        const safeContent = escapeHtml(item.content);
+        const safeSender = escapeHtml(item.senderName);
+        const safeId = escapeHtml(item.id || '');
+        const safeSenderId = escapeHtml(item.senderId || '');
+        const isHost = typeof state !== 'undefined' && state.isHost;
         messageEl.innerHTML = `
-          <div class="dj-message-text">${escapeHtml(item.content)}</div>
-          <div class="dj-message-sender">${escapeHtml(item.senderName)}</div>
+          <div class="dj-message-text">${safeContent}</div>
+          <div class="dj-message-sender">${safeSender}</div>
+          <div class="dj-message-actions" style="margin-top:2px;display:flex;gap:4px;">
+            <button class="btn-report-small"
+              data-report-msg="1"
+              data-msg-id="${safeId}"
+              data-msg-sender="${safeSenderId}">🚩 Report</button>
+            ${isHost ? `<button class="btn-host-action-small" data-remove-msg="1" data-msg-id="${safeId}">✕ Remove</button>` : ''}
+          </div>
         `;
         fragment.appendChild(messageEl);
       });
@@ -4769,9 +4810,19 @@ function renderGuestUnifiedFeed() {
         const messageEl = document.createElement("div");
         messageEl.className = item.isEmoji ? "guest-feed-item guest-feed-item-emoji" : "guest-feed-item";
         messageEl.setAttribute('data-testid', 'message-item');
+        const safeContent = escapeHtml(item.content);
+        const safeSender = escapeHtml(item.senderName);
+        const safeId = escapeHtml(item.id || '');
+        const safeSenderId = escapeHtml(item.senderId || '');
         messageEl.innerHTML = `
-          <div class="guest-feed-content">${escapeHtml(item.content)}</div>
-          <div class="guest-feed-sender">${escapeHtml(item.senderName)}</div>
+          <div class="guest-feed-content">${safeContent}</div>
+          <div class="guest-feed-sender">${safeSender}</div>
+          <div style="margin-top:2px;">
+            <button class="btn-report-small"
+              data-report-msg="1"
+              data-msg-id="${safeId}"
+              data-msg-sender="${safeSenderId}">🚩 Report</button>
+          </div>
         `;
         fragment.appendChild(messageEl);
       });
@@ -6884,17 +6935,33 @@ function renderRoom() {
       <div class="meta">${m.isPro ? "Pro" : "Free"} · ID ${m.id}</div>
     `;
     const right = document.createElement("div");
+    right.style.display = 'flex';
+    right.style.gap = '4px';
+    right.style.flexWrap = 'wrap';
     if (state.isHost && !m.isHost) {
-      const btn = document.createElement("button");
-      btn.className = "btn";
-      btn.textContent = "Remove";
-      btn.onclick = () => send({ t: "KICK", targetId: m.id });
-      right.appendChild(btn);
-    } else {
+      const btnKick = document.createElement("button");
+      btnKick.className = "btn";
+      btnKick.textContent = "Kick";
+      btnKick.onclick = () => send({ t: "KICK", targetId: m.id });
+      right.appendChild(btnKick);
+
+      const btnMute = document.createElement("button");
+      btnMute.className = "btn-host-action-small";
+      btnMute.textContent = "🔇 Mute";
+      btnMute.onclick = () => { send({ t: "MUTE", targetId: m.id }); showModerationToast && showModerationToast('Guest muted'); };
+      right.appendChild(btnMute);
+    } else if (!m.isHost) {
       const badge = document.createElement("span");
       badge.className = "badge";
       badge.textContent = m.isPro ? "Pro" : "Free";
       right.appendChild(badge);
+    }
+    if (!m.isHost) {
+      const btnReport = document.createElement("button");
+      btnReport.className = "btn-report-small";
+      btnReport.textContent = "🚩 Report";
+      btnReport.onclick = () => typeof openReportUserModal === 'function' && openReportUserModal(m.id, m.name);
+      right.appendChild(btnReport);
     }
     div.appendChild(left); div.appendChild(right);
     wrap.appendChild(div);
