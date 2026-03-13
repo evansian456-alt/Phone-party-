@@ -12692,7 +12692,9 @@ function ytGuestLoadVideo(videoId, title) {
 
   if (_ytPlayer.player && typeof _ytPlayer.player.loadVideoById === 'function') {
     _ytPlayer.player.loadVideoById(videoId);
-    // Pause immediately — wait for host play command
+    // Pause after ~1s: loadVideoById triggers autoplay; we want guests to hold
+    // on the first frame until they receive a HOST_YOUTUBE_PLAY command.
+    // 1000ms gives the player time to buffer and render a frame before pausing.
     setTimeout(function() {
       if (_ytPlayer.player && typeof _ytPlayer.player.pauseVideo === 'function') {
         _ytPlayer.player.pauseVideo();
@@ -12710,7 +12712,9 @@ function ytGuestLoadVideo(videoId, title) {
 function ytGuestPlay(hostTime) {
   if (!_ytPlayer.player) return;
   var seekTarget = (typeof hostTime === 'number' && hostTime >= 0) ? hostTime : 0;
-  // Small network latency compensation (~0.3s)
+  // Add ~0.3s to compensate for typical WebSocket round-trip latency so the
+  // guest video position roughly aligns with the host's current position when
+  // the message was sent. Adjust if measured drift is consistently higher/lower.
   seekTarget += 0.3;
   try {
     _ytPlayer.player.seekTo(seekTarget, true);

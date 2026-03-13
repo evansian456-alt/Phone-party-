@@ -357,7 +357,7 @@ test.describe('YouTube Party Player — search API', () => {
     await signupAndLogin(request, searchUser);
   });
 
-  test('GET /api/streaming/search returns 403 for FREE user', async ({ request }) => {
+  test('GET /api/streaming/search returns error status for FREE user (403 tier or 503 disabled)', async ({ request }) => {
     await request.post(`${BASE}/api/auth/login`, {
       data: { email: searchUser.email, password: searchUser.password },
     });

@@ -9228,7 +9228,7 @@ function handleHostYouTubeVideo(ws, msg) {
   }
 
   const videoId = (msg.videoId || '').trim();
-  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+  if (!videoId || videoId.length !== 11 || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
     safeSend(ws, JSON.stringify({
       t: 'ERROR',
       errorType: 'INVALID_PAYLOAD',
