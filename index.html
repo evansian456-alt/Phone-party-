@@ -482,6 +482,9 @@
           <button class="btn" id="btnDjAddons" title="Add-ons" style="background: rgba(255,255,255,0.1);">
             ✨ Add-ons
           </button>
+          <button class="btn" id="btnReportPartyHost" title="Report this party" style="background: rgba(255,80,80,0.15);" onclick="openReportPartyModal()">
+            🚩 Report
+          </button>
           <button class="btn danger" id="btnLeave" data-testid="end-party">Leave</button>
         </div>
       </div>
@@ -970,6 +973,7 @@
         <div class="dj-now-playing">
           <div class="dj-now-playing-label">NOW PLAYING</div>
           <div class="dj-now-playing-track" id="djNowPlayingTrack">No Track</div>
+          <button class="btn-report-small" style="margin-top:4px;" onclick="openReportTrackModal({title:document.getElementById('djNowPlayingTrack')&&document.getElementById('djNowPlayingTrack').textContent})">🚩 Report Track</button>
         </div>
         
         <!-- Up Next Display -->
@@ -1298,6 +1302,9 @@
           <button class="btn" id="btnGuestAddons" title="Add-ons" style="background: rgba(255,255,255,0.1);">
             ✨ Add-ons
           </button>
+          <button class="btn" id="btnReportPartyGuest" title="Report this party" style="background: rgba(255,80,80,0.15);" onclick="openReportPartyModal()">
+            🚩 Report
+          </button>
           <button class="btn danger" id="btnGuestLeave">Leave Party</button>
         </div>
       </div>
@@ -1351,6 +1358,7 @@
               <span class="playback-state-icon" id="guestPlaybackStateIcon">⏸</span>
               <span class="playback-state-text" id="guestPlaybackStateText">Waiting</span>
             </div>
+            <button class="btn-report-small" style="margin-top:4px;" onclick="openReportTrackModal({title:document.getElementById('guestNowPlayingFilename')&&document.getElementById('guestNowPlayingFilename').textContent})">🚩 Report Track</button>
           </div>
         </div>
       </div>
@@ -2959,6 +2967,21 @@
           <li>Streaming Party features are available for Party Pass and Pro subscribers only.</li>
           <li>Phone Party is not affiliated with YouTube, Spotify, or SoundCloud.</li>
         </ul>
+
+        <h3>10. User Content, Copyright, and Moderation</h3>
+        <p>Users may only upload, share, or submit content that they own or have the legal right to distribute or use. By sharing content on Phone Party, you represent and warrant that you hold all necessary rights and licences.</p>
+        <p>Phone Party provides tools for users to report tracks, messages, parties, and users for copyright infringement, abuse, spam, harassment, or other violations. To submit a copyright complaint, use the in-app reporting tools or contact us through the designated support channel.</p>
+        <p>Phone Party does not actively review all user content in advance, but may review reported content and remove, disable, or restrict access where appropriate.</p>
+        <p>Abusive, harassing, spammy, or otherwise harmful behaviour may result in warnings, temporary suspensions, or permanent account bans, following admin review and in accordance with our enforcement ladder:</p>
+        <ul>
+          <li><strong>First confirmed violation:</strong> warning issued by admin.</li>
+          <li><strong>Repeated or serious violations:</strong> temporary suspension.</li>
+          <li><strong>Severe or persistent abuse:</strong> permanent account ban.</li>
+        </ul>
+        <p>Automatic message filters may block or hide obviously abusive, spammy, or harmful content before it is seen. Filtered content may be escalated to admin review.</p>
+        <p><strong>Host moderation is limited to party/session-level control only.</strong> Hosts may mute or remove guests from their current party, remove tracks from the queue, or lock the chat. Hosts cannot issue platform-wide bans or suspensions.</p>
+        <p><strong>Platform-wide bans are admin-only actions</strong> and are issued only after review of evidence and in cases of repeated or severe violations. Phone Party will not auto-ban users based solely on a single report.</p>
+        <p>Repeat offenders may have their accounts suspended or permanently terminated. If you believe a moderation decision was made in error, please contact us through the app.</p>
       </div>
       <div class="auth-links" style="margin-top:1.5rem">
         <a href="#" class="link-to-privacy">Privacy Policy</a>
@@ -3189,5 +3212,342 @@
       }
     });
   </script>
+  <!-- ===== MODERATION MODALS ===== -->
+
+  <!-- Report Party Modal -->
+  <div class="moderation-modal hidden" id="reportPartyModal" role="dialog" aria-modal="true" aria-labelledby="reportPartyModalTitle">
+    <div class="moderation-modal-inner">
+      <h3 id="reportPartyModalTitle">🚩 Report Party</h3>
+      <p class="muted" style="font-size:13px;margin-bottom:1rem">Select a reason for reporting this party.</p>
+      <select id="reportPartyReason" class="moderation-select">
+        <option value="">— Select reason —</option>
+        <option value="inappropriate_content">Inappropriate content</option>
+        <option value="harassment">Harassment or abuse</option>
+        <option value="spam">Spam</option>
+        <option value="copyright">Copyright infringement</option>
+        <option value="other">Other</option>
+      </select>
+      <textarea id="reportPartyDescription" class="moderation-textarea" placeholder="Optional: describe the issue..." maxlength="500"></textarea>
+      <div class="moderation-modal-actions">
+        <button class="btn primary" onclick="submitReportParty()">Submit Report</button>
+        <button class="btn secondary" onclick="closeModerationModal('reportPartyModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Report Track Modal -->
+  <div class="moderation-modal hidden" id="reportTrackModal" role="dialog" aria-modal="true" aria-labelledby="reportTrackModalTitle">
+    <div class="moderation-modal-inner">
+      <h3 id="reportTrackModalTitle">🚩 Report Track</h3>
+      <p class="muted" style="font-size:13px;margin-bottom:1rem" id="reportTrackInfo"></p>
+      <select id="reportTrackReason" class="moderation-select">
+        <option value="">— Select reason —</option>
+        <option value="copyright_infringement">Copyright infringement</option>
+        <option value="unauthorized_upload">Unauthorized upload</option>
+        <option value="inappropriate_content">Inappropriate content</option>
+        <option value="other">Other</option>
+      </select>
+      <textarea id="reportTrackDescription" class="moderation-textarea" placeholder="Optional: describe the issue..." maxlength="500"></textarea>
+      <div class="moderation-modal-actions">
+        <button class="btn primary" onclick="submitReportTrack()">Submit Report</button>
+        <button class="btn secondary" onclick="closeModerationModal('reportTrackModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Report Message Modal -->
+  <div class="moderation-modal hidden" id="reportMessageModal" role="dialog" aria-modal="true" aria-labelledby="reportMessageModalTitle">
+    <div class="moderation-modal-inner">
+      <h3 id="reportMessageModalTitle">🚩 Report Message</h3>
+      <p class="muted" style="font-size:13px;margin-bottom:1rem" id="reportMessageInfo"></p>
+      <select id="reportMessageReason" class="moderation-select">
+        <option value="">— Select reason —</option>
+        <option value="abuse">Abusive or offensive</option>
+        <option value="harassment">Harassment</option>
+        <option value="spam">Spam</option>
+        <option value="other">Other</option>
+      </select>
+      <textarea id="reportMessageDescription" class="moderation-textarea" placeholder="Optional: describe the issue..." maxlength="500"></textarea>
+      <div class="moderation-modal-actions">
+        <button class="btn primary" onclick="submitReportMessage()">Submit Report</button>
+        <button class="btn secondary" onclick="closeModerationModal('reportMessageModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Report User Modal -->
+  <div class="moderation-modal hidden" id="reportUserModal" role="dialog" aria-modal="true" aria-labelledby="reportUserModalTitle">
+    <div class="moderation-modal-inner">
+      <h3 id="reportUserModalTitle">🚩 Report User</h3>
+      <p class="muted" style="font-size:13px;margin-bottom:1rem" id="reportUserInfo"></p>
+      <select id="reportUserReason" class="moderation-select">
+        <option value="">— Select reason —</option>
+        <option value="abuse">Abusive behaviour</option>
+        <option value="harassment">Harassment</option>
+        <option value="spam">Spam</option>
+        <option value="inappropriate">Inappropriate content</option>
+        <option value="other">Other</option>
+      </select>
+      <textarea id="reportUserDescription" class="moderation-textarea" placeholder="Optional: describe the issue..." maxlength="500"></textarea>
+      <div class="moderation-modal-actions">
+        <button class="btn primary" onclick="submitReportUser()">Submit Report</button>
+        <button class="btn secondary" onclick="closeModerationModal('reportUserModal')">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Moderation Toast Notification -->
+  <div class="moderation-toast hidden" id="moderationToast"></div>
+
+  <style>
+    .moderation-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .moderation-modal.hidden { display: none; }
+    .moderation-modal-inner {
+      background: #1a1a2e;
+      border: 1px solid rgba(157,78,221,0.4);
+      border-radius: 12px;
+      padding: 1.5rem;
+      width: 100%;
+      max-width: 400px;
+    }
+    .moderation-modal-inner h3 { margin: 0 0 0.5rem 0; font-size: 18px; }
+    .moderation-select {
+      width: 100%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(157,78,221,0.4);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.6rem 0.75rem;
+      font-size: 14px;
+      margin-bottom: 0.75rem;
+    }
+    .moderation-textarea {
+      width: 100%;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(157,78,221,0.4);
+      border-radius: 8px;
+      color: #fff;
+      padding: 0.6rem 0.75rem;
+      font-size: 14px;
+      resize: vertical;
+      min-height: 80px;
+      margin-bottom: 1rem;
+      box-sizing: border-box;
+    }
+    .moderation-modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+    .moderation-toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(20,20,35,0.97);
+      border: 1px solid rgba(157,78,221,0.5);
+      color: #fff;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 10000;
+      white-space: nowrap;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    }
+    .moderation-toast.hidden { display: none; }
+    .queue-item-actions { display: flex; gap: 4px; align-items: center; }
+    .btn-report-small {
+      background: rgba(255,80,80,0.15);
+      border: 1px solid rgba(255,80,80,0.3);
+      border-radius: 6px;
+      color: #ff8080;
+      font-size: 11px;
+      padding: 3px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-report-small:hover { background: rgba(255,80,80,0.3); }
+    .btn-host-action-small {
+      background: rgba(255,165,0,0.15);
+      border: 1px solid rgba(255,165,0,0.3);
+      border-radius: 6px;
+      color: #ffaa44;
+      font-size: 11px;
+      padding: 3px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-host-action-small:hover { background: rgba(255,165,0,0.3); }
+    .guest-participant-card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(157,78,221,0.2);
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.4rem;
+    }
+    .guest-participant-name { font-size: 14px; font-weight: 500; }
+    .guest-participant-actions { display: flex; gap: 4px; }
+    .host-participant-section { margin-top: 1rem; }
+  </style>
+
+  <script>
+    // ===== MODERATION UI JAVASCRIPT =====
+    var _reportContext = {};
+
+    function showModerationToast(msg) {
+      var t = document.getElementById('moderationToast');
+      if (!t) return;
+      t.textContent = msg;
+      t.classList.remove('hidden');
+      setTimeout(function() { t.classList.add('hidden'); }, 3500);
+    }
+
+    function closeModerationModal(id) {
+      var m = document.getElementById(id);
+      if (m) m.classList.add('hidden');
+    }
+
+    function openModerationModal(id) {
+      var m = document.getElementById(id);
+      if (m) m.classList.remove('hidden');
+    }
+
+    // ---- Report Party ----
+    function openReportPartyModal() {
+      var partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : '';
+      _reportContext.partyId = partyId;
+      var sel = document.getElementById('reportPartyReason');
+      var txt = document.getElementById('reportPartyDescription');
+      if (sel) sel.value = '';
+      if (txt) txt.value = '';
+      openModerationModal('reportPartyModal');
+    }
+
+    function submitReportParty() {
+      var reason = document.getElementById('reportPartyReason') && document.getElementById('reportPartyReason').value;
+      var description = document.getElementById('reportPartyDescription') && document.getElementById('reportPartyDescription').value;
+      if (!reason) { showModerationToast('Please select a reason.'); return; }
+      closeModerationModal('reportPartyModal');
+      fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ type: 'party', targetId: _reportContext.partyId || 'unknown', partyId: _reportContext.partyId, reason: reason, description: description || '' })
+      }).then(function(r) { return r.json(); })
+        .then(function(d) { showModerationToast(d.message || 'Report submitted.'); })
+        .catch(function() { showModerationToast('Report submitted.'); });
+    }
+
+    // ---- Report Track ----
+    function openReportTrackModal(trackInfo) {
+      _reportContext.track = trackInfo || {};
+      var infoEl = document.getElementById('reportTrackInfo');
+      if (infoEl) infoEl.textContent = trackInfo && trackInfo.title ? ('Track: ' + trackInfo.title) : 'Current track';
+      var sel = document.getElementById('reportTrackReason');
+      var txt = document.getElementById('reportTrackDescription');
+      if (sel) sel.value = '';
+      if (txt) txt.value = '';
+      openModerationModal('reportTrackModal');
+    }
+
+    function submitReportTrack() {
+      var reason = document.getElementById('reportTrackReason') && document.getElementById('reportTrackReason').value;
+      var description = document.getElementById('reportTrackDescription') && document.getElementById('reportTrackDescription').value;
+      if (!reason) { showModerationToast('Please select a reason.'); return; }
+      var t = _reportContext.track || {};
+      var partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
+      closeModerationModal('reportTrackModal');
+      fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          type: 'track',
+          targetId: t.id || t.title || 'unknown',
+          partyId: partyId,
+          reason: reason,
+          description: description || '',
+          evidence: { trackId: t.id, title: t.title, provider: t.provider, providerRef: t.providerRef, artist: t.artist, queuePosition: t.queuePosition, sourceUrl: t.sourceUrl }
+        })
+      }).then(function(r) { return r.json(); })
+        .then(function(d) { showModerationToast(d.message || 'Track reported.'); })
+        .catch(function() { showModerationToast('Track reported.'); });
+    }
+
+    // ---- Report Message ----
+    function openReportMessageModal(messageId, messageText, senderId) {
+      _reportContext.message = { id: messageId, text: messageText, senderId: senderId };
+      var infoEl = document.getElementById('reportMessageInfo');
+      if (infoEl) infoEl.textContent = messageText ? ('"' + messageText.slice(0, 80) + '"') : 'This message';
+      var sel = document.getElementById('reportMessageReason');
+      var txt = document.getElementById('reportMessageDescription');
+      if (sel) sel.value = '';
+      if (txt) txt.value = '';
+      openModerationModal('reportMessageModal');
+    }
+
+    function submitReportMessage() {
+      var reason = document.getElementById('reportMessageReason') && document.getElementById('reportMessageReason').value;
+      var description = document.getElementById('reportMessageDescription') && document.getElementById('reportMessageDescription').value;
+      if (!reason) { showModerationToast('Please select a reason.'); return; }
+      var m = _reportContext.message || {};
+      var partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
+      closeModerationModal('reportMessageModal');
+      fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ type: 'message', targetId: m.id || 'unknown', partyId: partyId, reportedUserId: m.senderId || null, reason: reason, description: description || '', evidence: { messageText: m.text } })
+      }).then(function(r) { return r.json(); })
+        .then(function(d) { showModerationToast(d.message || 'Message reported.'); })
+        .catch(function() { showModerationToast('Message reported.'); });
+    }
+
+    // ---- Report User ----
+    function openReportUserModal(userId, userName) {
+      _reportContext.reportedUser = { id: userId, name: userName };
+      var infoEl = document.getElementById('reportUserInfo');
+      if (infoEl) infoEl.textContent = userName ? ('User: ' + userName) : 'This user';
+      var sel = document.getElementById('reportUserReason');
+      var txt = document.getElementById('reportUserDescription');
+      if (sel) sel.value = '';
+      if (txt) txt.value = '';
+      openModerationModal('reportUserModal');
+    }
+
+    function submitReportUser() {
+      var reason = document.getElementById('reportUserReason') && document.getElementById('reportUserReason').value;
+      var description = document.getElementById('reportUserDescription') && document.getElementById('reportUserDescription').value;
+      if (!reason) { showModerationToast('Please select a reason.'); return; }
+      var u = _reportContext.reportedUser || {};
+      var partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
+      closeModerationModal('reportUserModal');
+      fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ type: 'user', targetId: u.id || 'unknown', partyId: partyId, reportedUserId: u.id || null, reason: reason, description: description || '' })
+      }).then(function(r) { return r.json(); })
+        .then(function(d) { showModerationToast(d.message || 'User reported.'); })
+        .catch(function() { showModerationToast('User reported.'); });
+    }
+
+    // Close modals on backdrop click
+    document.addEventListener('click', function(e) {
+      ['reportPartyModal','reportTrackModal','reportMessageModal','reportUserModal'].forEach(function(id) {
+        var m = document.getElementById(id);
+        if (m && e.target === m) closeModerationModal(id);
+      });
+    });
+  </script>
+
 </body>
 </html>
