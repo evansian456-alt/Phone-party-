@@ -6334,6 +6334,22 @@ body.light-mode .input-field {
   margin-right: auto;
 }
 
+.landing-app-links {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 32px auto 0;
+  max-width: 400px;
+  width: 100%;
+}
+
+.landing-app-links a {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
 .btn-landing-primary,
 .btn-landing-secondary {
   padding: 24px 40px;
