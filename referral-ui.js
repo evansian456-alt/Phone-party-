@@ -15,7 +15,7 @@
 const SHARE_PLATFORMS = [
   { id: 'whatsapp',  label: '💬 WhatsApp',  urlFn: (u, t) => `https://wa.me/?text=${encodeURIComponent(t + '\n' + u)}` },
   { id: 'facebook',  label: '👍 Facebook',  urlFn: (u)    => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}` },
-  { id: 'sms',       label: '📱 SMS',       urlFn: (u, t) => `sms:?&body=${encodeURIComponent(t + '\n' + u)}` },
+  { id: 'sms',       label: '📱 SMS',       urlFn: (u, t) => `sms:?body=${encodeURIComponent(t + '\n' + u)}` },
   { id: 'email',     label: '📧 Email',     urlFn: (u, t) => `mailto:?subject=${encodeURIComponent('Join my Phone Party 🎉')}&body=${encodeURIComponent(t + '\n' + u)}` },
   { id: 'snapchat',  label: '👻 Snapchat',  native: true  },
   { id: 'tiktok',    label: '🎵 TikTok',    native: true  },
@@ -260,11 +260,135 @@ class ReferralUI {
       try {
         await navigator.share({ title: 'Join my Phone Party 🎉', text, url });
       } catch (e) {
-        if (e.name !== 'AbortError') this._copyLink();
+        if (e.name !== 'AbortError') this._showShareFallback(url);
       }
     } else {
-      this._copyLink();
+      this._showShareFallback(url);
     }
+  }
+
+  _showShareFallback(url) {
+    const text = shareText(url);
+    // Remove any existing share fallback modal
+    const existing = document.getElementById('shareSheetModal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'shareSheetModal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Share options');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.6);';
+
+    const sheet = document.createElement('div');
+    sheet.style.cssText = 'background:#1a1a2e;border-radius:16px 16px 0 0;padding:1.25rem;width:100%;max-width:480px;box-shadow:0 -4px 24px rgba(0,0,0,0.5);';
+
+    // Header row
+    const header = document.createElement('div');
+    header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;';
+
+    const title = document.createElement('h3');
+    title.textContent = '📤 Share via';
+    title.style.cssText = 'margin:0;font-size:1rem;';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'btnShareSheetClose';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.textContent = '✕';
+    closeBtn.style.cssText = 'background:none;border:none;color:#aaa;font-size:1.4rem;cursor:pointer;padding:0.25rem;';
+
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    // Platform buttons row
+    const platformRow = document.createElement('div');
+    platformRow.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;';
+
+    SHARE_PLATFORMS.forEach(p => {
+      const btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.setAttribute('data-ssplatform', p.id);
+      btn.textContent = p.label;
+      btn.style.cssText = 'flex:1 0 auto;min-width:calc(50% - 0.25rem);text-align:center;padding:0.6rem 0.5rem;font-size:0.85rem;';
+
+      if (p.native) {
+        // Snapchat / TikTok: try Web Share API, fallback to copy
+        btn.addEventListener('click', () => {
+          if (navigator.share) {
+            navigator.share({ title: 'Join my Phone Party 🎉', text, url })
+              .catch(() => {
+                navigator.clipboard && navigator.clipboard.writeText(url).catch(() => {});
+                const orig = btn.textContent;
+                btn.textContent = '✓ Copied! Paste in app';
+                setTimeout(() => { btn.textContent = orig; }, 2000);
+              });
+          } else {
+            navigator.clipboard && navigator.clipboard.writeText(url).catch(() => {});
+            const orig = btn.textContent;
+            btn.textContent = '✓ Copied! Paste in app';
+            setTimeout(() => { btn.textContent = orig; }, 2000);
+          }
+        });
+      } else if (p.urlFn) {
+        const platformUrl = p.urlFn(url, text);
+        btn.addEventListener('click', () => window.open(platformUrl, '_blank', 'noopener,noreferrer'));
+      }
+
+      platformRow.appendChild(btn);
+    });
+
+    // Copy-link row
+    const copyRow = document.createElement('div');
+    copyRow.style.cssText = 'display:flex;gap:0.5rem;align-items:center;';
+
+    const linkInput = document.createElement('input');
+    linkInput.id = 'shareSheetLinkInput';
+    linkInput.type = 'text';
+    linkInput.readOnly = true;
+    linkInput.value = url;
+    linkInput.style.cssText = 'flex:1;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:8px;padding:0.5rem 0.75rem;color:#fff;font-size:0.8rem;';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.id = 'btnShareSheetCopy';
+    copyBtn.className = 'btn primary';
+    copyBtn.textContent = '📋 Copy';
+    copyBtn.style.cssText = 'white-space:nowrap;padding:0.5rem 0.75rem;font-size:0.85rem;';
+
+    copyRow.appendChild(linkInput);
+    copyRow.appendChild(copyBtn);
+
+    sheet.appendChild(header);
+    sheet.appendChild(platformRow);
+    sheet.appendChild(copyRow);
+    modal.appendChild(sheet);
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+
+    // Close when clicking the backdrop
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    closeBtn.addEventListener('click', close);
+
+    // Keyboard dismiss
+    const onKey = (e) => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
+    document.addEventListener('keydown', onKey);
+
+    // Copy link button
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch (_) {
+        // execCommand fallback
+        const ta = document.createElement('textarea');
+        ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (_2) { /* ignore */ }
+        document.body.removeChild(ta);
+      }
+      copyBtn.textContent = '✓ Copied!';
+      copyBtn.style.background = 'rgba(0,255,0,0.3)';
+      setTimeout(() => { copyBtn.textContent = '📋 Copy'; copyBtn.style.background = ''; }, 2000);
+    });
   }
 
   _sharePlatform(platformId) {
@@ -372,12 +496,13 @@ class ReferralUI {
       el.addEventListener('click', () => this.openInvitePage());
     });
 
-    // Hub promo "Share Invite Link" button
+    // Hub promo "Share Invite Link" button — triggers native share directly,
+    // then falls back to an inline share sheet with platform-specific buttons.
     const hubShareBtn = document.getElementById('btnHubShareInvite');
     if (hubShareBtn) {
       hubShareBtn.addEventListener('click', () => {
         this._fireEvent('referral_promo_clicked', { location: 'hub' });
-        this.openInvitePage();
+        this._nativeShare();
       });
     }
 
@@ -425,7 +550,7 @@ class ReferralUI {
     this._fireEvent('referral_promo_clicked', { location: 'direct' });
     if (typeof window.setView === 'function' &&
         document.getElementById('viewInviteFriends')) {
-      window.setView('viewInviteFriends');
+      window.setView('inviteFriends');
       this.startPolling();
     } else {
       // Fallback: show old modal
