@@ -277,4 +277,115 @@ describe('Admin System', () => {
       expect(b.health.db).toBe('ok');
     });
   });
+
+  // ── 5. Admin promo code endpoints ─────────────────────────────────────────
+  describe('Admin promo code endpoints', () => {
+    let authMW;
+    let app;
+    const originalAdminEmails = process.env.ADMIN_EMAILS;
+
+    beforeAll(() => {
+      jest.resetModules();
+      process.env.ADMIN_EMAILS = 'admin@example.com';
+      authMW = require('./auth-middleware');
+
+      app = express();
+      app.use(cookieParser());
+      app.use(express.json());
+
+      const db = require('./database');
+
+      // POST /api/admin/promo-codes stub
+      app.post('/api/admin/promo-codes', authMW.requireAdmin, async (req, res) => {
+        const { type } = req.body;
+        if (!type || !['party_pass', 'pro_monthly'].includes(type)) {
+          return res.status(400).json({ error: "type must be 'party_pass' or 'pro_monthly'" });
+        }
+        // Simulate DB insert
+        db.query.mockResolvedValueOnce({ rows: [] });
+        await db.query(`INSERT INTO promo_codes (code, type, created_by) VALUES ($1, $2, $3)`, ['PROMO-TEST1234', type, 'u1']);
+        return res.status(201).json({ ok: true, code: 'PROMO-TEST1234', type });
+      });
+
+      // GET /api/admin/promo-codes stub
+      app.get('/api/admin/promo-codes', authMW.requireAdmin, async (_req, res) => {
+        db.query.mockResolvedValueOnce({
+          rows: [
+            { id: 'uuid-1', code: 'PROMO-TEST1234', type: 'party_pass', is_used: false, created_at: new Date().toISOString(), created_by_email: 'admin@example.com', used_at: null, used_by_email: null }
+          ]
+        });
+        const result = await db.query('SELECT * FROM promo_codes');
+        return res.json({ ok: true, promoCodes: result.rows });
+      });
+    });
+
+    afterAll(() => {
+      if (originalAdminEmails === undefined) delete process.env.ADMIN_EMAILS;
+      else process.env.ADMIN_EMAILS = originalAdminEmails;
+    });
+
+    it('POST /api/admin/promo-codes returns 401 when unauthenticated', async () => {
+      const res = await request(app).post('/api/admin/promo-codes').send({ type: 'party_pass' });
+      expect(res.status).toBe(401);
+    });
+
+    it('POST /api/admin/promo-codes returns 403 for non-admin', async () => {
+      const token = authMW.generateToken({ userId: 'u2', email: 'user@example.com', isAdmin: false });
+      const res = await request(app)
+        .post('/api/admin/promo-codes')
+        .set('Cookie', `auth_token=${token}`)
+        .send({ type: 'party_pass' });
+      expect(res.status).toBe(403);
+    });
+
+    it('POST /api/admin/promo-codes returns 400 for invalid type', async () => {
+      const token = authMW.generateToken({ userId: 'u1', email: 'admin@example.com', isAdmin: true });
+      const res = await request(app)
+        .post('/api/admin/promo-codes')
+        .set('Cookie', `auth_token=${token}`)
+        .send({ type: 'invalid_type' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/party_pass.*pro_monthly/i);
+    });
+
+    it('POST /api/admin/promo-codes returns 201 with code for admin (party_pass)', async () => {
+      const token = authMW.generateToken({ userId: 'u1', email: 'admin@example.com', isAdmin: true });
+      const res = await request(app)
+        .post('/api/admin/promo-codes')
+        .set('Cookie', `auth_token=${token}`)
+        .send({ type: 'party_pass' });
+      expect(res.status).toBe(201);
+      expect(res.body.ok).toBe(true);
+      expect(typeof res.body.code).toBe('string');
+      expect(res.body.type).toBe('party_pass');
+    });
+
+    it('POST /api/admin/promo-codes returns 201 with code for admin (pro_monthly)', async () => {
+      const token = authMW.generateToken({ userId: 'u1', email: 'admin@example.com', isAdmin: true });
+      const res = await request(app)
+        .post('/api/admin/promo-codes')
+        .set('Cookie', `auth_token=${token}`)
+        .send({ type: 'pro_monthly' });
+      expect(res.status).toBe(201);
+      expect(res.body.type).toBe('pro_monthly');
+    });
+
+    it('GET /api/admin/promo-codes returns 401 when unauthenticated', async () => {
+      const res = await request(app).get('/api/admin/promo-codes');
+      expect(res.status).toBe(401);
+    });
+
+    it('GET /api/admin/promo-codes returns list for admin', async () => {
+      const token = authMW.generateToken({ userId: 'u1', email: 'admin@example.com', isAdmin: true });
+      const res = await request(app)
+        .get('/api/admin/promo-codes')
+        .set('Cookie', `auth_token=${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.ok).toBe(true);
+      expect(Array.isArray(res.body.promoCodes)).toBe(true);
+      expect(res.body.promoCodes[0]).toHaveProperty('code');
+      expect(res.body.promoCodes[0]).toHaveProperty('type');
+      expect(res.body.promoCodes[0]).toHaveProperty('is_used');
+    });
+  });
 });

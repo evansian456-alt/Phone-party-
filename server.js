@@ -4622,7 +4622,7 @@ app.post("/api/end-party", apiLimiter, authMiddleware.optionalAuth, async (req, 
 });
 
 // POST /api/apply-promo - Apply promo code to unlock party-wide Pro
-app.post("/api/apply-promo", async (req, res) => {
+app.post("/api/apply-promo", apiLimiter, authMiddleware.optionalAuth, async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/apply-promo at ${timestamp}, instanceId: ${INSTANCE_ID}`, req.body);
   
@@ -4652,19 +4652,72 @@ app.post("/api/apply-promo", async (req, res) => {
         details: "Multi-device features require Redis"
       });
     }
+
+    // ── Check DB-backed admin-generated promo codes first ─────────────────────
+    let dbPromo = null;
+    try {
+      const dbResult = await db.query(
+        `SELECT id, code, type, is_used FROM promo_codes WHERE code = $1`,
+        [promo]
+      );
+      if (dbResult.rows.length > 0) {
+        dbPromo = dbResult.rows[0];
+      }
+    } catch (dbErr) { console.warn('[Promo] DB lookup unavailable, falling back to legacy codes:', dbErr.message); }
+
+    if (dbPromo) {
+      // Found in DB — enforce one-time-use
+      if (dbPromo.is_used) {
+        console.log(`[Promo] DB promo code already used: ${promo}, partyCode: ${code}`);
+        return res.status(400).json({ error: "This promo code has already been used." });
+      }
+
+      const userId = req.user ? (req.user.id || req.user.userId) : null;
+
+      // Mark as used atomically
+      const updated = await db.query(
+        `UPDATE promo_codes SET is_used = TRUE, used_at = NOW(), used_by = $1
+         WHERE id = $2 AND is_used = FALSE
+         RETURNING id`,
+        [userId || null, dbPromo.id]
+      );
+      if (updated.rows.length === 0) {
+        // Race condition — another request beat us to it
+        return res.status(400).json({ error: "This promo code has already been used." });
+      }
+
+      // Apply the benefit based on promo type
+      if (dbPromo.type === 'pro_monthly' && userId) {
+        // Activate pro monthly subscription for the authenticated user
+        await db.activateProMonthly(userId, 'promo', promo);
+        console.log(`[Promo] DB promo ${promo} (pro_monthly) applied for user ${userId}`);
+        return res.json({ ok: true, type: 'pro_monthly', message: "Pro Monthly activated!" });
+      }
+
+      // Default: party_pass — unlock party-wide Pro (same as legacy flow)
+      // (also used for pro_monthly codes when user is not logged in)
+      const partyData = await _getPartyDataForPromo(code, useRedis);
+      if (!partyData) {
+        return res.status(404).json({ error: ErrorMessages.partyNotFound() });
+      }
+
+      if (partyData.promoUsed) {
+        return res.status(400).json({ error: "This party already used a promo code." });
+      }
+
+      partyData.promoUsed = true;
+      partyData.partyPro = true;
+      await _savePartyDataForPromo(code, partyData, useRedis);
+      _updateWsPartyForPromo(code);
+
+      console.log(`[Promo] DB promo ${promo} (${dbPromo.type}) unlocked party ${code}`);
+      return res.json({ ok: true, type: dbPromo.type, partyPro: true, message: "Pro unlocked for this party!" });
+    }
+
+    // ── Fall back to legacy hardcoded promo codes ──────────────────────────────
     
     // Get party data
-    let partyData;
-    if (useRedis) {
-      try {
-        partyData = await getPartyFromRedis(code);
-      } catch (error) {
-        console.warn(`[HTTP] Redis error, trying fallback: ${error.message}`);
-        partyData = getPartyFromFallback(code);
-      }
-    } else {
-      partyData = getPartyFromFallback(code);
-    }
+    const partyData = await _getPartyDataForPromo(code, useRedis);
     
     if (!partyData) {
       return res.status(404).json({ error: ErrorMessages.partyNotFound() });
@@ -4686,27 +4739,9 @@ app.post("/api/apply-promo", async (req, res) => {
     partyData.promoUsed = true;
     partyData.partyPro = true;
     console.log(`[Promo] Party ${code} unlocked with promo code ${promo} via HTTP`);
-    
-    // Save updated party data
-    if (useRedis) {
-      try {
-        await setPartyInRedis(code, partyData);
-      } catch (error) {
-        console.warn(`[HTTP] Redis write failed for ${code}, using fallback: ${error.message}`);
-        setPartyInFallback(code, partyData);
-      }
-    } else {
-      setPartyInFallback(code, partyData);
-    }
-    
-    // Also update WebSocket party if it exists
-    const wsParty = parties.get(code);
-    if (wsParty) {
-      wsParty.promoUsed = true;
-      wsParty.partyPro = true;
-      // Broadcast to all WebSocket members
-      broadcastRoomState(code);
-    }
+
+    await _savePartyDataForPromo(code, partyData, useRedis);
+    _updateWsPartyForPromo(code);
     
     res.json({ 
       ok: true, 
@@ -4722,6 +4757,41 @@ app.post("/api/apply-promo", async (req, res) => {
     });
   }
 });
+
+/** Helper: load party data from Redis or fallback for promo flow */
+async function _getPartyDataForPromo(code, useRedis) {
+  if (useRedis) {
+    try {
+      return await getPartyFromRedis(code);
+    } catch (_) {
+      return getPartyFromFallback(code);
+    }
+  }
+  return getPartyFromFallback(code);
+}
+
+/** Helper: save party data to Redis or fallback for promo flow */
+async function _savePartyDataForPromo(code, partyData, useRedis) {
+  if (useRedis) {
+    try {
+      await setPartyInRedis(code, partyData);
+    } catch (_) {
+      setPartyInFallback(code, partyData);
+    }
+  } else {
+    setPartyInFallback(code, partyData);
+  }
+}
+
+/** Helper: update in-memory WS party and broadcast for promo flow */
+function _updateWsPartyForPromo(code) {
+  const wsParty = parties.get(code);
+  if (wsParty) {
+    wsParty.promoUsed = true;
+    wsParty.partyPro = true;
+    broadcastRoomState(code);
+  }
+}
 
 // GET /api/party/:code/debug - Enhanced debug endpoint with Redis TTL info
 app.get("/api/party/:code/debug", async (req, res) => {
@@ -6091,6 +6161,71 @@ app.post('/api/admin/moderation/action', rateLimit({ windowMs: 60000, max: 60 })
   } catch (error) {
     console.error('[Moderation] Error applying admin action:', error.message);
     return res.status(500).json({ error: 'Failed to apply action' });
+  }
+});
+
+// ─── Admin Promo Code Endpoints ───────────────────────────────────────────────
+
+/**
+ * Generate a random promo code string: e.g. "PROMO-A3K7BZ2Q"
+ */
+function generatePromoCodeString() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I to avoid confusion
+  let result = 'PROMO-';
+  for (let i = 0; i < 8; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return result;
+}
+
+/**
+ * POST /api/admin/promo-codes
+ * Generate a new one-time-use promo code (party_pass or pro_monthly).
+ * Body: { type: 'party_pass' | 'pro_monthly' }
+ */
+app.post('/api/admin/promo-codes', rateLimit({ windowMs: 60000, max: 60 }), authMiddleware.requireAdmin, async (req, res) => {
+  try {
+    const { type } = req.body;
+    if (!type || !['party_pass', 'pro_monthly'].includes(type)) {
+      return res.status(400).json({ error: "type must be 'party_pass' or 'pro_monthly'" });
+    }
+
+    const code = generatePromoCodeString();
+    const adminId = req.user.id || req.user.userId;
+
+    await db.query(
+      `INSERT INTO promo_codes (code, type, created_by) VALUES ($1, $2, $3)`,
+      [code, type, adminId || null]
+    );
+
+    console.log(`[Admin] Promo code generated: ${code} (${type}) by admin ${adminId}`);
+    return res.status(201).json({ ok: true, code, type });
+  } catch (error) {
+    console.error('[Admin] Error generating promo code:', error.message);
+    return res.status(500).json({ error: 'Failed to generate promo code' });
+  }
+});
+
+/**
+ * GET /api/admin/promo-codes
+ * List all admin-generated promo codes with their usage status.
+ */
+app.get('/api/admin/promo-codes', rateLimit({ windowMs: 60000, max: 60 }), authMiddleware.requireAdmin, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT pc.id, pc.code, pc.type, pc.is_used, pc.used_at, pc.created_at,
+              creator.email AS created_by_email,
+              usedby.email  AS used_by_email
+       FROM promo_codes pc
+       LEFT JOIN users creator ON creator.id = pc.created_by
+       LEFT JOIN users usedby  ON usedby.id  = pc.used_by
+       ORDER BY pc.created_at DESC
+       LIMIT 200`
+    );
+    return res.json({ ok: true, promoCodes: result.rows });
+  } catch (error) {
+    console.error('[Admin] Error listing promo codes:', error.message);
+    return res.status(500).json({ error: 'Failed to list promo codes' });
   }
 });
 
@@ -8963,42 +9098,92 @@ function handleApplyPromo(ws, msg) {
   }
   
   // Validate promo code (case-insensitive, trim spaces)
-  const code = (msg.code || "").trim().toUpperCase();
-  if (!PROMO_CODES.includes(code)) {
-    console.log(`[Promo] Invalid promo code attempt: ${code}, partyCode: ${client.party}, clientId: ${client.id}`);
-    safeSend(ws, JSON.stringify({ 
-      t: "ERROR", 
-      message: "Invalid or expired promo code." 
-    }));
-    return;
-  }
-  
-  // Valid and unused - unlock party-wide Pro
-  party.promoUsed = true;
-  party.partyPro = true;
-  console.log(`[Promo] Party ${client.party} unlocked with promo code ${code}, clientId: ${client.id}`);
-  
-  // CRITICAL: Persist to Redis so promo state survives refresh and works cross-instance
-  // Use async IIFE to properly handle promises
+  const promoCode = (msg.code || "").trim().toUpperCase();
+  const partyCode = client.party;
+  const userId = client.userId || null;
+
+  // Check DB-backed admin promo codes first (async, then fall back to legacy)
   (async () => {
     try {
-      const partyData = await getPartyFromRedis(client.party);
-      if (partyData) {
-        const normalizedData = normalizePartyData(partyData);
-        normalizedData.promoUsed = true;
-        normalizedData.partyPro = true;
-        await setPartyInRedis(client.party, normalizedData);
-        console.log(`[Promo] Successfully persisted promo state to Redis for ${client.party}`);
-      } else {
-        console.warn(`[Promo] Party ${client.party} not found in Redis during promo persist`);
+      let dbPromo = null;
+      try {
+        const dbResult = await db.query(
+          `SELECT id, code, type, is_used FROM promo_codes WHERE code = $1`,
+          [promoCode]
+        );
+        if (dbResult.rows.length > 0) dbPromo = dbResult.rows[0];
+      } catch (dbErr) { console.warn('[Promo] WS DB lookup unavailable, falling back to legacy codes:', dbErr.message); }
+
+      if (dbPromo) {
+        if (dbPromo.is_used) {
+          safeSend(ws, JSON.stringify({ t: "ERROR", message: "This promo code has already been used." }));
+          return;
+        }
+        // Atomically mark as used
+        const updated = await db.query(
+          `UPDATE promo_codes SET is_used = TRUE, used_at = NOW(), used_by = $1
+           WHERE id = $2 AND is_used = FALSE RETURNING id`,
+          [userId, dbPromo.id]
+        );
+        if (updated.rows.length === 0) {
+          safeSend(ws, JSON.stringify({ t: "ERROR", message: "This promo code has already been used." }));
+          return;
+        }
+
+        // Apply pro_monthly to the authenticated user
+        if (dbPromo.type === 'pro_monthly' && userId) {
+          await db.activateProMonthly(userId, 'promo', promoCode);
+          console.log(`[Promo] WS DB promo ${promoCode} (pro_monthly) applied for user ${userId}`);
+          safeSend(ws, JSON.stringify({ t: "PROMO_APPLIED", type: 'pro_monthly', message: "Pro Monthly activated!" }));
+          return;
+        }
+
+        // party_pass type — unlock party-wide Pro
+        await _applyPromoToParty(partyCode, promoCode);
+        safeSend(ws, JSON.stringify({ t: "PROMO_APPLIED", type: dbPromo.type, partyPro: true, message: "Pro unlocked for this party!" }));
+        return;
       }
+
+      // Legacy hardcoded codes
+      if (!PROMO_CODES.includes(promoCode)) {
+        console.log(`[Promo] Invalid promo code attempt: ${promoCode}, partyCode: ${partyCode}, clientId: ${client.id}`);
+        safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid or expired promo code." }));
+        return;
+      }
+
+      await _applyPromoToParty(partyCode, promoCode);
+      safeSend(ws, JSON.stringify({ t: "PROMO_APPLIED", partyPro: true, message: "Pro unlocked for this party!" }));
     } catch (err) {
-      console.error(`[Promo] Error persisting promo to Redis for ${client.party}:`, err.message);
+      console.error(`[Promo] WS error applying promo ${promoCode} to party ${partyCode}:`, err.message);
+      safeSend(ws, JSON.stringify({ t: "ERROR", message: "Failed to apply promo code." }));
     }
   })();
-  
-  // Broadcast updated room state to all members
-  broadcastRoomState(client.party);
+}
+
+/** Shared helper: mark party as promoUsed+partyPro and persist to Redis */
+async function _applyPromoToParty(partyCode, promoCode) {
+  const party = parties.get(partyCode);
+  if (party) {
+    party.promoUsed = true;
+    party.partyPro = true;
+  }
+  console.log(`[Promo] Party ${partyCode} unlocked with promo code ${promoCode}`);
+  // Persist to Redis
+  try {
+    const partyData = await getPartyFromRedis(partyCode);
+    if (partyData) {
+      const normalizedData = normalizePartyData(partyData);
+      normalizedData.promoUsed = true;
+      normalizedData.partyPro = true;
+      await setPartyInRedis(partyCode, normalizedData);
+      console.log(`[Promo] Successfully persisted promo state to Redis for ${partyCode}`);
+    } else {
+      console.warn(`[Promo] Party ${partyCode} not found in Redis during promo persist`);
+    }
+  } catch (err) {
+    console.error(`[Promo] Error persisting promo to Redis for ${partyCode}:`, err.message);
+  }
+  broadcastRoomState(partyCode);
 }
 
 function handleDisconnect(ws) {
