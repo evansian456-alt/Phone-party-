@@ -111,26 +111,6 @@
           </button>
         </div>
 
-        <!-- Open App Links — direct links to the deployed application -->
-        <div class="landing-app-links">
-          <a href="https://app.phone-party.com" class="btn-landing-primary" target="_blank" rel="noopener noreferrer" data-testid="open-app-button">
-            🎵 Open App
-          </a>
-          <a href="https://app.phone-party.com/#signup" class="btn-landing-secondary" target="_blank" rel="noopener noreferrer" data-testid="app-signup-link">
-            ✨ Sign Up
-          </a>
-          <a href="https://app.phone-party.com/#login" class="btn-landing-secondary" target="_blank" rel="noopener noreferrer" data-testid="app-login-link">
-            🔑 Log In
-          </a>
-          <a href="https://app.phone-party.com/#create-join" class="btn-landing-secondary" target="_blank" rel="noopener noreferrer" data-testid="create-party-link">
-            🎉 Create Party
-          </a>
-          <a href="https://app.phone-party.com/#guest" class="btn-landing-secondary" target="_blank" rel="noopener noreferrer" data-testid="join-party-link">
-            📱 Join Party
-          </a>
-        </div>
-
-
       </div>
       <div class="blob blob-3"></div>
     </section>
@@ -2704,6 +2684,16 @@
           <div class="stat-item"><div class="stat-label">Revenue (30d)</div><div class="stat-value" id="adminPurchasesRevenue">—</div></div>
         </div>
         <div id="adminPurchasesBySku" style="margin-top:8px;font-size:13px"></div>
+      </div>
+      <!-- Moderation -->
+      <div class="profile-section">
+        <h3>🚨 Moderation Queue</h3>
+        <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+          <button class="btn" id="btnAdminLoadReports" style="padding:6px 14px;font-size:13px">📋 Load Reports</button>
+          <button class="btn" id="btnAdminLoadFlagged" style="padding:6px 14px;font-size:13px">⚑ Load Flagged Messages</button>
+        </div>
+        <div id="adminModerationReports" style="font-size:13px"></div>
+        <div id="adminFlaggedMessages" style="font-size:13px;margin-top:8px"></div>
       </div>
     </div>
     <button class="btn" id="btnBackFromAdmin">Back</button>

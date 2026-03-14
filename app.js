@@ -107,13 +107,13 @@ const VIEWS = {
   auth:          { id: 'viewAccountCreation',  requiresAuth: false, hash: 'auth',        onEnter: () => showAccountCreation() },
   createJoin:    { id: 'viewHome',             requiresAuth: true,  hash: 'create-join', onEnter: () => showHome() },
   party:         { id: 'viewParty',            requiresAuth: true,  hash: 'party',       onEnter: () => showParty() },
-  guest:         { id: 'viewGuest',            requiresAuth: false, hash: 'guest',       onEnter: () => showGuest() },
+  guest:         { id: 'viewGuest',            requiresAuth: true,  hash: 'guest',       onEnter: () => showGuest() },
   payment:       { id: 'viewPayment',          requiresAuth: false, hash: 'payment',     onEnter: () => showPayment() },
   login:         { id: 'viewLogin',            requiresAuth: false, hash: 'login' },
   signup:        { id: 'viewSignup',           requiresAuth: false, hash: 'signup' },
   passwordReset: { id: 'viewPasswordReset',    requiresAuth: false, hash: 'reset' },
   profile:       { id: 'viewProfile',          requiresAuth: true,  hash: 'profile' },
-  upgradeHub:    { id: 'viewUpgradeHub',       requiresAuth: false, hash: 'upgrade' },
+  upgradeHub:    { id: 'viewUpgradeHub',       requiresAuth: true,  hash: 'upgrade' },
   leaderboard:   { id: 'viewLeaderboard',      requiresAuth: false, hash: 'leaderboard' },
   myProfile:       { id: 'viewMyProfile',        requiresAuth: true,  hash: 'my-profile' },
   completeProfile: { id: 'viewCompleteProfile',  requiresAuth: true,  hash: 'complete-profile', onEnter: () => initCompleteProfileView() },
@@ -11722,6 +11722,123 @@ function initAdminDashboard() {
       if (_adminRefreshInterval) { clearInterval(_adminRefreshInterval); _adminRefreshInterval = null; }
       setView('authHome');
     };
+  }
+
+  const btnLoadReports = document.getElementById('btnAdminLoadReports');
+  if (btnLoadReports) {
+    btnLoadReports.onclick = loadAdminModerationReports;
+  }
+
+  const btnLoadFlagged = document.getElementById('btnAdminLoadFlagged');
+  if (btnLoadFlagged) {
+    btnLoadFlagged.onclick = loadAdminFlaggedMessages;
+  }
+}
+
+async function loadAdminModerationReports() {
+  const el = document.getElementById('adminModerationReports');
+  if (!el) return;
+  el.textContent = 'Loading…';
+  try {
+    const res = await fetch('/api/admin/moderation/reports');
+    if (!res.ok) { el.textContent = 'Failed to load reports (' + res.status + ')'; return; }
+    const data = await res.json();
+    const reports = data.reports || [];
+    if (!reports.length) { el.textContent = 'No reports found.'; return; }
+    el.innerHTML = reports.map(r => {
+      const rid = Number(r.id);
+      const uid = r.reported_user_id != null ? String(r.reported_user_id) : '';
+      return `
+      <div style="border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:8px;margin-bottom:8px">
+        <div><strong>${escapeHtml(r.type)}</strong> — <span style="opacity:0.7">${escapeHtml(r.reason || '')}</span>
+          <span style="float:right;font-size:11px;opacity:0.5">${escapeHtml(r.status || 'pending')}</span></div>
+        <div style="font-size:12px;opacity:0.7;margin:2px 0">Target: ${escapeHtml(String(r.target_id || '—'))}
+          ${uid ? ' | User: ' + escapeHtml(uid) : ''}</div>
+        ${r.description ? '<div style="font-size:12px;margin:2px 0">' + escapeHtml(r.description) + '</div>' : ''}
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+          <button class="btn admin-mod-btn" style="padding:3px 10px;font-size:12px" data-report-id="${rid}" data-user-id="${escapeHtml(uid)}" data-action="ignore">Ignore</button>
+          <button class="btn admin-mod-btn" style="padding:3px 10px;font-size:12px" data-report-id="${rid}" data-user-id="${escapeHtml(uid)}" data-action="warn">Warn User</button>
+          <button class="btn admin-mod-btn" style="padding:3px 10px;font-size:12px" data-report-id="${rid}" data-user-id="${escapeHtml(uid)}" data-action="suspend">Suspend</button>
+          <button class="btn admin-mod-btn" style="padding:3px 10px;font-size:12px;color:#f66" data-report-id="${rid}" data-user-id="${escapeHtml(uid)}" data-action="ban">Ban</button>
+        </div>
+      </div>`;
+    }).join('');
+    el.addEventListener('click', _adminModReportClickHandler);
+  } catch (err) {
+    el.textContent = 'Error loading reports.';
+  }
+}
+
+function _adminModReportClickHandler(e) {
+  const btn = e.target.closest('.admin-mod-btn[data-report-id]');
+  if (!btn) return;
+  const reportId = parseInt(btn.dataset.reportId, 10);
+  const targetUserId = btn.dataset.userId || null;
+  const action = btn.dataset.action;
+  if (!action) return;
+  adminModerationAction({ reportId, targetUserId: targetUserId || null }, action);
+}
+
+async function loadAdminFlaggedMessages() {
+  const el = document.getElementById('adminFlaggedMessages');
+  if (!el) return;
+  el.textContent = 'Loading…';
+  try {
+    const res = await fetch('/api/admin/moderation/flagged-messages');
+    if (!res.ok) { el.textContent = 'Failed to load flagged messages (' + res.status + ')'; return; }
+    const data = await res.json();
+    const msgs = data.flaggedMessages || [];
+    if (!msgs.length) { el.textContent = 'No flagged messages found.'; return; }
+    el.innerHTML = '<strong>Flagged Messages</strong>' + msgs.map(m => {
+      const mid = Number(m.id);
+      const sid = m.sender_id != null ? String(m.sender_id) : '';
+      return `
+      <div style="border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:8px;margin-top:6px">
+        <div style="font-size:12px;opacity:0.7">${escapeHtml(m.party_code || '')} — ${escapeHtml(sid)}</div>
+        <div style="margin:2px 0">${escapeHtml(m.message_text || '')}</div>
+        <div style="font-size:11px;opacity:0.5">${escapeHtml(m.reason || '')} | ${escapeHtml(m.status || 'pending')}</div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <button class="btn admin-mod-flag-btn" style="padding:3px 10px;font-size:12px" data-flag-id="${mid}" data-sender-id="${escapeHtml(sid)}" data-action="dismiss">Dismiss</button>
+          <button class="btn admin-mod-flag-btn" style="padding:3px 10px;font-size:12px" data-flag-id="${mid}" data-sender-id="${escapeHtml(sid)}" data-action="warn">Warn Sender</button>
+        </div>
+      </div>`;
+    }).join('');
+    el.addEventListener('click', _adminModFlagClickHandler);
+  } catch (err) {
+    el.textContent = 'Error loading flagged messages.';
+  }
+}
+
+function _adminModFlagClickHandler(e) {
+  const btn = e.target.closest('.admin-mod-flag-btn[data-flag-id]');
+  if (!btn) return;
+  const flaggedMessageId = parseInt(btn.dataset.flagId, 10);
+  const targetUserId = btn.dataset.senderId || null;
+  const action = btn.dataset.action;
+  if (!action) return;
+  adminModerationAction({ flaggedMessageId, targetUserId: targetUserId || null }, action);
+}
+
+async function adminModerationAction(ids, action) {
+  try {
+    const body = { action };
+    if (ids.reportId != null) body.reportId = ids.reportId;
+    if (ids.flaggedMessageId != null) body.flaggedMessageId = ids.flaggedMessageId;
+    if (ids.targetUserId != null) body.targetUserId = ids.targetUserId;
+    const res = await fetch('/api/admin/moderation/action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (res.ok) {
+      // Reload whichever section was affected
+      if (ids.reportId != null) loadAdminModerationReports();
+      if (ids.flaggedMessageId != null) loadAdminFlaggedMessages();
+    } else {
+      console.warn('[Admin] Moderation action failed:', res.status);
+    }
+  } catch (err) {
+    console.error('[Admin] Moderation action error:', err);
   }
 }
 
