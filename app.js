@@ -118,7 +118,7 @@ const VIEWS = {
   myProfile:       { id: 'viewMyProfile',        requiresAuth: true,  hash: 'my-profile' },
   completeProfile: { id: 'viewCompleteProfile',  requiresAuth: true,  hash: 'complete-profile', onEnter: () => initCompleteProfileView() },
   authHome:        { id: 'viewAuthHome',          requiresAuth: true,  hash: 'home',             onEnter: () => initPartyHomeView() },
-  adminDashboard:  { id: 'viewAdminDashboard',    requiresAuth: true,  hash: 'admin',            onEnter: () => initAdminDashboard() },
+  adminDashboard:  { id: 'viewAdminDashboard',    requiresAuth: true,  requiresAdmin: true,  hash: 'admin',            onEnter: () => initAdminDashboard() },
   inviteFriends:   { id: 'viewInviteFriends',     requiresAuth: true,  hash: 'invite',           onEnter: () => { if (window._referralUI) { window._referralUI._buildInvitePage(); window._referralUI.startPolling(); } } },
   terms:           { id: 'viewTerms',              requiresAuth: false, hash: 'terms' },
   privacy:         { id: 'viewPrivacy',            requiresAuth: false, hash: 'privacy' },
@@ -135,6 +135,7 @@ const HASH_TO_VIEW = Object.fromEntries(
 // SET VIEW — single navigation controller
 // ============================================================
 let _currentViewName = null;
+let _currentUserIsAdmin = false; // set to true when /api/me confirms user.isAdmin
 
 // Feature flags — loaded from /api/feature-flags at startup
 let _featureFlags = {
@@ -187,6 +188,20 @@ function setView(viewName, opts = {}) {
       setView('auth', { fromHash: true });
       return;
     }
+  }
+
+  // Admin-role gating: only users with admin role may access admin-only views.
+  // Note: this guard runs after requiresAuth, so unauthenticated users are already
+  // redirected above and never reach this check. Server-side /api/admin/* endpoints
+  // independently enforce admin status — this is a client-side UX guard only.
+  if (view.requiresAdmin && !_currentUserIsAdmin) {
+    console.log('[NAV] Admin role required for', viewName, '→ redirecting to authHome');
+    const homeView = VIEWS['authHome'];
+    if (homeView && window.location) {
+      try { history.replaceState(null, '', '#' + homeView.hash); } catch (e) { /* may throw in tests */ }
+    }
+    setView('authHome', { fromHash: true });
+    return;
   }
 
   const from = _currentViewName;
@@ -7028,8 +7043,11 @@ async function initAuthFlow() {
       state.djName = data.user.djName;
       saveProfile({ djName: data.user.djName, email: data.user.email, tier: state.userTier });
     }
-    // Show admin nav if applicable
-    if (typeof setAdminNavVisible === 'function') setAdminNavVisible(!!data.isAdmin);
+    // Show admin nav if applicable.
+    // Support multiple server response shapes: flat data.isAdmin, nested data.user.isAdmin,
+    // or role-based data.user.role === 'admin' (all are equivalent server-side checks).
+    _currentUserIsAdmin = !!(data.isAdmin || (data.user && data.user.isAdmin) || (data.user && data.user.role === 'admin'));
+    if (typeof setAdminNavVisible === 'function') setAdminNavVisible(_currentUserIsAdmin);
     // Redirect based on profileCompleted
     if (!data.user || !data.user.profileCompleted) {
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PROFILE_INCOMPLETE);
@@ -10155,6 +10173,7 @@ async function handleSignup() {
 async function handleLogout() {
   await logOut();
   clearProfile();
+  _currentUserIsAdmin = false;
   state.userTier = USER_TIER.FREE;
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   if (headerAuthButtons) headerAuthButtons.style.display = 'none';
