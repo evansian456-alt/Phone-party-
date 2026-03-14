@@ -111,8 +111,8 @@
 
 *{box-sizing:border-box}
 html{
-  height:100%;
-  overflow:hidden;
+  min-height:100%;
+  overflow-y:auto;
   overscroll-behavior:none;
 }
 body{
@@ -120,10 +120,10 @@ body{
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
   background: var(--gradient-bg);
   color:var(--text);
-  /* Fixed full-screen viewport shell — prevents whole-page drag/scroll */
-  height:100vh;
-  height:100dvh; /* dynamic viewport height for mobile browsers */
-  overflow:hidden;
+  /* Page grows with content and scrolls vertically when taller than the viewport */
+  min-height:100vh;
+  min-height:100dvh; /* dynamic viewport height for mobile browsers */
+  overflow-y:auto;
   overscroll-behavior:none;
   max-width:100vw;
   padding-bottom: env(safe-area-inset-bottom); /* respect home-indicator / nav bar */
@@ -158,13 +158,10 @@ body{
 .subtitle{color:var(--muted); font-size:13px; margin-top:2px}
 .wrap{
   max-width:1000px; margin:0 auto; padding:18px;
-  /* Fills remaining viewport height below header; scrolls only within this area */
+  /* Grows with its content so body (min-height:100vh) becomes the scroll container */
   flex:1;
-  min-height:0;
-  overflow-y:auto;
+  overflow-y:visible;
   overflow-x:hidden;
-  overscroll-behavior-y:contain;
-  -webkit-overflow-scrolling:touch;
   width:100%;
 }
 .card{
@@ -7879,7 +7876,7 @@ body {
   padding-right:  var(--safe-right);
 }
 
-/* Each full-screen view fills the scroll area; content that overflows scrolls within .wrap */
+/* Each full-screen view fills the scroll area; tall content causes the page (body) to scroll */
 .wrap > section {
   min-height: 100%;
   box-sizing: border-box;
@@ -7948,17 +7945,16 @@ body {
   }
 }
 
-/* Keyboard-safe: add bottom padding when a fixed/sticky element
-   is present so forms are not hidden behind it */
+/* Keyboard-safe: add bottom padding so forms are not hidden behind browser UI */
 @media (max-width: 768px) {
   main.wrap {
-    padding-bottom: env(safe-area-inset-bottom, 16px);
+    padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px));
   }
 }
 
-/* Signup page mobile fix: ensure Create Account button is always visible */
+/* Auth/form views on mobile: ensure last button is always reachable */
 @media (max-width: 480px) {
-  #viewSignup .auth-container {
+  .auth-container {
     padding-bottom: 80px;
   }
 
