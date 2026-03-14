@@ -88,6 +88,9 @@ document.body.innerHTML = `
       <button class="btn-account" id="btnAccount">🔑</button>
       <div class="pill post-auth-only nav-hidden" id="planPill">Free · 2 phones</div>
     </div>
+    <div class="header-right-public pre-auth-only" id="headerPublicButtons">
+      <button class="btn-header-login" id="btnHeaderLogin">Log In</button>
+    </div>
   </header>
   <main class="wrap">
     <section class="landing-page" id="viewLanding"><h1>Landing</h1></section>
@@ -418,8 +421,10 @@ describe('setView() – nav visibility', () => {
     localStorage.clear();
     global.isLoggedIn.mockReturnValue(false);
     resetViews();
-    // Reset nav-hidden on post-auth elements
+    // Reset nav-hidden on post-auth elements (they start hidden)
     document.querySelectorAll('.post-auth-only').forEach(el => el.classList.add('nav-hidden'));
+    // Reset nav-hidden on pre-auth elements (they start visible)
+    document.querySelectorAll('.pre-auth-only').forEach(el => el.classList.remove('nav-hidden'));
   });
 
   test('post-auth-only elements remain hidden when not logged in', () => {
@@ -435,6 +440,39 @@ describe('setView() – nav visibility', () => {
     document.querySelectorAll('.post-auth-only').forEach(el => {
       expect(el.classList.contains('nav-hidden')).toBe(false);
     });
+  });
+
+  test('pre-auth-only elements are visible when not logged in', () => {
+    global.isLoggedIn.mockReturnValue(false);
+    setView('landing');
+    document.querySelectorAll('.pre-auth-only').forEach(el => {
+      expect(el.classList.contains('nav-hidden')).toBe(false);
+    });
+  });
+
+  test('pre-auth-only elements get nav-hidden when profile exists', () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    setView('authHome');
+    document.querySelectorAll('.pre-auth-only').forEach(el => {
+      expect(el.classList.contains('nav-hidden')).toBe(true);
+    });
+  });
+
+  test('header login button (pre-auth-only) is hidden when logged in', () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    setView('authHome');
+    // nav-hidden is added to the .pre-auth-only parent div, which hides all children
+    const publicBtnsDiv = document.getElementById('headerPublicButtons');
+    expect(publicBtnsDiv).not.toBeNull();
+    expect(publicBtnsDiv.classList.contains('nav-hidden')).toBe(true);
+  });
+
+  test('header login button (pre-auth-only) is visible when logged out', () => {
+    global.isLoggedIn.mockReturnValue(false);
+    setView('landing');
+    const publicBtnsDiv = document.getElementById('headerPublicButtons');
+    expect(publicBtnsDiv).not.toBeNull();
+    expect(publicBtnsDiv.classList.contains('nav-hidden')).toBe(false);
   });
 });
 

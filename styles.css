@@ -158,6 +158,31 @@ body{
 }
 .title{font-weight:900; font-size:18px; letter-spacing:0.5px}
 .subtitle{color:var(--muted); font-size:13px; margin-top:2px}
+
+/* Public header area — shown when logged out; hides when logged in via .pre-auth-only.nav-hidden */
+.header-right-public {
+  display: flex;
+  align-items: center;
+}
+
+.btn-header-login {
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--bright-white);
+  background: transparent;
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  letter-spacing: 0.3px;
+}
+
+.btn-header-login:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: rgba(90,169,255,0.08);
+}
 .wrap{
   max-width:1000px; margin:0 auto; padding:18px;
   /* flex: 1 1 auto — flex-basis:auto ensures the body can grow with tall content so
@@ -502,7 +527,7 @@ h2,h3{margin:0; font-weight:800}
   max-width: 800px;
   margin: 0 auto;
   padding: 20px;
-  overflow-x: hidden;
+  overflow-x: clip;
   width: 100%;
   box-sizing: border-box;
 }
@@ -1377,7 +1402,7 @@ h2,h3{margin:0; font-weight:800}
   position: relative;
   max-width: 900px;
   margin: 0 auto;
-  overflow-x: hidden;
+  overflow-x: clip;
   width: 100%;
   box-sizing: border-box;
 }
@@ -3864,28 +3889,84 @@ h2,h3{margin:0; font-weight:800}
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
-.btn-parent-info {
+/* Shared baseline for ALL header icon-buttons — ensures every button in the
+   top nav bar is the same circular size so nothing looks off-center. */
+.btn-parent-info,
+.btn-leaderboard,
+.btn-profile,
+.btn-upgrade,
+.btn-admin,
+.btn-account,
+.btn-logout {
   width: 36px;
   height: 36px;
+  min-width: 36px;
+  padding: 0;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: rgba(11,15,20,0.4);
-  color: var(--brand);
-  font-size: 18px;
+  color: var(--bright-white);
+  font-size: 16px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.btn-parent-info:hover {
-  background: rgba(90,169,255,0.1);
+.btn-parent-info:hover,
+.btn-leaderboard:hover,
+.btn-profile:hover,
+.btn-upgrade:hover,
+.btn-admin:hover,
+.btn-account:hover,
+.btn-logout:hover {
+  background: rgba(90,169,255,0.12);
   border-color: var(--brand);
   transform: scale(1.05);
+}
+
+.btn-parent-info {
+  color: var(--brand);
+}
+
+.btn-upgrade {
+  background: rgba(255, 215, 0, 0.15);
+  border-color: rgba(255, 215, 0, 0.4);
+  color: #FFD700;
+}
+
+.btn-upgrade:hover {
+  background: rgba(255, 215, 0, 0.25);
+  border-color: #FFD700;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+}
+
+.btn-logout {
+  background: rgba(255, 45, 149, 0.1);
+  border-color: rgba(255, 45, 149, 0.3);
+  color: rgba(255, 100, 170, 0.9);
+}
+
+.btn-logout:hover {
+  background: rgba(255, 45, 149, 0.2);
+  border-color: rgba(255, 45, 149, 0.6);
+}
+
+.btn-admin {
+  background: rgba(157, 78, 221, 0.15);
+  border-color: rgba(157, 78, 221, 0.4);
+  color: var(--neon-purple);
+}
+
+.btn-admin:hover {
+  background: rgba(157, 78, 221, 0.25);
+  border-color: var(--neon-purple);
+  box-shadow: 0 0 10px rgba(157, 78, 221, 0.3);
 }
 
 .parent-info-card {
@@ -4891,56 +4972,6 @@ h2,h3{margin:0; font-weight:800}
 
 .auth-links span {
   margin: 0 8px;
-}
-
-.btn-account {
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: white;
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 18px;
-  transition: all 0.2s;
-}
-
-.btn-account:hover {
-  background: rgba(255, 255, 255, 0.15);
-  transform: scale(1.05);
-}
-
-.btn-logout {
-  background: rgba(255, 45, 149, 0.15);
-  border: 1px solid rgba(255, 45, 149, 0.3);
-  color: white;
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 16px;
-  transition: all 0.2s;
-}
-
-.btn-logout:hover {
-  background: rgba(255, 45, 149, 0.25);
-  transform: scale(1.05);
-}
-
-.btn-upgrade {
-  background: linear-gradient(135deg, #FFD700, #FFA500);
-  border: none;
-  color: #000;
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 18px;
-  transition: all 0.2s;
-  font-weight: bold;
-}
-
-.btn-upgrade:hover {
-  background: linear-gradient(135deg, #FFA500, #FFD700);
-  transform: scale(1.05);
-  box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
 }
 
 /* ============================================
@@ -7062,25 +7093,6 @@ body.light-mode .input-field {
   font-size: 14px;
 }
 
-/* Button Styles for Header Navigation */
-.btn-leaderboard,
-.btn-profile {
-  background: transparent;
-  border: 2px solid var(--border);
-  color: var(--bright-white);
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  font-size: 20px;
-}
-
-.btn-leaderboard:hover,
-.btn-profile:hover {
-  border-color: var(--neon-purple);
-  box-shadow: var(--glow-brand-sm);
-  transform: scale(1.05);
-}
 
 @media (max-width: 768px) {
   .stats-grid {
