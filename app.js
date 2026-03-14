@@ -7081,7 +7081,9 @@ async function initAuthFlow() {
     } else {
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
       // Stay on the landing page so users see it rather than jumping past it.
-      // _updateNavVisibility() will reveal the "Go to Dashboard" button for authenticated users.
+      // setView() calls _updateNavVisibility() which reveals the "Go to Dashboard"
+      // button (.post-auth-only) and hides the sign-up/login buttons (.pre-auth-only)
+      // for authenticated users.
       setView('landing', { fromHash: true });
       // Start referral polling now that user is authenticated
       if (window._referralUI) window._referralUI.startPolling();
