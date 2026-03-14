@@ -312,6 +312,51 @@
     </div>
   </div>
 
+  <!-- ── Promo Code Generator ───────────────────────────────────────────── -->
+  <div class="admin-container" style="margin-top:0;">
+    <div id="promoContent">
+      <h2 class="section-title">🎟️ Promo Code Generator</h2>
+
+      <!-- Generate form -->
+      <div class="table-container" style="margin-bottom:1.5rem;">
+        <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+          <select id="promoTypeSelect" style="background:rgba(255,255,255,0.08);border:1px solid rgba(157,78,221,0.3);border-radius:6px;color:#fff;padding:0.5rem 0.75rem;font-size:14px;">
+            <option value="party_pass">🎉 Party Pass (2-hour party unlock)</option>
+            <option value="pro_monthly">⭐ Pro Monthly (full subscription)</option>
+          </select>
+          <button class="admin-refresh-btn" onclick="generatePromoCode()" id="promoGenerateBtn" style="white-space:nowrap;">
+            ✨ Generate Promo Code
+          </button>
+        </div>
+        <div id="promoGenerateResult" style="margin-top:1rem;display:none;"></div>
+      </div>
+
+      <!-- Generated codes list -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <span style="color:var(--muted);font-size:14px;">Generated codes (latest first)</span>
+        <button class="admin-refresh-btn" onclick="loadPromoCodes()" style="padding:0.4rem 0.8rem;font-size:13px;">🔄 Refresh</button>
+      </div>
+      <div id="promoCodesLoading" style="color:var(--muted);padding:1rem;">Loading...</div>
+      <div id="promoCodesTable" class="table-container hidden">
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th>Created At</th>
+              <th>Created By</th>
+              <th>Used At</th>
+              <th>Used By</th>
+            </tr>
+          </thead>
+          <tbody id="promoCodesTableBody"></tbody>
+        </table>
+        <div id="promoCodesEmpty" style="text-align:center;color:var(--muted);padding:2rem;display:none;">No promo codes generated yet.</div>
+      </div>
+    </div>
+  </div>
+
   <style>
     .mod-tabs { display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap; }
     .mod-tab { background:rgba(255,255,255,0.07); border:1px solid rgba(157,78,221,0.3); border-radius:8px; color:var(--muted); padding:0.5rem 1rem; cursor:pointer; font-size:14px; transition:all 0.2s; }
@@ -328,6 +373,11 @@
     .badge-severe { background:rgba(255,50,50,0.2); color:#ff6060; border:1px solid rgba(255,50,50,0.4); padding:2px 7px; border-radius:8px; font-size:11px; }
     .badge-mild { background:rgba(255,165,0,0.2); color:#ffaa44; border:1px solid rgba(255,165,0,0.3); padding:2px 7px; border-radius:8px; font-size:11px; }
     .toast-mod { position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:rgba(20,20,35,0.97);border:1px solid rgba(157,78,221,0.5);color:#fff;padding:0.75rem 1.5rem;border-radius:8px;font-size:14px;z-index:9999;white-space:nowrap; }
+    .promo-code-cell { font-family:monospace; font-size:14px; font-weight:700; letter-spacing:0.05em; }
+    .promo-unused { color:#00ff88; }
+    .promo-used   { color:#ff6666; text-decoration:line-through; }
+    .copy-btn { background:rgba(157,78,221,0.15); border:1px solid rgba(157,78,221,0.3); border-radius:4px; color:#c0a0ff; font-size:11px; padding:2px 6px; cursor:pointer; margin-left:6px; }
+    .copy-btn:hover { background:rgba(157,78,221,0.35); }
   </style>
 
   <script src="config.js"></script>
@@ -343,6 +393,7 @@
       loadMetrics();
       loadReports();
       loadFlaggedMessages();
+      loadPromoCodes();
     }
 
     async function loadMetrics() {
@@ -602,6 +653,111 @@
 
     // Auto-refresh every 30 seconds
     setInterval(loadMetrics, 30000);
+
+    // ── Promo Code Functions ───────────────────────────────────────────────────
+
+    async function generatePromoCode() {
+      const type = document.getElementById('promoTypeSelect').value;
+      const btn = document.getElementById('promoGenerateBtn');
+      const resultEl = document.getElementById('promoGenerateResult');
+
+      btn.disabled = true;
+      btn.textContent = '⏳ Generating...';
+      resultEl.style.display = 'none';
+
+      try {
+        const resp = await fetch(API_BASE + '/api/admin/promo-codes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': adminSecret },
+          credentials: 'include',
+          body: JSON.stringify({ type })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'HTTP ' + resp.status);
+
+        const typeLabel = type === 'pro_monthly' ? '⭐ Pro Monthly' : '🎉 Party Pass';
+        resultEl.innerHTML = `
+          <div style="background:rgba(0,255,100,0.1);border:1px solid rgba(0,255,100,0.3);border-radius:8px;padding:1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+            <span style="font-size:18px;">✅ Promo code created!</span>
+            <span class="promo-code-cell promo-unused" id="newPromoCode">${escAttr(data.code)}</span>
+            <span style="color:var(--muted);font-size:13px;">${typeLabel}</span>
+            <button class="copy-btn" onclick="copyPromoCode('${escAttr(data.code)}')">📋 Copy</button>
+          </div>
+        `;
+        resultEl.style.display = 'block';
+        loadPromoCodes();
+      } catch (e) {
+        resultEl.innerHTML = `<div style="color:#ff6666;">❌ Error: ${e.message}</div>`;
+        resultEl.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '✨ Generate Promo Code';
+      }
+    }
+
+    function copyPromoCode(code) {
+      navigator.clipboard.writeText(code).then(() => {
+        showModToast('Copied: ' + code);
+      }).catch(() => {
+        showModToast('Code: ' + code);
+      });
+    }
+
+    async function loadPromoCodes() {
+      const loadingEl = document.getElementById('promoCodesLoading');
+      const tableEl = document.getElementById('promoCodesTable');
+      const tbodyEl = document.getElementById('promoCodesTableBody');
+      const emptyEl = document.getElementById('promoCodesEmpty');
+
+      if (loadingEl) loadingEl.style.display = 'block';
+      if (tableEl) tableEl.classList.add('hidden');
+
+      try {
+        const resp = await fetch(API_BASE + '/api/admin/promo-codes', {
+          headers: { 'X-Admin-Secret': adminSecret },
+          credentials: 'include'
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const data = await resp.json();
+
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (tableEl) tableEl.classList.remove('hidden');
+
+        const codes = data.promoCodes || [];
+        if (emptyEl) emptyEl.style.display = codes.length === 0 ? 'block' : 'none';
+
+        if (tbodyEl) {
+          tbodyEl.innerHTML = codes.map(c => {
+            const typeLabel = c.type === 'pro_monthly' ? '⭐ Pro Monthly' : '🎉 Party Pass';
+            const statusBadge = c.is_used
+              ? '<span class="badge-actioned" style="background:rgba(255,50,50,0.2);color:#ff8080;border-color:rgba(255,50,50,0.4);">Used</span>'
+              : '<span class="badge-actioned">Unused</span>';
+            const codeDisplay = c.is_used
+              ? `<span class="promo-code-cell promo-used">${escHtml(c.code)}</span>`
+              : `<span class="promo-code-cell promo-unused">${escHtml(c.code)}</span><button class="copy-btn" onclick="copyPromoCode('${escAttr(c.code)}')">📋</button>`;
+            return `<tr>
+              <td>${codeDisplay}</td>
+              <td>${escHtml(typeLabel)}</td>
+              <td>${statusBadge}</td>
+              <td>${new Date(c.created_at).toLocaleString()}</td>
+              <td style="color:var(--muted);font-size:12px;">${escHtml(c.created_by_email || '—')}</td>
+              <td style="color:var(--muted);font-size:12px;">${c.used_at ? new Date(c.used_at).toLocaleString() : '—'}</td>
+              <td style="color:var(--muted);font-size:12px;">${escHtml(c.used_by_email || '—')}</td>
+            </tr>`;
+          }).join('');
+        }
+      } catch (e) {
+        if (loadingEl) { loadingEl.textContent = '❌ Error loading promo codes: ' + e.message; loadingEl.style.display = 'block'; }
+      }
+    }
+
+    function escHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Load promo codes on page load (after auth check)
+    // Called after metricsContent is shown
   </script>
 </body>
 </html>
