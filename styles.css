@@ -130,6 +130,7 @@ body{
   padding-bottom: env(safe-area-inset-bottom); /* respect home-indicator / nav bar */
   display:flex;
   flex-direction:column;
+  scroll-behavior:smooth;
 }
 .top{
   display:flex; justify-content:space-between; align-items:center;
@@ -318,6 +319,11 @@ h2,h3{margin:0; font-weight:800}
 
 /* Post-auth-only nav items — hidden until user logs in */
 .post-auth-only.nav-hidden {
+  display: none !important;
+}
+
+/* Pre-auth-only items — hidden once user logs in */
+.pre-auth-only.nav-hidden {
   display: none !important;
 }
 

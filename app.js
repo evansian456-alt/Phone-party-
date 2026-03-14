@@ -241,14 +241,13 @@ function setView(viewName, opts = {}) {
     targetEl.classList.add('is-entering');
     targetEl.addEventListener('animationend', () => targetEl.classList.remove('is-entering'), { once: true });
 
-    // Accessibility: focus first heading or interactive element and scroll it into view.
-    // Honor prefers-reduced-motion for scroll behavior.
+    // Accessibility: focus first heading or interactive element for keyboard/screen-reader users.
+    // preventScroll:true avoids the browser auto-scrolling the element into view, which would
+    // undo the window.scrollTo(0,0) reset performed by showView() and cause a visible jump.
     setTimeout(() => {
       const focusTarget = targetEl.querySelector('h1, h2, [autofocus], button:not([disabled]), input:not([disabled])');
       if (focusTarget) {
-        focusTarget.focus({ preventScroll: false });
-        const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        focusTarget.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+        focusTarget.focus({ preventScroll: true });
       }
     }, 50);
   }
@@ -268,6 +267,15 @@ function _updateNavVisibility() {
       el.classList.remove('nav-hidden');
     } else {
       el.classList.add('nav-hidden');
+    }
+  });
+  // Hide elements that should only be visible to logged-out users
+  const preAuthEls = document.querySelectorAll('.pre-auth-only');
+  preAuthEls.forEach(el => {
+    if (authenticated) {
+      el.classList.add('nav-hidden');
+    } else {
+      el.classList.remove('nav-hidden');
     }
   });
 }
@@ -7072,7 +7080,9 @@ async function initAuthFlow() {
       setView('completeProfile', { fromHash: true });
     } else {
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
-      setView('authHome', { fromHash: true });
+      // Stay on the landing page so users see it rather than jumping past it.
+      // _updateNavVisibility() will reveal the "Go to Dashboard" button for authenticated users.
+      setView('landing', { fromHash: true });
       // Start referral polling now that user is authenticated
       if (window._referralUI) window._referralUI.startPolling();
     }
@@ -7380,6 +7390,15 @@ async function handleBillingReturn() {
     btnLandingLogin.onclick = () => {
       console.log("[UI] Landing login clicked");
       setView('login');
+    };
+  }
+
+  // LANDING PAGE BUTTON (for logged-in users)
+  const btnGoToDashboard = el("btnGoToDashboard");
+  if (btnGoToDashboard) {
+    btnGoToDashboard.onclick = () => {
+      console.log("[UI] Go to Dashboard clicked");
+      setView('authHome');
     };
   }
 
@@ -9800,8 +9819,8 @@ function showView(viewId) {
     targetView.classList.remove('hidden');
   }
 
-  // Reset the page scroll so every new view starts at the top
-  window.scrollTo(0, 0);
+  // Reset the page scroll so every new view starts at the top (instant, not smooth animated)
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
 }
 
 /**

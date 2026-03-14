@@ -206,10 +206,10 @@ describe('_renderRoute() — authenticated', () => {
     resetStubs();
   });
 
-  test('/ redirects to /home', () => {
+  test('/ shows landing page (no redirect for authenticated users on root)', () => {
     _renderRoute('/');
-    expect(historyStub.replaceState).toHaveBeenCalledWith({ path: '/home' }, '', '/home');
-    expect(showViewCalls).toContain('viewAuthHome');
+    expect(showViewCalls).toContain('viewLanding');
+    expect(historyStub.replaceState).not.toHaveBeenCalledWith({ path: '/home' }, '', '/home');
   });
 
   test('/login redirects to /home', () => {

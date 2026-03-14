@@ -97,8 +97,8 @@ function _renderRoute(path) {
     return;
   }
 
-  if ((path === '/' || path === '/login' || path === '/signup') && loggedIn) {
-    // Already authenticated — skip landing/auth screens
+  if ((path === '/login' || path === '/signup') && loggedIn) {
+    // Already authenticated — skip auth-only screens
     history.replaceState({ path: '/home' }, '', '/home');
     _showScreen('viewAuthHome');
     if (typeof initPartyHomeView === 'function') initPartyHomeView();
