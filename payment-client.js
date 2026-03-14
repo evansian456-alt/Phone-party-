@@ -46,7 +46,7 @@ async function purchaseUpgrade(productId, paymentMethod = PAYMENT_METHOD.CARD) {
     console.log(`[Payment] Starting purchase: ${productId} via ${paymentMethod} on ${platform}`);
     
     // Step 1: Initiate payment intent
-    const initiateResponse = await fetch('/api/payment/initiate', {
+    const initiateResponse = await fetch(API_BASE + '/api/payment/initiate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -80,7 +80,7 @@ async function purchaseUpgrade(productId, paymentMethod = PAYMENT_METHOD.CARD) {
     }
     
     // Step 3: Confirm payment with server
-    const confirmResponse = await fetch('/api/payment/confirm', {
+    const confirmResponse = await fetch(API_BASE + '/api/payment/confirm', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -192,7 +192,7 @@ async function showCardPaymentUI(paymentIntent) {
  */
 async function fetchUserEntitlements() {
   try {
-    const response = await fetch('/api/user/entitlements');
+    const response = await fetch(API_BASE + '/api/user/entitlements');
     
     if (!response.ok) {
       throw new Error('Failed to fetch entitlements');

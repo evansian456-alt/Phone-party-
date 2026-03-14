@@ -2880,6 +2880,7 @@
     </div>
   </div>
 
+  <script src="config.js"></script>
   <script src="auth-utils.js"></script>
   <script src="auth.js"></script>
   <script src="payment-client.js"></script>
@@ -3451,7 +3452,7 @@
       var description = document.getElementById('reportPartyDescription') && document.getElementById('reportPartyDescription').value;
       if (!reason) { showModerationToast('Please select a reason.'); return; }
       closeModerationModal('reportPartyModal');
-      fetch('/api/report', {
+      fetch(API_BASE + '/api/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -3480,7 +3481,7 @@
       var t = _reportContext.track || {};
       var partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
       closeModerationModal('reportTrackModal');
-      fetch('/api/report', {
+      fetch(API_BASE + '/api/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -3516,7 +3517,7 @@
       var m = _reportContext.message || {};
       var partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
       closeModerationModal('reportMessageModal');
-      fetch('/api/report', {
+      fetch(API_BASE + '/api/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -3545,7 +3546,7 @@
       var u = _reportContext.reportedUser || {};
       var partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
       closeModerationModal('reportUserModal');
-      fetch('/api/report', {
+      fetch(API_BASE + '/api/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

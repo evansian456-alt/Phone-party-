@@ -100,7 +100,7 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
   _lastAuthCallAt = now;
 
   try {
-    const response = await fetch('/api/auth/signup', {
+    const response = await fetch(API_BASE + '/api/auth/signup', {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -172,7 +172,7 @@ async function logIn(email, password) {
   _lastAuthCallAt = now;
 
   try {
-    const response = await fetch('/api/auth/login', {
+    const response = await fetch(API_BASE + '/api/auth/login', {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -218,7 +218,7 @@ async function logIn(email, password) {
  */
 async function logOut() {
   try {
-    await fetch('/api/auth/logout', {
+    await fetch(API_BASE + '/api/auth/logout', {
       method: 'POST',
       credentials: 'include'
     });
@@ -238,7 +238,7 @@ async function logOut() {
  */
 async function getCurrentUser() {
   try {
-    const response = await fetch('/api/me', { credentials: 'include' });
+    const response = await fetch(API_BASE + '/api/me', { credentials: 'include' });
 
     if (!response.ok) {
       if (response.status === 401) {
@@ -281,7 +281,7 @@ function isLoggedIn() {
  */
 async function updateUserProfile(updates) {
   try {
-    const response = await fetch('/api/profile/update', {
+    const response = await fetch(API_BASE + '/api/profile/update', {
       method: 'POST',
       credentials: 'include',
       headers: {

@@ -149,7 +149,7 @@ let _featureFlags = {
  */
 async function fetchFeatureFlags() {
   try {
-    const res = await fetch('/api/feature-flags');
+    const res = await fetch(API_BASE + '/api/feature-flags');
     if (res.ok) {
       const data = await res.json();
       _featureFlags = Object.assign(_featureFlags, data);
@@ -876,7 +876,7 @@ async function checkServerHealth() {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
     
-    const response = await fetch("/api/health", {
+    const response = await fetch(API_BASE + "/api/health", {
       method: "GET",
       signal: controller.signal
     });
@@ -982,8 +982,7 @@ function setPlanPill() {
 
 function connectWS() {
   return new Promise((resolve, reject) => {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl = `${proto}://${location.host}`;
+    const wsUrl = API_BASE.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
     console.log("[WS] Connecting to:", wsUrl);
     const ws = new WebSocket(wsUrl);
     state.ws = ws;
@@ -2523,7 +2522,7 @@ function showParty() {
   try {
     if (!sessionStorage.getItem('referral_party_tracked')) {
       sessionStorage.setItem('referral_party_tracked', '1');
-      fetch('/api/referral/party-first-join', {
+      fetch(API_BASE + '/api/referral/party-first-join', {
         method: 'POST',
         credentials: 'include'
       }).then(r => r.json()).then(data => {
@@ -2719,7 +2718,7 @@ function startPartyStatusPolling() {
       
       // Use /api/party-state for enhanced info including playback state
       const cacheBuster = Date.now();
-      const response = await fetch(`/api/party-state?code=${state.code}&t=${cacheBuster}`, {
+      const response = await fetch(API_BASE + `/api/party-state?code=${state.code}&t=${cacheBuster}`, {
         signal: controller.signal,
         headers: {
           'Cache-Control': 'no-store'
@@ -2976,7 +2975,7 @@ function startGuestPartyStatusPolling() {
       
       // Use enhanced /api/party-state endpoint with cache buster
       const cacheBuster = Date.now();
-      const response = await fetch(`/api/party-state?code=${state.code}&t=${cacheBuster}`, {
+      const response = await fetch(API_BASE + `/api/party-state?code=${state.code}&t=${cacheBuster}`, {
         signal: controller.signal,
         headers: {
           'Cache-Control': 'no-store'
@@ -3238,7 +3237,7 @@ function showGuest() {
 // Check if host is already playing when guest joins mid-track
 async function checkForMidTrackJoin(code) {
   try {
-    const response = await fetch(`/api/party-state?code=${code}`);
+    const response = await fetch(API_BASE + `/api/party-state?code=${code}`);
     const data = await response.json();
     
     if (data.exists && data.currentTrack) {
@@ -5851,7 +5850,7 @@ async function queueTrackToServer(track) {
   }
   
   try {
-    const response = await fetch(`/api/party/${state.code}/queue-track`, {
+    const response = await fetch(API_BASE + `/api/party/${state.code}/queue-track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -5897,7 +5896,7 @@ async function playNextFromQueue() {
   }
   
   try {
-    const response = await fetch(`/api/party/${state.code}/play-next`, {
+    const response = await fetch(API_BASE + `/api/party/${state.code}/play-next`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -5937,7 +5936,7 @@ async function removeQueueTrack(trackId) {
   }
   
   try {
-    const response = await fetch(`/api/party/${state.code}/remove-track`, {
+    const response = await fetch(API_BASE + `/api/party/${state.code}/remove-track`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -5977,7 +5976,7 @@ async function clearQueue() {
   }
   
   try {
-    const response = await fetch(`/api/party/${state.code}/clear-queue`, {
+    const response = await fetch(API_BASE + `/api/party/${state.code}/clear-queue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -6032,7 +6031,7 @@ async function reorderQueueTrack(fromIndex, toIndex) {
   }
   
   try {
-    const response = await fetch(`/api/party/${state.code}/reorder-queue`, {
+    const response = await fetch(API_BASE + `/api/party/${state.code}/reorder-queue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -6190,7 +6189,7 @@ async function uploadTrackToServerPresigned(file) {
   try {
     // Step 1: Get presigned URL
     console.log('[Upload] Requesting presigned URL...');
-    const presignResponse = await fetch('/api/tracks/presign-put', {
+    const presignResponse = await fetch(API_BASE + '/api/tracks/presign-put', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -6292,7 +6291,7 @@ async function uploadTrackToServerPresigned(file) {
     
     // Step 3: Set party track (broadcast to guests)
     console.log('[Upload] Setting party track...');
-    const setTrackResponse = await fetch('/api/set-party-track', {
+    const setTrackResponse = await fetch(API_BASE + '/api/set-party-track', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -6528,7 +6527,7 @@ async function uploadTrackToServer(file) {
     });
     
     // Send request
-    xhr.open('POST', '/api/upload-track');
+    xhr.open('POST', API_BASE + '/api/upload-track');
     xhr.send(formData);
     
   } catch (error) {
@@ -6623,7 +6622,7 @@ async function uploadQueuedTrackToServer(file) {
     });
     
     // Send request
-    xhr.open('POST', '/api/upload-track');
+    xhr.open('POST', API_BASE + '/api/upload-track');
     xhr.send(formData);
     
   } catch (error) {
@@ -6680,7 +6679,7 @@ function initializeMusicPlayer() {
           const startPositionSec = audioEl.currentTime || 0;
           
           // Call the new start-track endpoint
-          fetch(`/api/party/${state.code}/start-track`, {
+          fetch(API_BASE + `/api/party/${state.code}/start-track`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -7038,7 +7037,7 @@ function attemptAddPhone() {
 async function initAuthFlow() {
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   try {
-    const response = await fetch('/api/me', { credentials: 'include' });
+    const response = await fetch(API_BASE + '/api/me', { credentials: 'include' });
     if (!response.ok) {
       // Not authenticated — hide auth buttons and transition to LOGGED_OUT
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
@@ -7098,7 +7097,7 @@ function initCompleteProfileView() {
       return;
     }
     try {
-      const resp = await fetch('/api/complete-profile', { 
+      const resp = await fetch(API_BASE + '/api/complete-profile', { 
         method: 'POST', 
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -7211,7 +7210,7 @@ function initBillingBox() {
     // Show subscription end date if available
     const statusEl = document.getElementById('billingProStatus');
     if (statusEl) {
-      fetch('/api/billing/status')
+      fetch(API_BASE + '/api/billing/status')
         .then(r => r.json())
         .then(d => {
           if (d.current_period_end) {
@@ -7244,7 +7243,7 @@ function initBillingBox() {
  */
 async function refreshMe() {
   try {
-    const res = await fetch('/api/me', { credentials: 'include' });
+    const res = await fetch(API_BASE + '/api/me', { credentials: 'include' });
     if (!res.ok) return false;
     const data = await res.json();
     state.userTier = data.tier || USER_TIER.FREE;
@@ -7283,7 +7282,7 @@ async function handleBillingReturn() {
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 1500));
       try {
-        const res = await fetch('/api/billing/status');
+        const res = await fetch(API_BASE + '/api/billing/status');
         if (res.ok) {
           const d = await res.json();
           if (d.tier === 'PRO') {
@@ -7309,13 +7308,8 @@ async function handleBillingReturn() {
   // Fetch feature flags early — used to gate UI sections
   await fetchFeatureFlags();
 
-  // Connect WebSocket for real-time party sync, DJ authority, and guest updates
-  try {
-    await connectWS();
-  } catch (error) {
-    console.warn("[Init] WebSocket connection failed on startup:", error);
-    // Continue with app initialization - WebSocket can reconnect later
-  }
+  // WebSocket is NOT connected on startup — it is only established when a
+  // party is created or joined, to avoid connecting on the landing page.
 
   // BOOT: check if a specific view was requested via URL hash (e.g. after refresh or back navigation)
   const _bootHash = window.location.hash.replace('#', '');
@@ -7343,7 +7337,7 @@ async function handleBillingReturn() {
       localStorage.setItem('referral_code', _cleanCode);
       localStorage.setItem('referral_ts', Date.now().toString());
       // Record the click event (async, non-blocking)
-      fetch('/api/referral/click', {
+      fetch(API_BASE + '/api/referral/click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ referralCode: _cleanCode })
@@ -7553,7 +7547,7 @@ async function handleBillingReturn() {
         };
         
         try {
-          const response = await fetch("/api/create-party", {
+          const response = await fetch(API_BASE + "/api/create-party", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -7638,6 +7632,10 @@ async function handleBillingReturn() {
       
       // Register host via WebSocket for real-time updates
       try {
+        // Ensure WebSocket is connected to the backend before sending
+        if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+          await connectWS();
+        }
         send({ 
           t: "JOIN", 
           code: partyCode, 
@@ -7652,7 +7650,7 @@ async function handleBillingReturn() {
       
       // PHASE 7: Fetch initial party state to get queue/currentTrack
       try {
-        const stateResponse = await fetch(`/api/party-state?code=${partyCode}`);
+        const stateResponse = await fetch(API_BASE + `/api/party-state?code=${partyCode}`);
         if (stateResponse.ok) {
           const partyState = await stateResponse.json();
           if (partyState.exists) {
@@ -7777,7 +7775,7 @@ async function handleBillingReturn() {
           updateDebug(`Endpoint: ${endpoint} (attempt ${attempt})`);
           updateDebugPanel(endpoint, null);
           
-          response = await fetch("/api/join-party", {
+          response = await fetch(API_BASE + "/api/join-party", {
             method: "POST",
             headers: {
               "Content-Type": "application/json"
@@ -7926,6 +7924,10 @@ async function handleBillingReturn() {
       
       // Try to connect via WebSocket for real-time updates (optional fallback)
       try {
+        // Ensure WebSocket is connected to the backend before sending
+        if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+          await connectWS();
+        }
         send({ t: "JOIN", code, name: state.name, isPro: state.isPro });
       } catch (wsError) {
         console.warn("[Party] WebSocket not available, using polling only:", wsError);
@@ -7963,7 +7965,7 @@ async function handleBillingReturn() {
       // Call end-party endpoint
       try {
         if (state.code) {
-          const response = await fetch("/api/end-party", {
+          const response = await fetch(API_BASE + "/api/end-party", {
             method: "POST",
             headers: {
               "Content-Type": "application/json"
@@ -8001,7 +8003,7 @@ async function handleBillingReturn() {
       // Call leave-party endpoint
       try {
         if (state.code && state.clientId) {
-          const response = await fetch("/api/leave-party", {
+          const response = await fetch(API_BASE + "/api/leave-party", {
             method: "POST",
             headers: {
               "Content-Type": "application/json"
@@ -8716,7 +8718,7 @@ async function handleBillingReturn() {
               // Broadcast track to party members
               if (state.code) {
                 try {
-                  const broadcastResponse = await fetch("/api/set-party-track", {
+                  const broadcastResponse = await fetch(API_BASE + "/api/set-party-track", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -8787,7 +8789,7 @@ async function handleBillingReturn() {
           toast("❌ Upload failed - network error");
         });
         
-        xhr.open('POST', '/api/upload-track');
+        xhr.open('POST', API_BASE + '/api/upload-track');
         xhr.send(formData);
         
       } catch (error) {
@@ -9557,7 +9559,7 @@ function showDevNavigationPanel() {
 async function autoCreateDevParty(user) {
   try {
     const djName = `DJ ${user.username}`;
-    const response = await fetch('/api/create-party', {
+    const response = await fetch(API_BASE + '/api/create-party', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -9658,7 +9660,7 @@ async function checkAutoReconnect() {
     console.log("[Guest] Found recent session:", session);
     
     // First check if party still exists
-    const partyCheckResponse = await fetch(`/api/party?code=${encodeURIComponent(partyCode)}`);
+    const partyCheckResponse = await fetch(API_BASE + `/api/party?code=${encodeURIComponent(partyCode)}`);
     if (!partyCheckResponse.ok) {
       console.log("[Guest] Party no longer exists, clearing session");
       localStorage.removeItem('syncSpeakerGuestSession');
@@ -9688,7 +9690,7 @@ async function checkAutoReconnect() {
       
       // Auto-trigger join
       try {
-        const response = await fetch("/api/join-party", {
+        const response = await fetch(API_BASE + "/api/join-party", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -10122,7 +10124,7 @@ async function handleSignup() {
         const refCode = localStorage.getItem('referral_code');
         const clickId = localStorage.getItem('referral_click_id');
         if (refCode) {
-          fetch('/api/referral/register', {
+          fetch(API_BASE + '/api/referral/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -10783,7 +10785,7 @@ if (promoBtn) {
     } else {
       // Use HTTP endpoint when WebSocket not available
       try {
-        const response = await fetch("/api/apply-promo", {
+        const response = await fetch(API_BASE + "/api/apply-promo", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -11422,7 +11424,7 @@ async function loadDjLeaderboard() {
   if (djsList) djsList.innerHTML = '';
   
   try {
-    const response = await fetch('/api/leaderboard/djs?limit=10');
+    const response = await fetch(API_BASE + '/api/leaderboard/djs?limit=10');
     if (!response.ok) throw new Error('Failed to load DJ leaderboard');
     
     const data = await response.json();
@@ -11470,7 +11472,7 @@ async function loadGuestLeaderboard() {
   if (guestsList) guestsList.innerHTML = '';
   
   try {
-    const response = await fetch('/api/leaderboard/guests?limit=10');
+    const response = await fetch(API_BASE + '/api/leaderboard/guests?limit=10');
     if (!response.ok) throw new Error('Failed to load guest leaderboard');
     
     const data = await response.json();
@@ -11518,7 +11520,7 @@ async function loadMyProfile() {
   if (profileContent) profileContent.classList.add('hidden');
   
   try {
-    const response = await fetch('/api/me', { credentials: 'include' });
+    const response = await fetch(API_BASE + '/api/me', { credentials: 'include' });
     if (!response.ok) throw new Error('Failed to load profile');
     
     const data = await response.json();
@@ -11659,7 +11661,7 @@ let _adminRefreshInterval = null;
 async function loadAdminStats() {
   const errorEl = document.getElementById('adminError');
   try {
-    const res = await fetch('/api/admin/stats');
+    const res = await fetch(API_BASE + '/api/admin/stats');
     if (res.status === 401 || res.status === 403) {
       // No longer admin — go back
       if (errorEl) { errorEl.textContent = 'Admin access denied.'; errorEl.classList.remove('hidden'); }
@@ -11752,7 +11754,7 @@ async function loadAdminModerationReports() {
   if (!el) return;
   el.textContent = 'Loading…';
   try {
-    const res = await fetch('/api/admin/moderation/reports');
+    const res = await fetch(API_BASE + '/api/admin/moderation/reports');
     if (!res.ok) { el.textContent = 'Failed to load reports (' + res.status + ')'; return; }
     const data = await res.json();
     const reports = data.reports || [];
@@ -11796,7 +11798,7 @@ async function loadAdminFlaggedMessages() {
   if (!el) return;
   el.textContent = 'Loading…';
   try {
-    const res = await fetch('/api/admin/moderation/flagged-messages');
+    const res = await fetch(API_BASE + '/api/admin/moderation/flagged-messages');
     if (!res.ok) { el.textContent = 'Failed to load flagged messages (' + res.status + ')'; return; }
     const data = await res.json();
     const msgs = data.flaggedMessages || [];
@@ -11837,7 +11839,7 @@ async function adminModerationAction(ids, action) {
     if (ids.reportId != null) body.reportId = ids.reportId;
     if (ids.flaggedMessageId != null) body.flaggedMessageId = ids.flaggedMessageId;
     if (ids.targetUserId != null) body.targetUserId = ids.targetUserId;
-    const res = await fetch('/api/admin/moderation/action', {
+    const res = await fetch(API_BASE + '/api/admin/moderation/action', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -12052,7 +12054,7 @@ document.addEventListener('visibilitychange', async () => {
     // Refetch party state and resync if guest is in a party
     if (!state.isHost && state.code) {
       try {
-        const response = await fetch(`/api/party-state?code=${state.code}`);
+        const response = await fetch(API_BASE + `/api/party-state?code=${state.code}`);
         const data = await response.json();
         
         if (data.exists && data.currentTrack) {
@@ -13064,7 +13066,7 @@ function performYoutubeSearch(query) {
   }
   if (resultsEl) resultsEl.classList.add('hidden');
 
-  fetch('/api/streaming/search?provider=youtube&q=' + encodeURIComponent(query))
+  fetch(API_BASE + '/api/streaming/search?provider=youtube&q=' + encodeURIComponent(query))
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (statusEl) statusEl.classList.add('hidden');
@@ -13506,7 +13508,7 @@ async function submitCopyrightReport() {
   }
 
   try {
-    const response = await fetch('/api/report-copyright', {
+    const response = await fetch(API_BASE + '/api/report-copyright', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

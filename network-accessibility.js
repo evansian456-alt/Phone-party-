@@ -50,7 +50,7 @@ function startPingMonitoring() {
   NETWORK.pingInterval = setInterval(async () => {
     try {
       const startTime = Date.now();
-      const response = await fetch('/api/ping', {
+      const response = await fetch(API_BASE + '/api/ping', {
         method: 'GET',
         cache: 'no-cache'
       });
@@ -146,7 +146,7 @@ async function attemptReconnect() {
   console.log(`[Network] Reconnect attempt ${NETWORK.reconnectAttempts}/${NETWORK.maxReconnectAttempts}`);
   
   try {
-    const response = await fetch('/api/ping');
+    const response = await fetch(API_BASE + '/api/ping');
     if (response.ok) {
       console.log('[Network] Reconnection successful');
       NETWORK.connectionQuality = 'good';

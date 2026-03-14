@@ -330,6 +330,7 @@
     .toast-mod { position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:rgba(20,20,35,0.97);border:1px solid rgba(157,78,221,0.5);color:#fff;padding:0.75rem 1.5rem;border-radius:8px;font-size:14px;z-index:9999;white-space:nowrap; }
   </style>
 
+  <script src="config.js"></script>
   <script>
     // Get admin secret from prompt (for security, don't use URL)
     const adminSecret = prompt('Enter admin secret:');
@@ -428,7 +429,7 @@
 
     async function adminAction(reportId, flaggedMessageId, targetUserId, action, reason) {
       try {
-        const resp = await fetch('/api/admin/moderation/action', {
+        const resp = await fetch(API_BASE + '/api/admin/moderation/action', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': adminSecret },
           credentials: 'include',
@@ -456,7 +457,7 @@
         const params = new URLSearchParams();
         if (type) params.set('type', type);
         if (status) params.set('status', status);
-        const resp = await fetch('/api/admin/moderation/reports?' + params.toString(), {
+        const resp = await fetch(API_BASE + '/api/admin/moderation/reports?' + params.toString(), {
           headers: { 'X-Admin-Secret': adminSecret },
           credentials: 'include'
         });
@@ -517,7 +518,7 @@
         const params = new URLSearchParams();
         if (severity) params.set('severity', severity);
         if (status) params.set('status', status);
-        const resp = await fetch('/api/admin/moderation/flagged-messages?' + params.toString(), {
+        const resp = await fetch(API_BASE + '/api/admin/moderation/flagged-messages?' + params.toString(), {
           headers: { 'X-Admin-Secret': adminSecret },
           credentials: 'include'
         });
@@ -565,7 +566,7 @@
       if (resultEl) resultEl.classList.add('hidden');
 
       try {
-        const resp = await fetch('/api/admin/moderation/user-history/' + encodeURIComponent(userId), {
+        const resp = await fetch(API_BASE + '/api/admin/moderation/user-history/' + encodeURIComponent(userId), {
           headers: { 'X-Admin-Secret': adminSecret },
           credentials: 'include'
         });

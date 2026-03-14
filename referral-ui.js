@@ -177,7 +177,7 @@ class ReferralUI {
 
   async loadStats() {
     try {
-      const res = await fetch('/api/referral/me', { credentials: 'include' });
+      const res = await fetch(API_BASE + '/api/referral/me', { credentials: 'include' });
       if (!res.ok) return;
       this.stats = await res.json();
       this._updateUI();

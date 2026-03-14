@@ -3,6 +3,9 @@
  * Provides offline capability and PWA installation support
  */
 
+// Import centralized backend configuration so API_BASE is available here.
+importScripts('/config.js');
+
 // CACHE_NAME is tied to CHANGER_VERSION so caches auto-bust on every deploy.
 // Bump the version string here whenever app.js changes.
 const CHANGER_VERSION = '2026-02-27-a';
@@ -85,8 +88,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // Skip API requests (always use network)
-  if (url.pathname.startsWith('/api/')) {
+  // Skip API requests (always use network) — both local and Cloud Run backend
+  if (url.pathname.startsWith('/api/') || url.hostname === new URL(API_BASE).hostname) {
     event.respondWith(fetch(request));
     return;
   }

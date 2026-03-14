@@ -236,7 +236,7 @@ function filterAndFlagMessage(message, userId, partyId) {
  */
 function _createModerationEvent({ userId, partyId, messageText, filterReason, severity }) {
   if (typeof fetch === 'function') {
-    fetch('/api/moderation/flag-message', {
+    fetch(API_BASE + '/api/moderation/flag-message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId, partyId, messageText, filterReason, severity })
@@ -309,7 +309,7 @@ function reportUser(guestId, reason, description) {
 
   if (typeof fetch === 'function') {
     const partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
-    fetch('/api/report', {
+    fetch(API_BASE + '/api/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -340,7 +340,7 @@ function reportTrack(trackInfo, reason, description) {
       sourceUrl: trackInfo.sourceUrl || null
     };
 
-    fetch('/api/report', {
+    fetch(API_BASE + '/api/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -363,7 +363,7 @@ function reportMessage(messageId, messageText, senderId, reason, description) {
 
   if (typeof fetch === 'function') {
     const partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
-    fetch('/api/report', {
+    fetch(API_BASE + '/api/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -385,7 +385,7 @@ function reportParty(partyId, hostId, reason, description) {
   console.log(`[Safety] Party reported: ${partyId}, reason: ${reason}`);
 
   if (typeof fetch === 'function') {
-    fetch('/api/report', {
+    fetch(API_BASE + '/api/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
