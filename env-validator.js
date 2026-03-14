@@ -93,6 +93,17 @@ const ENV_SPEC = {
     validValues: ['false'],
     securityImpact: 'MEDIUM',
     failureImpact: 'Multi-instance deployments will break'
+  },
+
+  // Admin email allowlist
+  ADMIN_EMAILS: {
+    required: false,
+    stronglyRecommended: isProductionEnv() && !isTestEnv(),
+    category: 'Admin',
+    description: 'Comma-separated list of admin email addresses (e.g. ianevans2023@outlook.com)',
+    example: 'ADMIN_EMAILS=ianevans2023@outlook.com',
+    securityImpact: 'HIGH',
+    failureImpact: 'No admin accounts will be recognised — admin dashboard and free-tier bypass will be unavailable'
   }
 };
 

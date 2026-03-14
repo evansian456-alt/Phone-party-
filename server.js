@@ -88,6 +88,14 @@ const APP_VERSION = "0.1.0-party-fix"; // Version identifier for debugging and v
 // Early boot log so Cloud Run logs confirm the process reached this point
 console.log("[Boot] commit=" + (process.env.COMMIT_SHA || "unknown") + " port=" + PORT + " node=" + process.version);
 
+// Log admin email configuration status at startup so operators can confirm it is set
+if (process.env.ADMIN_EMAILS) {
+  const adminCount = process.env.ADMIN_EMAILS.split(',').filter(s => s.trim()).length;
+  console.log(`[Boot] ADMIN_EMAILS configured with ${adminCount} email(s). Admin accounts receive PRO tier for free.`);
+} else {
+  console.warn('[Boot] WARNING: ADMIN_EMAILS is not set. No accounts will have admin access. Set ADMIN_EMAILS in your environment (e.g. ADMIN_EMAILS=ianevans2023@outlook.com).');
+}
+
 // Generate unique instance ID for this server instance
 const INSTANCE_ID = `server-${Math.random().toString(36).substring(2, 9)}`;
 
