@@ -161,7 +161,9 @@ body{
   /* Grows with its content so body (min-height:100vh) becomes the scroll container */
   flex:1;
   overflow-y:visible;
-  overflow-x:hidden;
+  /* clip (not hidden) prevents creating a scroll container, so overflow-y:visible is
+     preserved and the body remains the scroll container for the page */
+  overflow-x:clip;
   width:100%;
 }
 .card{
