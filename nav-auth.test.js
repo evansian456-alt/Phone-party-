@@ -167,6 +167,22 @@ document.body.innerHTML = `
     <button id="btnShowLogin"></button>
     <button id="btnSkipAccount">Skip</button>
     <div class="prototype-mode-section"><div class="line"></div></div>
+    <!-- Party view controls (needed so init() event-handler setup doesn't throw) -->
+    <input type="checkbox" id="togglePro" />
+    <button id="btnLeave"></button>
+    <button id="btnCopy"></button>
+    <button id="btnPlay"></button>
+    <button id="btnPause"></button>
+    <button id="btnAd"></button>
+    <button id="btnAddPhone"></button>
+    <button id="btnSpeaker"></button>
+    <button id="btnCompletePayment"></button>
+    <button id="btnCancelPayment"></button>
+    <button id="btnProYes"></button>
+    <button id="btnProNo"></button>
+    <button id="btnWarnCancel"></button>
+    <button id="btnWarnAnyway"></button>
+    <button id="btnSpeakerOk"></button>
   </main>
 `;
 
@@ -196,6 +212,7 @@ const {
   clearProfile,
   hasValidProfile,
   setView,
+  initAuthFlow,
 } = appModule;
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -418,5 +435,68 @@ describe('setView() – nav visibility', () => {
     document.querySelectorAll('.post-auth-only').forEach(el => {
       expect(el.classList.contains('nav-hidden')).toBe(false);
     });
+  });
+});
+
+// =============================================================================
+// initAuthFlow() — boot auth guard
+// Verifies that initAuthFlow() always consults the server and that stale
+// localStorage data cannot bypass the landing page for logged-out users.
+// =============================================================================
+
+describe('initAuthFlow() — boot auth guard', () => {
+  let origFetch;
+
+  beforeEach(() => {
+    localStorage.clear();
+    global.isLoggedIn.mockReturnValue(false);
+    resetViews();
+    origFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = origFetch;
+  });
+
+  test('shows landing and returns false when /api/me returns 401', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
+    const result = await initAuthFlow();
+    expect(result).toBe(false);
+    expect(isVisible('viewLanding')).toBe(true);
+  });
+
+  test('clears stale user cache from localStorage when /api/me returns 401', async () => {
+    // Simulate stale session: user entry left in localStorage after session expired
+    localStorage.setItem('syncspeaker_current_user', JSON.stringify({ user: { id: '1' } }));
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
+    await initAuthFlow();
+    expect(localStorage.getItem('syncspeaker_current_user')).toBeNull();
+  });
+
+  test('shows landing and returns false when fetch throws (network error)', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+    const result = await initAuthFlow();
+    expect(result).toBe(false);
+    expect(isVisible('viewLanding')).toBe(true);
+  });
+
+  test('clears stale user cache when fetch throws (network error)', async () => {
+    localStorage.setItem('syncspeaker_current_user', JSON.stringify({ user: { id: '1' } }));
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+    await initAuthFlow();
+    expect(localStorage.getItem('syncspeaker_current_user')).toBeNull();
+  });
+
+  test('stale profile in localStorage does NOT bypass landing when not authenticated', async () => {
+    // Simulate: user previously logged in (profile in localStorage) but session expired
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    localStorage.setItem('syncspeaker_current_user', JSON.stringify({ user: { id: '1' } }));
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
+    const result = await initAuthFlow();
+    // Should be redirected to landing, not to createJoin or authHome
+    expect(result).toBe(false);
+    expect(isVisible('viewLanding')).toBe(true);
+    expect(isVisible('viewHome')).toBe(false);
+    expect(isVisible('viewAuthHome')).toBe(false);
   });
 });

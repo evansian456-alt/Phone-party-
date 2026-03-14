@@ -7039,7 +7039,9 @@ async function initAuthFlow() {
   try {
     const response = await fetch(API_BASE + '/api/me', { credentials: 'include' });
     if (!response.ok) {
-      // Not authenticated — hide auth buttons and transition to LOGGED_OUT
+      // Not authenticated — clear any stale user cache so isLoggedIn() returns false,
+      // hide auth buttons, and transition to LOGGED_OUT state.
+      try { localStorage.removeItem('syncspeaker_current_user'); } catch (_) {}
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
       setView('landing', { fromHash: true });
@@ -7072,6 +7074,8 @@ async function initAuthFlow() {
     return true;
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
+    // Clear stale user cache on network error so isLoggedIn() returns false
+    try { localStorage.removeItem('syncspeaker_current_user'); } catch (_) {}
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
     window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
     setView('landing', { fromHash: true });
@@ -7316,13 +7320,14 @@ async function handleBillingReturn() {
   const _bootHashView = HASH_TO_VIEW[_bootHash];
   console.log('[BOOT]', { commit: CHANGER_VERSION, hasProfile: hasValidProfile(), hash: _bootHashView || null });
 
-  if (_bootHashView) {
-    // Hash-driven navigation: setView's auth gating will redirect to auth/landing if needed
+  // Always verify auth with the server first on startup. This prevents stale
+  // localStorage data (isLoggedIn returning true for an expired session, or a
+  // leftover profile entry) from bypassing the landing page for logged-out users.
+  // initAuthFlow() redirects to landing when not authenticated and returns false;
+  // only navigate to the requested hash view when the user is confirmed logged in.
+  const _bootAuthenticated = await initAuthFlow();
+  if (_bootAuthenticated && _bootHashView) {
     setView(_bootHashView);
-  } else {
-    // Check server-side authentication state and redirect accordingly
-    // (handles unauthenticated → landing, profileCompleted=false → complete-profile, else → authHome)
-    await initAuthFlow();
   }
 
   // Handle billing return parameters (billing=success or billing=cancel in URL)
@@ -7397,22 +7402,28 @@ async function handleBillingReturn() {
   };
 
   // Payment screen handlers
-  el("btnCompletePayment").onclick = () => {
-    console.log("[UI] Party Pass payment completed (demo)");
-    state.userTier = USER_TIER.PARTY_PASS;
-    state.partyPassActive = true;
-    state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours from now
-    
-    // Notify user about Party Pass activation
-    toast("🎉 Party Pass activated! You have 2 hours of party time.");
-    
-    showHome();
-  };
+  const _btnCompletePayment = el("btnCompletePayment");
+  if (_btnCompletePayment) {
+    _btnCompletePayment.onclick = () => {
+      console.log("[UI] Party Pass payment completed (demo)");
+      state.userTier = USER_TIER.PARTY_PASS;
+      state.partyPassActive = true;
+      state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours from now
+      
+      // Notify user about Party Pass activation
+      toast("🎉 Party Pass activated! You have 2 hours of party time.");
+      
+      showHome();
+    };
+  }
 
-  el("btnCancelPayment").onclick = () => {
-    console.log("[UI] Payment cancelled");
-    showChooseTier();
-  };
+  const _btnCancelPayment = el("btnCancelPayment");
+  if (_btnCancelPayment) {
+    _btnCancelPayment.onclick = () => {
+      console.log("[UI] Payment cancelled");
+      showChooseTier();
+    };
+  }
 
   // PHONE PARTY - Giant Start/Join Buttons
   const btnShowCreateParty = el("btnShowCreateParty");
