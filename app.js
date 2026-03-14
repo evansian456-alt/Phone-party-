@@ -7040,8 +7040,13 @@ async function initAuthFlow() {
     const response = await fetch(API_BASE + '/api/me', { credentials: 'include' });
     if (!response.ok) {
       // Not authenticated — clear any stale user cache so isLoggedIn() returns false,
-      // hide auth buttons, and transition to LOGGED_OUT state.
+      // and clear the saved profile so hasValidProfile() also returns false. Both are
+      // needed because setView()'s auth check uses: isLoggedIn() || hasValidProfile().
+      // Without clearing the profile, a stale syncSpeakerProfile entry in localStorage
+      // would allow hasValidProfile() to return true and bypass the landing-page gate
+      // for protected views after this 401 response.
       try { localStorage.removeItem('syncspeaker_current_user'); } catch (_) {}
+      try { clearProfile(); } catch (_) {}
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
       setView('landing', { fromHash: true });
@@ -7074,8 +7079,10 @@ async function initAuthFlow() {
     return true;
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
-    // Clear stale user cache on network error so isLoggedIn() returns false
+    // Clear stale user cache and profile on network error so isLoggedIn() and
+    // hasValidProfile() both return false, preventing protected view access.
     try { localStorage.removeItem('syncspeaker_current_user'); } catch (_) {}
+    try { clearProfile(); } catch (_) {}
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
     window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
     setView('landing', { fromHash: true });
