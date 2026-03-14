@@ -159,8 +159,12 @@ body{
 .subtitle{color:var(--muted); font-size:13px; margin-top:2px}
 .wrap{
   max-width:1000px; margin:0 auto; padding:18px;
-  /* Grows with its content so body (min-height:100vh) becomes the scroll container */
-  flex:1;
+  /* flex: 1 1 auto — flex-basis:auto ensures the body can grow with tall content so
+     window/document scrolling works on mobile. flex-basis:0% (the flex:1 shorthand)
+     keeps the item's base size as 0 which prevents the flex container (body) from
+     learning about the actual content height, causing tall content to overflow
+     visually without the body growing or scrolling. Using auto fixes this. */
+  flex:1 1 auto;
   overflow-y:visible;
   /* clip (not hidden) prevents creating a scroll container, so overflow-y:visible is
      preserved and the body remains the scroll container for the page */
@@ -4791,10 +4795,10 @@ h2,h3{margin:0; font-weight:800}
   padding: 20px;
 }
 
-/* Signup view: allow vertical scroll so the Create Account button is always reachable on small screens */
+/* Signup view: page (body) scrolls naturally; no inner overflow needed now that
+   .wrap uses flex:1 1 auto and .wrap > section uses overflow-x:clip */
 #viewSignup {
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow-y: visible;
 }
 
 .auth-form {
@@ -8050,10 +8054,15 @@ body {
 
 /* Ensure every direct-child section/card of .wrap can grow and never clips
    overflow vertically. Both selectors use the > child combinator so only
-   immediate children of .wrap are targeted. */
+   immediate children of .wrap are targeted.
+   overflow-x:clip is used instead of overflow-x:hidden to avoid the CSS overflow
+   interaction rule: when overflow-x:hidden is set and overflow-y is unset (visible),
+   browsers compute overflow-y as auto, which creates an inner scroll container. The
+   clip keyword does NOT trigger this interaction, keeping overflow-y:visible and
+   allowing the body/window to be the scroll container for page scrolling. */
 .wrap > section,
 .wrap > .card {
-  overflow-x: hidden;
+  overflow-x: clip;
   min-width: 0;
   box-sizing: border-box;
 }

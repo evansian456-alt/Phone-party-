@@ -499,4 +499,37 @@ describe('initAuthFlow() — boot auth guard', () => {
     expect(isVisible('viewHome')).toBe(false);
     expect(isVisible('viewAuthHome')).toBe(false);
   });
+
+  test('initAuthFlow() 401 clears saved profile so hasValidProfile() returns false', async () => {
+    // Stale profile in localStorage
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    expect(hasValidProfile()).toBe(true); // profile exists before auth check
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
+    await initAuthFlow();
+    // Profile must be cleared so hasValidProfile() returns false
+    expect(hasValidProfile()).toBe(false);
+  });
+
+  test('after initAuthFlow() 401, stale profile does NOT allow navigation to protected view', async () => {
+    // Simulate: profile in localStorage, server returns 401 (session expired)
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    localStorage.setItem('syncspeaker_current_user', JSON.stringify({ user: { id: '1' } }));
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
+    await initAuthFlow(); // clears both user cache and profile
+    resetViews();
+    // Now try to navigate to a protected view — should redirect to auth
+    global.isLoggedIn.mockReturnValue(false); // ensure isLoggedIn also returns false
+    setView('createJoin');
+    // Protected view must NOT be shown; auth view should appear
+    expect(isVisible('viewHome')).toBe(false);
+    expect(isVisible('viewAccountCreation')).toBe(true);
+  });
+
+  test('initAuthFlow() network error also clears saved profile', async () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    expect(hasValidProfile()).toBe(true);
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+    await initAuthFlow();
+    expect(hasValidProfile()).toBe(false);
+  });
 });
