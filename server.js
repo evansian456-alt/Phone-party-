@@ -827,8 +827,15 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-// Body size limits
-app.use(express.json({ limit: '1mb' }));
+// Body size limits — skip JSON parsing for Stripe webhook endpoints so that
+// express.raw() on those routes receives the raw body needed for signature verification.
+const _jsonParser = express.json({ limit: '1mb' });
+app.use((req, res, next) => {
+  if (req.path === '/api/billing/webhook' || req.path === '/api/stripe/webhook') {
+    return next();
+  }
+  return _jsonParser(req, res, next);
+});
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
 // Helper to set secure cookies in production
@@ -2939,22 +2946,8 @@ app.get("/api/track/:trackId", async (req, res) => {
   }
 });
 
-// Sync metrics endpoint — enabled only in SYNC_TEST_MODE
-// Returns a live metrics snapshot for a party (Playwright harness + manual testing)
-app.get("/api/sync/metrics", (req, res) => {
-  if (process.env.SYNC_TEST_MODE !== 'true') {
-    return res.status(404).json({ error: 'Not available outside test mode' });
-  }
-  const partyId = req.query.partyId;
-  if (!partyId) {
-    return res.status(400).json({ error: 'partyId query parameter required' });
-  }
-  const syncEngine = partySyncEngines.get(partyId);
-  if (!syncEngine) {
-    return res.status(404).json({ error: 'Party not found or no sync engine' });
-  }
-  return res.json(syncEngine.getPartyMetrics());
-});
+// GET /api/sync/metrics is defined later in this file (see below) with support for
+// both partyId and code parameters and environment gating. Duplicate removed.
 
 // Debug endpoint to list active parties
 // WARNING: This endpoint is for debugging purposes only and should be
@@ -5673,20 +5666,9 @@ app.get("/api/leaderboard/guests", async (req, res) => {
 // ADMIN & ANALYTICS ENDPOINTS
 // ============================================================================
 
-// Admin metrics dashboard (secured with basic admin check)
-app.get("/admin/metrics", rateLimit({ windowMs: 60000, max: 30 }), authMiddleware.requireAuth, async (req, res) => {
+// Admin metrics dashboard — protected by requireAdmin (JWT with isAdmin flag)
+app.get("/admin/metrics", rateLimit({ windowMs: 60000, max: 30 }), authMiddleware.requireAdmin, async (req, res) => {
   try {
-    // Check if user is admin (you can add admin role check in database)
-    // For now, only allow in development or with ADMIN_SECRET
-    // Only accept via header for security (no query parameter)
-    const adminSecret = req.headers['x-admin-secret'];
-    const isAdmin = process.env.NODE_ENV === 'development' || 
-                    (process.env.ADMIN_SECRET && adminSecret === process.env.ADMIN_SECRET);
-    
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Unauthorized - Admin access required' });
-    }
-
     if (!metricsService) {
       return res.status(503).json({ error: 'Metrics service not available' });
     }
@@ -6691,36 +6673,8 @@ app.post('/api/stripe/create-checkout-session', apiLimiter, authMiddleware.optio
 // ADMIN STATS ENDPOINT
 // ============================================================================
 
-/**
- * GET /api/admin/stats
- * Returns live platform statistics. Restricted to the admin email.
- */
-app.get('/api/admin/stats', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
-  if (req.user.email !== 'ianevans2023@outlook.com') {
-    return res.status(403).json({ error: 'Admin access required' });
-  }
-  try {
-    const [totalRes, activeRes, passRes, proRes, todayRes, totalRevRes] = await Promise.all([
-      db.query('SELECT COUNT(*) AS count FROM users'),
-      db.query("SELECT COUNT(*) AS count FROM users WHERE last_login > NOW() - INTERVAL '30 days'"),
-      db.query('SELECT COUNT(*) AS count FROM user_upgrades WHERE party_pass_expires_at > NOW()'),
-      db.query('SELECT COUNT(*) AS count FROM user_upgrades WHERE pro_monthly_active = true'),
-      db.query('SELECT COALESCE(SUM(amount), 0) AS total FROM revenue_metrics WHERE created_at >= CURRENT_DATE'),
-      db.query('SELECT COALESCE(SUM(amount), 0) AS total FROM revenue_metrics')
-    ]);
-    return res.json({
-      totalUsers: parseInt(totalRes.rows[0].count, 10),
-      activeUsers: parseInt(activeRes.rows[0].count, 10),
-      partyPassUsers: parseInt(passRes.rows[0].count, 10),
-      proUsers: parseInt(proRes.rows[0].count, 10),
-      revenueToday: parseFloat(todayRes.rows[0].total),
-      revenueTotal: parseFloat(totalRevRes.rows[0].total)
-    });
-  } catch (error) {
-    console.error('[AdminStats] Error:', error.message);
-    return res.status(500).json({ error: 'Failed to retrieve stats' });
-  }
-});
+// GET /api/admin/stats is defined earlier in this file (see above) with full
+// requireAdmin middleware and comprehensive stats. Duplicate removed.
 
 // ============================================================================
 // BILLING ENDPOINTS (Stripe Checkout subscriptions)
@@ -7232,51 +7186,8 @@ app.post('/api/metrics/heartbeat', apiLimiter, async (req, res) => {
   return res.json({ ok: true });
 });
 
-// ============================================================================
-// BASKET – server-side shopping basket
-// ============================================================================
-// _baskets is defined near the top of this file (alongside other Maps).
-
-/**
- * POST /api/basket/add
- * Body: { productKey }
- * (userId taken from auth token)
- */
-app.post('/api/basket/add', apiLimiter, authMiddleware.requireAuth, (req, res) => {
-  const { productKey } = req.body || {};
-  const userId = req.user.userId;
-  if (!productKey) return res.status(400).json({ error: 'productKey required' });
-  if (!PRODUCTS[productKey]) return res.status(400).json({ error: `Unknown productKey: ${productKey}` });
-  const basket = _baskets.get(userId) || new Set();
-  basket.add(productKey);
-  _baskets.set(userId, basket);
-  return res.json({ basket: Array.from(basket) });
-});
-
-/**
- * POST /api/basket/remove
- * Body: { productKey }
- * (userId taken from auth token)
- */
-app.post('/api/basket/remove', apiLimiter, authMiddleware.requireAuth, (req, res) => {
-  const { productKey } = req.body || {};
-  const userId = req.user.userId;
-  if (!productKey) return res.status(400).json({ error: 'productKey required' });
-  const basket = _baskets.get(userId) || new Set();
-  basket.delete(productKey);
-  _baskets.set(userId, basket);
-  return res.json({ basket: Array.from(basket) });
-});
-
-/**
- * GET /api/basket
- * Query: ?userId= (ignored – uses auth token)
- */
-app.get('/api/basket', apiLimiter, authMiddleware.requireAuth, (req, res) => {
-  const userId = req.user.userId;
-  const basket = _baskets.get(userId) || new Set();
-  return res.json({ basket: Array.from(basket) });
-});
+// GET /api/basket, POST /api/basket/add are defined earlier in this file (BASKET/CART
+// section using userBaskets). The _baskets/productKey duplicates have been removed.
 
 // ============================================================================
 // IAP – Apple In-App Purchase verification
