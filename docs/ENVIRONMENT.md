@@ -202,7 +202,6 @@ This document is the single source of truth for environment variable configurati
   - Railway and most managed Redis services use valid certificates - keep validation enabled
   - Use only with explicit understanding of security risks
   - Automatically enabled when using `rediss://` URLs
->>>>>>> e72e365af60c2aa36e6dca6414a5ca46732ab593
 
 ---
 
@@ -339,6 +338,36 @@ All payment variables are optional. The app functions without them, but paid fea
 
 ---
 
+## Admin Configuration
+
+### `ADMIN_EMAILS`
+- **Status:** 🔴 **PRODUCTION REQUIRED** for admin access
+- **Purpose:** Comma-separated list of email addresses that have admin access
+- **Format:** Comma-separated email list; comparison is case-insensitive and whitespace-trimmed
+- **Default:** `undefined` (no admin accounts — all admin routes return 403)
+- **Example:** `ADMIN_EMAILS=ianevans2023@outlook.com,backup-admin@example.com`
+- **Security Impact:** HIGH — accounts with matching emails receive full admin access and PRO tier for free
+- **How it works:**
+  1. On login, the server calls `isAdminEmail(user.email)` (defined in `auth-middleware.js`)
+  2. If the email is in the allowlist and `is_admin` is not already `TRUE` in the database, the server runs `UPDATE users SET is_admin = TRUE WHERE id = $1`
+  3. The JWT issued for that session includes `isAdmin: true`
+  4. All `/api/admin/*` routes check this JWT claim via the `requireAdmin` middleware (401 if not logged in, 403 if logged in but not admin)
+  5. `/api/me` returns `isAdmin: true` and sets `effectiveTier: PRO` automatically for admin accounts
+- **Adding an admin email:**
+  1. Set (or append to) the `ADMIN_EMAILS` env var on your deployment platform (Railway / Cloud Run / Heroku / `.env`)
+  2. The target user must **log in again** — admin status is promoted on the next successful login
+  3. No code changes or database migrations are required
+- **Removing admin access:**
+  1. Remove the email from `ADMIN_EMAILS`
+  2. Manually set `is_admin = FALSE` for that user in the database (the flag is only promoted, never demoted automatically)
+- **Notes:**
+  - Do **not** hardcode email addresses in source code — always use this env var
+  - Supports multiple admins: `ADMIN_EMAILS=alice@example.com,bob@example.com`
+  - Whitespace around emails is ignored: `alice@example.com , BOB@EXAMPLE.COM` works correctly
+  - Legacy `ADMIN_BOOTSTRAP_EMAIL` single-email variable is also supported for backwards compatibility
+
+---
+
 ## Admin & Debug (Development Only)
 
 ### `ADMIN_SECRET`
@@ -348,8 +377,9 @@ All payment variables are optional. The app functions without them, but paid fea
 - **Example:** `ADMIN_SECRET=my-admin-secret-key`
 - **Security Impact:** MEDIUM - Admin access
 - **Notes:** 
-  - In development, admin access is allowed without secret
-  - In production, this secret is required for admin endpoints
+  - Legacy variable kept for backwards compatibility
+  - The current admin system uses `ADMIN_EMAILS` + JWT; `ADMIN_SECRET` is no longer the primary access control
+  - Only used by the legacy `/admin` dashboard route check
 
 ### `DEBUG`
 - **Status:** 🔵 **DEV ONLY**
@@ -452,6 +482,9 @@ DATABASE_URL=postgresql://user:pass@db.example.com:5432/phoneparty
 
 # Security (CRITICAL)
 JWT_SECRET=your-random-secret-min-32-chars-generated-securely
+
+# Admin access (set to your email address)
+ADMIN_EMAILS=your-admin-email@example.com
 
 # Monitoring (RECOMMENDED)
 SENTRY_DSN=https://abc@o123.ingest.sentry.io/456
