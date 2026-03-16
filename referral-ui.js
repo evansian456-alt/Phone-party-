@@ -21,6 +21,7 @@ const SHARE_PLATFORMS = [
   { id: 'tiktok',    label: '🎵 TikTok',    native: true  },
 ];
 
+// Milestone thresholds mirror referral-system.js MILESTONES — keep both in sync.
 const MILESTONES = [
   { at: 3,  label: '30 min Party Pass' },
   { at: 5,  label: '1 hr Party Pass'   },
