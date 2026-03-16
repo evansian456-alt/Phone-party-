@@ -108,8 +108,8 @@ function checkForJoinLink() {
   if (joinCode) {
     console.log('[QRCode] Join link detected:', joinCode);
     
-    // Auto-populate join code field
-    const joinCodeInput = document.getElementById('txtPartyCode');
+    // Auto-populate join code field — try both layouts defensively
+    const joinCodeInput = document.getElementById('joinCode') || document.getElementById('partyJoinCode');
     if (joinCodeInput) {
       joinCodeInput.value = joinCode.toUpperCase();
     }

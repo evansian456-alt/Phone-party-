@@ -10889,7 +10889,6 @@ function initMonetizationUI() {
   }
   
   // Add-ons buttons from various views
-  document.getElementById('btnLandingAddons')?.addEventListener('click', showUpgradeHub);
   document.getElementById('btnDjAddons')?.addEventListener('click', showUpgradeHub);
   document.getElementById('btnGuestAddons')?.addEventListener('click', showUpgradeHub);
   
@@ -10954,10 +10953,6 @@ function initMonetizationUI() {
   });
   
   // Landing page, DJ and Guest addons buttons
-  document.getElementById('btnLandingAddons')?.addEventListener('click', () => {
-    showView('viewUpgradeHub');
-  });
-  
   document.getElementById('btnDjAddons')?.addEventListener('click', () => {
     showView('viewUpgradeHub');
   });
