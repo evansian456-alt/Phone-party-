@@ -382,18 +382,25 @@
 
   <script src="config.js"></script>
   <script>
-    // Get admin secret from prompt (for security, don't use URL)
-    const adminSecret = prompt('Enter admin secret:');
+    // Authentication is handled via the JWT cookie set during normal login.
+    // No secret prompt is needed — the browser sends the auth_token cookie automatically.
+    // If the user is not logged in as admin the backend will return 401/403 and we show a clear error.
+    loadMetrics();
+    loadReports();
+    loadFlaggedMessages();
+    loadPromoCodes();
 
-    if (!adminSecret) {
-      document.getElementById('loadingState').classList.add('hidden');
-      document.getElementById('errorState').textContent = 'Admin secret required';
-      document.getElementById('errorState').classList.remove('hidden');
-    } else {
-      loadMetrics();
-      loadReports();
-      loadFlaggedMessages();
-      loadPromoCodes();
+    // Centralised auth-error handler: show an actionable message and stop loading.
+    function handleAuthError(status) {
+      const errorState = document.getElementById('errorState');
+      const loadingState = document.getElementById('loadingState');
+      if (loadingState) loadingState.classList.add('hidden');
+      if (errorState) {
+        errorState.textContent = status === 401
+          ? 'Not authenticated — please log in to the main app first, then return here.'
+          : 'Admin access required — your account does not have admin privileges.';
+        errorState.classList.remove('hidden');
+      }
     }
 
     async function loadMetrics() {
@@ -407,15 +414,15 @@
       metricsContent.classList.add('hidden');
 
       try {
-        // Use header for admin secret (more secure than query parameter)
         const response = await fetch('/admin/metrics', {
-          headers: {
-            'X-Admin-Secret': adminSecret,
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include'
         });
 
+        if (response.status === 401 || response.status === 403) {
+          handleAuthError(response.status);
+          return;
+        }
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
@@ -482,7 +489,7 @@
       try {
         const resp = await fetch(API_BASE + '/api/admin/moderation/action', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': adminSecret },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ reportId, flaggedMessageId, targetUserId, action, reason })
         });
@@ -509,7 +516,6 @@
         if (type) params.set('type', type);
         if (status) params.set('status', status);
         const resp = await fetch(API_BASE + '/api/admin/moderation/reports?' + params.toString(), {
-          headers: { 'X-Admin-Secret': adminSecret },
           credentials: 'include'
         });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -570,7 +576,6 @@
         if (severity) params.set('severity', severity);
         if (status) params.set('status', status);
         const resp = await fetch(API_BASE + '/api/admin/moderation/flagged-messages?' + params.toString(), {
-          headers: { 'X-Admin-Secret': adminSecret },
           credentials: 'include'
         });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -618,7 +623,6 @@
 
       try {
         const resp = await fetch(API_BASE + '/api/admin/moderation/user-history/' + encodeURIComponent(userId), {
-          headers: { 'X-Admin-Secret': adminSecret },
           credentials: 'include'
         });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -668,7 +672,7 @@
       try {
         const resp = await fetch(API_BASE + '/api/admin/promo-codes', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': adminSecret },
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({ type })
         });
@@ -714,7 +718,6 @@
 
       try {
         const resp = await fetch(API_BASE + '/api/admin/promo-codes', {
-          headers: { 'X-Admin-Secret': adminSecret },
           credentials: 'include'
         });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
