@@ -89,11 +89,16 @@ document.body.innerHTML = `
       <div class="pill post-auth-only nav-hidden" id="planPill">Free · 2 phones</div>
     </div>
     <div class="header-right-public pre-auth-only" id="headerPublicButtons">
-      <button class="btn-header-login" id="btnHeaderLogin">Log In</button>
     </div>
   </header>
   <main class="wrap">
-    <section class="landing-page" id="viewLanding"><h1>Landing</h1></section>
+    <section class="landing-page" id="viewLanding">
+      <h1>Landing</h1>
+      <div class="landing-cta-buttons pre-auth-only">
+        <button id="btnLandingSignup">GET STARTED FREE</button>
+        <button id="btnLandingLogin">LOG IN</button>
+      </div>
+    </section>
     <section class="card hidden" id="viewChooseTier"><h1>Choose Tier</h1></section>
     <section class="card hidden" id="viewAccountCreation"><h1>Create Account</h1></section>
     <section class="card hidden" id="viewHome"><h1>Create/Join</h1></section>
@@ -458,7 +463,7 @@ describe('setView() – nav visibility', () => {
     });
   });
 
-  test('header login button (pre-auth-only) is hidden when logged in', () => {
+  test('pre-auth-only header area is hidden when logged in', () => {
     saveProfile({ djName: 'DJ Test', tier: 'FREE' });
     setView('authHome');
     // nav-hidden is added to the .pre-auth-only parent div, which hides all children
@@ -467,7 +472,7 @@ describe('setView() – nav visibility', () => {
     expect(publicBtnsDiv.classList.contains('nav-hidden')).toBe(true);
   });
 
-  test('header login button (pre-auth-only) is visible when logged out', () => {
+  test('pre-auth-only header area is visible when logged out', () => {
     global.isLoggedIn.mockReturnValue(false);
     setView('landing');
     const publicBtnsDiv = document.getElementById('headerPublicButtons');
@@ -476,7 +481,7 @@ describe('setView() – nav visibility', () => {
   });
 });
 
-describe('btnHeaderLogin – click navigates to login view', () => {
+describe('btnLandingLogin – click navigates to login view', () => {
   beforeEach(() => {
     localStorage.clear();
     global.isLoggedIn.mockReturnValue(false);
@@ -484,22 +489,26 @@ describe('btnHeaderLogin – click navigates to login view', () => {
     pushStateMock.mockClear();
   });
 
-  test('clicking #btnHeaderLogin shows the login view', () => {
-    const btn = document.getElementById('btnHeaderLogin');
+  test('btnHeaderLogin no longer exists in the DOM', () => {
+    expect(document.getElementById('btnHeaderLogin')).toBeNull();
+  });
+
+  test('clicking #btnLandingLogin shows the login view', () => {
+    const btn = document.getElementById('btnLandingLogin');
     expect(btn).not.toBeNull();
     btn.click();
     expect(isVisible('viewLogin')).toBe(true);
   });
 
-  test('clicking #btnHeaderLogin updates the URL hash to #login', () => {
-    const btn = document.getElementById('btnHeaderLogin');
+  test('clicking #btnLandingLogin updates the URL hash to #login', () => {
+    const btn = document.getElementById('btnLandingLogin');
     btn.click();
     expect(pushStateMock).toHaveBeenCalledWith(null, '', '#login');
   });
 
-  test('clicking #btnHeaderLogin hides the landing view', () => {
+  test('clicking #btnLandingLogin hides the landing view', () => {
     document.getElementById('viewLanding').classList.remove('hidden');
-    const btn = document.getElementById('btnHeaderLogin');
+    const btn = document.getElementById('btnLandingLogin');
     btn.click();
     expect(isVisible('viewLanding')).toBe(false);
   });

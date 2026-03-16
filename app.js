@@ -7393,15 +7393,6 @@ async function handleBillingReturn() {
     };
   }
 
-  // HEADER Log In button (for logged-out users on any page)
-  const btnHeaderLogin = el("btnHeaderLogin");
-  if (btnHeaderLogin) {
-    btnHeaderLogin.onclick = () => {
-      console.log("[UI] Header login clicked");
-      setView('login');
-    };
-  }
-
   // LANDING PAGE BUTTON (for logged-in users)
   const btnGoToDashboard = el("btnGoToDashboard");
   if (btnGoToDashboard) {
