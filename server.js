@@ -2607,13 +2607,7 @@ app.get("/api/user/entitlements", apiLimiter, authMiddleware.requireAuth, async 
   }
 });
 
-// Track file registry for TTL cleanup
-// Map of trackId -> { filename, originalName, uploadedAt, filepath, contentType, sizeBytes }
-// SECTION 3: Removed uploadedTracks Map - now handled by storage provider
-// const uploadedTracks = new Map();
-// const TRACK_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
-
-// PHASE 2: POST /api/tracks/presign-put - Generate presigned URL for direct-to-R2 upload
+// POST /api/tracks/presign-put - Generate presigned URL for direct-to-R2 upload
 app.post("/api/tracks/presign-put", async (req, res) => {
   const timestamp = new Date().toISOString();
   console.log(`[HTTP] POST /api/tracks/presign-put at ${timestamp}`);
@@ -2658,7 +2652,7 @@ app.post("/api/tracks/presign-put", async (req, res) => {
     if (typeof storageProvider.generatePresignedPutUrl !== 'function') {
       return res.status(400).json({ 
         error: 'Presigned uploads not supported',
-        message: 'Direct uploads require S3-compatible storage. Use /api/upload-track instead.'
+        message: 'Presigned uploads require S3-compatible storage. Use the standard upload endpoint instead.'
       });
     }
     

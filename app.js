@@ -317,13 +317,6 @@ const musicState = {
   uploadProgress: 0 // Upload progress percentage (0-100)
 };
 
-// Debug state for tracking API calls and errors
-const debugState = {
-  lastEndpoint: null,
-  lastError: null,
-  serverHealth: null, // Last server health check result
-  lastWsMessage: null // Last WebSocket message type received
-};
 
 const state = {
   ws: null,
@@ -896,10 +889,7 @@ async function checkServerHealth() {
     
     console.log("[Health] Server health check:", health);
     
-    // Store in debug state for diagnostics panel
-    debugState.serverHealth = health;
-    
-    // Build error message from enhanced health data
+        // Build error message from enhanced health data
     let errorMsg = null;
     if (health.ok !== true) {
       if (health.redis?.errorType) {
@@ -940,10 +930,7 @@ async function checkServerHealth() {
       error: errorMsg
     };
     
-    // Update debug panel
-    updateDebugState();
-    
-    return result;
+        return result;
   } catch (error) {
     console.error("[Health] Health check failed:", error);
     // If health check fails, server is not reachable
@@ -954,12 +941,6 @@ async function checkServerHealth() {
       instanceId: null,
       error: error.message
     };
-    
-    // Store in debug state
-    debugState.serverHealth = { ok: false, error: error.message };
-    
-    // Update debug panel
-    updateDebugState();
     
     return result;
   }
@@ -1003,13 +984,11 @@ function connectWS() {
 
     ws.onopen = () => {
       console.log("[WS] Connected successfully");
-      addDebugLog("WebSocket connected");
       updateHeaderConnectionStatus("connected");
       resolve();
     };
     ws.onerror = (e) => {
       console.error("[WS] Connection error:", e);
-      addDebugLog("WebSocket error");
       updateHeaderConnectionStatus("error");
       reject(e);
     };
@@ -1021,7 +1000,6 @@ function connectWS() {
     };
     ws.onclose = () => {
       console.log("[WS] Connection closed");
-      addDebugLog("WebSocket disconnected");
       updateHeaderConnectionStatus("disconnected");
       toast("Disconnected");
       stopTimePing(); // Stop periodic time sync
@@ -1230,12 +1208,6 @@ function requestSyncState() {
 }
 
 function handleServer(msg) {
-  // Track last WebSocket message for diagnostics
-  if (msg.t) {
-    debugState.lastWsMessage = msg.t;
-    updateDebugState();
-  }
-  
   // PHASE 5: Track eventId for RESUME
   if (msg.eventId !== undefined && state.partyCode) {
     const storageKey = `lastEventId:${state.partyCode}`;
@@ -1250,7 +1222,6 @@ function handleServer(msg) {
   if (msg.t === "WELCOME") { 
     state.clientId = msg.clientId; 
     state.connected = true;
-    updateDebugState();
     // Start periodic time sync
     startTimePing();
     return; 
@@ -1304,7 +1275,6 @@ function handleServer(msg) {
     state.connected = true;
     showParty(); 
     toast(`Party created: ${msg.code}`); 
-    updateDebugState();
     // Save to localStorage for rejoin
     localStorage.setItem('lastPartyCode', msg.code);
     return;
@@ -1316,7 +1286,6 @@ function handleServer(msg) {
     state.isHost = true; // Explicitly maintain host status
     state.connected = true;
     console.log(`[HOST_JOINED] Host WebSocket registered for party ${msg.code}, tier: ${msg.tier || state.userTier}`);
-    updateDebugState();
     // Save to localStorage for rejoin
     localStorage.setItem('lastPartyCode', msg.code);
     // Do NOT call showParty() again or showGuest() - host is already on correct screen
@@ -1328,10 +1297,8 @@ function handleServer(msg) {
     state.isHost = false; 
     state.connected = true;
     state.partyCode = msg.code; // PHASE 5: Track party code for eventId storage
-    addDebugLog(`Joined party: ${msg.code}`);
     showGuest(); 
     toast(`Joined party ${msg.code}`); 
-    updateDebugState();
     
     // Save to localStorage for rejoin
     localStorage.setItem('lastPartyCode', msg.code);
@@ -1424,7 +1391,6 @@ function handleServer(msg) {
     } else {
       updateGuestPartyStatus();
     }
-    updateDebugState();
     return;
   }
   
@@ -1445,14 +1411,12 @@ function handleServer(msg) {
     }
     toast("Party ended (host left)"); 
     showLanding(); 
-    updateDebugState();
     return; 
   }
   if (msg.t === "KICKED") { 
     state.connected = false;
     toast("Removed by host"); 
     showLanding(); 
-    updateDebugState();
     return; 
   }
   
@@ -1474,7 +1438,6 @@ function handleServer(msg) {
       }
       // Don't change playback state yet - wait for PLAY
     }
-    updateDebugState();
     return;
   }
   
@@ -1484,7 +1447,6 @@ function handleServer(msg) {
     if (!state.isHost) {
       updateGuestUpNext(msg.filename);
     }
-    updateDebugState();
     return;
   }
   
@@ -1494,7 +1456,6 @@ function handleServer(msg) {
     if (!state.isHost) {
       updateGuestPlaybackState("PLAYING");
       updateGuestVisualMode("playing");
-      addDebugLog("Track started: " + (msg.filename || "Unknown"));
       
       // Handle guest audio playback with proper server timestamp and position
       if (msg.trackUrl) {
@@ -1504,7 +1465,6 @@ function handleServer(msg) {
         toast("Host is playing locally - no audio sync available");
       }
     }
-    updateDebugState();
     return;
   }
   
@@ -1537,7 +1497,6 @@ function handleServer(msg) {
       // Stop drift correction when paused
       stopDriftCorrection();
     }
-    updateDebugState();
     return;
   }
   
@@ -1558,9 +1517,7 @@ function handleServer(msg) {
       // Stop drift correction
       stopDriftCorrection();
       
-      addDebugLog("Host stopped playback");
     }
-    updateDebugState();
     return;
   }
   
@@ -1603,7 +1560,6 @@ function handleServer(msg) {
       // PHASE 7: Update host queue UI
       updateHostQueueUI();
     }
-    updateDebugState();
     return;
   }
   
@@ -1625,7 +1581,6 @@ function handleServer(msg) {
         toast("Host is playing locally - no audio sync available");
       }
     }
-    updateDebugState();
     return;
   }
   
@@ -1646,7 +1601,6 @@ function handleServer(msg) {
       // PHASE 7: Update host queue UI
       updateHostQueueUI();
     }
-    updateDebugState();
     return;
   }
   
@@ -1834,7 +1788,6 @@ function handleServer(msg) {
   if (msg.t === "CHAT_MODE_SET") {
     state.chatMode = msg.mode;
     updateChatModeUI();
-    updateDebugState();
     return;
   }
   
@@ -1856,22 +1809,18 @@ function handleServer(msg) {
       toast("🎉 You are now the host!");
       
       // Log for debugging
-      addDebugLog("Promoted to host");
     } else {
       // Another guest became host
       console.log("[HOST_CHANGED] Host changed to:", msg.newHostName);
       toast(`Host changed to ${msg.newHostName}`);
-      addDebugLog(`Host changed: ${msg.newHostName}`);
     }
     
-    updateDebugState();
     return;
   }
   
   // Track ready for playback
   if (msg.t === "TRACK_READY") {
     console.log("[WS] Track ready:", msg.track);
-    addDebugLog(`Track ready: ${msg.track.filename}`);
     
     if (!state.isHost) {
       // Update guest state with track URL
@@ -1888,27 +1837,21 @@ function handleServer(msg) {
           state.guestAudioElement.addEventListener('loadeddata', () => {
             console.log("[Guest Audio] Track loaded");
             state.guestAudioReady = true;
-            addDebugLog("Audio loaded");
-            updateDebugState();
           });
           
           state.guestAudioElement.addEventListener('error', (e) => {
             const errorCode = state.guestAudioElement.error?.code;
             const errorMsg = state.guestAudioElement.error?.message || "Unknown error";
             console.error("[Guest Audio] Error:", errorCode, errorMsg);
-            addDebugLog(`Audio error: ${errorCode} - ${errorMsg}`);
             toast(`❌ Audio error: ${errorMsg}`);
-            updateDebugState();
           });
           
           state.guestAudioElement.addEventListener('canplay', () => {
             console.log("[Guest Audio] Can play");
-            addDebugLog("Audio can play");
           });
           
           state.guestAudioElement.addEventListener('waiting', () => {
             console.log("[Guest Audio] Waiting for data");
-            addDebugLog("Audio buffering");
           });
         }
         
@@ -1917,10 +1860,8 @@ function handleServer(msg) {
         state.guestAudioReady = false;
         
         console.log("[Guest Audio] Audio src set to:", msg.track.trackUrl);
-        addDebugLog(`Audio src set: ${msg.track.filename}`);
         
         toast(`🎵 Track ready: ${msg.track.filename}`);
-        updateDebugState();
       }
     }
     
@@ -2468,7 +2409,6 @@ function showHome() {
   stopPartyStatusPolling();
   
   setPlanPill();
-  updateDebugState();
 }
 
 function showLanding() {
@@ -2521,7 +2461,6 @@ function showLanding() {
   stopPartyStatusPolling();
   
   setPlanPill();
-  updateDebugState();
 }
 
 function showParty() {
@@ -2643,7 +2582,6 @@ function showChooseTier() {
   hide("viewPayment");
   hide("viewAccountCreation");
   show("viewChooseTier");
-  updateDebugState();
 }
 
 // Show account creation screen
@@ -2659,7 +2597,6 @@ function showAccountCreation() {
   
   // Update the selected tier display
   updateSelectedTierDisplay();
-  updateDebugState();
 }
 
 // Update selected tier display on account creation page
@@ -2690,7 +2627,6 @@ function showPayment() {
   hide("viewChooseTier");
   hide("viewAccountCreation");
   show("viewPayment");
-  updateDebugState();
 }
 
 // Start polling party status for updates (both host and guest)
@@ -3230,7 +3166,6 @@ function showGuest() {
   updateResyncButtonVisibility();
   
   setPlanPill();
-  updateDebugState();
   
   // Check if audio has been unlocked previously
   // If not unlocked and not already set, check stored state
@@ -3493,7 +3428,6 @@ function updateGuestNowPlaying(filename, trackId) {
     }
   }
   
-  updateDebugState();
 }
 
 function updateGuestUpNext(filename) {
@@ -3510,7 +3444,6 @@ function updateGuestUpNext(filename) {
     sectionEl.classList.add("hidden");
   }
   
-  updateDebugState();
 }
 
 function updateGuestPlaybackState(newState) {
@@ -3543,7 +3476,6 @@ function updateGuestPlaybackState(newState) {
       break;
   }
   
-  updateDebugState();
 }
 
 // Show autoplay notice when audio.play() is blocked
@@ -3687,7 +3619,6 @@ function updateGuestVisualMode(mode) {
     equalizerEl.classList.add(mode);
   }
   
-  updateDebugState();
 }
 
 // Handle guest audio playback with sync
@@ -5596,16 +5527,6 @@ function updateChatModeUI() {
   }
 }
 
-function updateDebugState() {
-  // Debug panel has been removed - this function is now a no-op
-  return;
-}
-
-// Add debug log entry (no-op - debug panel removed)
-function addDebugLog(message) {
-  // Debug panel has been removed
-  return;
-}
 
 function hashStr(s){
   let h = 2166136261;
@@ -8200,15 +8121,11 @@ async function handleBillingReturn() {
           .then(() => {
             console.log("[Guest] Audio playback started");
             unlockAudioPlayback();
-            addDebugLog("Guest started playback");
             toast("▶️ Playing music");
-            updateDebugState();
           })
           .catch((err) => {
             console.error("[Guest] Audio play error:", err);
-            addDebugLog(`Play error: ${err.message}`);
             toast(`❌ Play failed: ${err.message}`);
-            updateDebugState();
           });
       } else {
         console.log("[Guest] No audio loaded - requesting sync state");
@@ -8226,15 +8143,12 @@ async function handleBillingReturn() {
       if (state.guestAudioElement && !state.guestAudioElement.paused) {
         state.guestAudioElement.pause();
         console.log("[Guest] Audio playback paused");
-        addDebugLog("Guest paused playback");
         toast("⏸️ Music paused");
-        updateDebugState();
       } else {
         console.log("[Guest] No audio playing - sending pause request to host");
         // Fallback: send request to host to pause music
         if (state.ws && state.connected) {
           send({ t: "GUEST_PAUSE_REQUEST" });
-          addDebugLog("No audio - sent pause request to host");
           toast("⏸️ Requested DJ to pause music");
         } else {
           toast("⚠️ No audio playing", "warning");
@@ -8694,7 +8608,6 @@ async function handleBillingReturn() {
       if (!file) return;
       
       console.log("[Upload] File selected:", file.name, file.size, "bytes");
-      addDebugLog(`File selected: ${file.name}`);
       
       // Show file info
       const uploadStatus = el("uploadStatus");
@@ -8736,7 +8649,6 @@ async function handleBillingReturn() {
             try {
               const response = JSON.parse(xhr.responseText);
               console.log("[Upload] Track uploaded successfully:", response);
-              addDebugLog(`Upload success: ${response.trackId}`);
               
               // Hide progress, show ready status
               if (uploadProgress) uploadProgress.classList.add("hidden");
@@ -8756,7 +8668,6 @@ async function handleBillingReturn() {
                 uploadStatus: 'ready'
               };
               
-              updateDebugState();
               
               // Broadcast track to party members
               if (state.code) {
@@ -8777,7 +8688,6 @@ async function handleBillingReturn() {
                   if (broadcastResponse.ok) {
                     const broadcastData = await broadcastResponse.json();
                     console.log("[Upload] Track broadcast to party:", broadcastData);
-                    addDebugLog(`Track broadcast to ${broadcastData.broadcastCount} guests`);
                     toast(`✅ Track ready for guests: ${file.name}`);
                   } else {
                     const errorText = await broadcastResponse.text();
@@ -8791,7 +8701,6 @@ async function handleBillingReturn() {
               }
             } catch (parseError) {
               console.error("[Upload] Failed to parse upload response:", parseError, xhr.responseText);
-              addDebugLog(`Upload parse error: ${parseError.message}`);
               if (uploadProgress) uploadProgress.classList.add("hidden");
               if (uploadStateBadge) {
                 uploadStateBadge.textContent = "Error";
@@ -8801,7 +8710,6 @@ async function handleBillingReturn() {
             }
           } else {
             console.error("[Upload] Upload failed:", xhr.status, xhr.responseText);
-            addDebugLog(`Upload failed: HTTP ${xhr.status}`);
             if (uploadProgress) uploadProgress.classList.add("hidden");
             if (uploadStateBadge) {
               uploadStateBadge.textContent = "Error";
@@ -8823,7 +8731,6 @@ async function handleBillingReturn() {
         
         xhr.addEventListener('error', () => {
           console.error("[Upload] Network error during upload");
-          addDebugLog("Upload network error");
           if (uploadProgress) uploadProgress.classList.add("hidden");
           if (uploadStateBadge) {
             uploadStateBadge.textContent = "Error";
@@ -8837,7 +8744,6 @@ async function handleBillingReturn() {
         
       } catch (error) {
         console.error("[Upload] Error:", error);
-        addDebugLog(`Upload error: ${error.message}`);
         if (uploadProgress) uploadProgress.classList.add("hidden");
         if (uploadStateBadge) {
           uploadStateBadge.textContent = "Error";
