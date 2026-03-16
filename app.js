@@ -10889,7 +10889,7 @@ function initMonetizationUI() {
   }
   
   // Add-ons buttons from various views
-  document.getElementById('btnLandingAddons')?.addEventListener('click', showUpgradeHub);
+  // Note: landing page has no add-ons button; only DJ and Guest views expose one.
   document.getElementById('btnDjAddons')?.addEventListener('click', showUpgradeHub);
   document.getElementById('btnGuestAddons')?.addEventListener('click', showUpgradeHub);
   
@@ -10954,10 +10954,7 @@ function initMonetizationUI() {
   });
   
   // Landing page, DJ and Guest addons buttons
-  document.getElementById('btnLandingAddons')?.addEventListener('click', () => {
-    showView('viewUpgradeHub');
-  });
-  
+  // Note: landing page has no add-ons button (btnLandingAddons does not exist in index.html).
   document.getElementById('btnDjAddons')?.addEventListener('click', () => {
     showView('viewUpgradeHub');
   });
