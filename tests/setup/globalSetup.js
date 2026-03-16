@@ -129,6 +129,24 @@ module.exports = async function globalSetup() {
   // ── 8. Expose env vars for child processes (e.g. app server) ──────────
   process.env.DATABASE_URL = DATABASE_URL;
   process.env.REDIS_URL = REDIS_URL;
+  // Ensure JWT_SECRET and other required vars are available
+  if (!process.env.JWT_SECRET) {
+    process.env.JWT_SECRET = 'test-e2e-secret-not-used-in-production';
+  }
+  if (!process.env.PORT) {
+    process.env.PORT = '8080';
+  }
+
+  // ── 9. Start the app server so HTTP-level tests (Playwright, E2E) can reach it.
+  // require() happens AFTER all env vars are set so the server module picks
+  // up the correct DATABASE_URL / REDIS_URL for its connection pool.
+  // globalSetup is not called for plain Jest unit tests (see package.json "jest"
+  // config), so starting the server here does not affect unit-test runs.
+  console.log('[globalSetup] Starting app server on port', process.env.PORT, '…');
+  const { startServer } = require('../../server');
+  // startServer() returns the http.Server instance once it is listening.
+  globalThis.__appServer = await startServer();
+  console.log('[globalSetup] App server ready.');
 
   // Store container references on globalThis so teardown can access them
   // when running in the same Node process (Playwright / Jest --runInBand).

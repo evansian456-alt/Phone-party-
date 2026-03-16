@@ -89,7 +89,9 @@ self.addEventListener('fetch', (event) => {
   }
   
   // Skip API requests (always use network) — both local and Cloud Run backend
-  if (url.pathname.startsWith('/api/') || url.hostname === new URL(API_BASE).hostname) {
+  const isApiPath = url.pathname.startsWith('/api/');
+  const isApiHost = API_BASE ? url.hostname === new URL(API_BASE).hostname : false;
+  if (isApiPath || isApiHost) {
     event.respondWith(fetch(request));
     return;
   }

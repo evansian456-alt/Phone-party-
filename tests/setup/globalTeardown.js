@@ -22,6 +22,17 @@ const STATE_FILE = path.resolve(__dirname, '../../.e2e-container-state.json');
 module.exports = async function globalTeardown() {
   console.log('[globalTeardown] Stopping test containers…');
 
+  // ── Stop the app server if it was started by globalSetup ──────────────
+  if (globalThis.__appServer) {
+    await new Promise((resolve) => {
+      globalThis.__appServer.close(() => {
+        console.log('[globalTeardown] App server stopped.');
+        resolve();
+      });
+    });
+    globalThis.__appServer = null;
+  }
+
   // ── Prefer in-process references (same Node process) ──────────────────
   if (globalThis.__testcontainers) {
     const { pgContainer, redisContainer } = globalThis.__testcontainers;
