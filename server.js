@@ -880,6 +880,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// Serve config.js dynamically so the frontend API_BASE adjusts per environment.
+// When running in a web browser the page origin already points at the right server,
+// so we use an empty string (relative URLs).  For Capacitor native apps the HTML is
+// loaded from the local device (capacitor://localhost), so they need the explicit
+// production URL.  This route MUST be registered before express.static() so the
+// dynamic handler takes precedence over the static file on disk.
+app.get('/config.js', (req, res) => {
+  const prodUrl = 'https://syncspeaker-262593928124.us-central1.run.app';
+  res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+  res.setHeader('Cache-Control', NO_CACHE);
+  // Runtime check: native Capacitor apps need the production URL because their
+  // page origin is capacitor://localhost (relative URLs would not reach the server).
+  // In all web-browser contexts (local dev, CI, production Cloud Run) an empty
+  // string works — fetch('/api/...') automatically targets the serving origin.
+  res.send(
+    `const API_BASE = (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform()) ? ${JSON.stringify(prodUrl)} : '';\n`
+  );
+});
+
 // Serve static files from the repo root.
 // HTML, JS, and CSS files use no-cache so browsers always revalidate after a deploy.
 app.use(express.static(__dirname, {

@@ -113,7 +113,10 @@
 html{
   min-height:100%;
   overflow-y:auto;
-  overflow-x: hidden;
+  /* clip (not hidden) avoids the CSS overflow-interaction rule that converts
+     overflow-y:visible to overflow-y:auto when the other axis is hidden,
+     which would make <html> the scroll container instead of the viewport */
+  overflow-x:clip;
   overscroll-behavior:none;
 }
 body{

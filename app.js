@@ -172,20 +172,21 @@ function setView(viewName, opts = {}) {
     return;
   }
 
-  // Auth gating: redirect unauthenticated users away from protected views
+  // Auth gating: redirect unauthenticated users away from protected views.
+  // Redirect to the landing page (not the sign-up form) so unauthenticated visitors
+  // always see the marketing landing page first — consistent with the boot flow in
+  // initAuthFlow() which also lands on 'landing' for logged-out users.
   if (view.requiresAuth) {
     const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) || hasValidProfile();
     if (!authenticated) {
-      console.log('[NAV] Auth required for', viewName, '→ redirecting to auth');
-      // Update the URL to #auth before redirecting so the address bar reflects reality.
+      console.log('[NAV] Auth required for', viewName, '→ redirecting to landing');
+      // Update the URL to #landing before redirecting so the address bar reflects reality.
       // Use replaceState (not pushState) so back-button doesn't loop on the protected hash.
-      // The recursive setView('auth') call below passes fromHash:true which prevents it from
-      // calling pushState again — so there is exactly ONE URL update here.
-      const authView = VIEWS['auth'];
-      if (authView && window.location) {
-        try { history.replaceState(null, '', '#' + authView.hash); } catch (e) { /* may throw in tests */ }
+      const landingView = VIEWS['landing'];
+      if (landingView && window.location) {
+        try { history.replaceState(null, '', '#' + landingView.hash); } catch (e) { /* may throw in tests */ }
       }
-      setView('auth', { fromHash: true });
+      setView('landing', { fromHash: true });
       return;
     }
   }
@@ -990,7 +991,12 @@ function setPlanPill() {
 
 function connectWS() {
   return new Promise((resolve, reject) => {
-    const wsUrl = API_BASE.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+    // When API_BASE is a full URL, derive the WS URL from it.
+    // When API_BASE is empty (relative-URL mode), build the WS URL from window.location
+    // so connections always target the same host that served the page.
+    const wsUrl = API_BASE
+      ? API_BASE.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:')
+      : (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host;
     console.log("[WS] Connecting to:", wsUrl);
     const ws = new WebSocket(wsUrl);
     state.ws = ws;
