@@ -328,15 +328,15 @@ describe('setView() – auth gating', () => {
     pushStateMock.mockClear();
   });
 
-  test('setView("createJoin") when logged out → shows auth (viewAccountCreation)', () => {
+  test('setView("createJoin") when logged out → shows landing (viewLanding)', () => {
     setView('createJoin');
-    expect(isVisible('viewAccountCreation')).toBe(true);
+    expect(isVisible('viewLanding')).toBe(true);
     expect(isVisible('viewHome')).toBe(false);
   });
 
-  test('setView("party") when logged out → shows auth (viewAccountCreation)', () => {
+  test('setView("party") when logged out → shows landing (viewLanding)', () => {
     setView('party');
-    expect(isVisible('viewAccountCreation')).toBe(true);
+    expect(isVisible('viewLanding')).toBe(true);
     expect(isVisible('viewParty')).toBe(false);
   });
 
@@ -393,15 +393,15 @@ describe('setView() – hash routing', () => {
     expect(pushStateMock).not.toHaveBeenCalled();
   });
 
-  test('redirecting from a protected hash updates URL to #auth via replaceState', () => {
+  test('redirecting from a protected hash updates URL to #landing via replaceState', () => {
     // Navigate to a requiresAuth view via hash (fromHash:true), logged out
-    // setView should redirect to auth and update URL with replaceState
+    // setView should redirect to landing and update URL with replaceState
     window.location.hash = '#party';
     setView('party', { fromHash: true });
-    // Auth view should be shown
-    expect(isVisible('viewAccountCreation')).toBe(true);
-    // replaceState should have been called to update the URL to #auth
-    expect(window.history.replaceState).toHaveBeenCalledWith(null, '', '#auth');
+    // Landing view should be shown
+    expect(isVisible('viewLanding')).toBe(true);
+    // replaceState should have been called to update the URL to #landing
+    expect(window.history.replaceState).toHaveBeenCalledWith(null, '', '#landing');
   });
 
   test('HASH_TO_VIEW maps #create-join → createJoin', () => {
@@ -593,12 +593,12 @@ describe('initAuthFlow() — boot auth guard', () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
     await initAuthFlow(); // clears both user cache and profile
     resetViews();
-    // Now try to navigate to a protected view — should redirect to auth
+    // Now try to navigate to a protected view — should redirect to landing
     global.isLoggedIn.mockReturnValue(false); // ensure isLoggedIn also returns false
     setView('createJoin');
-    // Protected view must NOT be shown; auth view should appear
+    // Protected view must NOT be shown; landing view should appear
     expect(isVisible('viewHome')).toBe(false);
-    expect(isVisible('viewAccountCreation')).toBe(true);
+    expect(isVisible('viewLanding')).toBe(true);
   });
 
   test('initAuthFlow() network error also clears saved profile', async () => {

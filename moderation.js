@@ -235,7 +235,7 @@ function filterAndFlagMessage(message, userId, partyId) {
  * Create a server-side moderation event (via API) — internal helper.
  */
 function _createModerationEvent({ userId, partyId, messageText, filterReason, severity }) {
-  if (typeof fetch === 'function') {
+  if (typeof fetch === 'function' && typeof API_BASE !== 'undefined') {
     fetch(API_BASE + '/api/moderation/flag-message', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -307,7 +307,7 @@ function reportUser(guestId, reason, description) {
   console.log(`[Safety] User reported: ${guestId}, reason: ${reason}`);
   SAFETY.reportedUsers.add(guestId);
 
-  if (typeof fetch === 'function') {
+  if (typeof fetch === 'function' && typeof API_BASE !== 'undefined') {
     const partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
     fetch(API_BASE + '/api/report', {
       method: 'POST',
@@ -326,7 +326,7 @@ function reportUser(guestId, reason, description) {
 function reportTrack(trackInfo, reason, description) {
   console.log(`[Safety] Track reported: ${JSON.stringify(trackInfo)}, reason: ${reason}`);
 
-  if (typeof fetch === 'function') {
+  if (typeof fetch === 'function' && typeof API_BASE !== 'undefined') {
     const partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
     // Evidence snapshot: metadata only, no media copy
     const evidence = {
@@ -361,7 +361,7 @@ function reportTrack(trackInfo, reason, description) {
 function reportMessage(messageId, messageText, senderId, reason, description) {
   console.log(`[Safety] Message reported: ${messageId}, reason: ${reason}`);
 
-  if (typeof fetch === 'function') {
+  if (typeof fetch === 'function' && typeof API_BASE !== 'undefined') {
     const partyId = (typeof state !== 'undefined' && state.partyCode) ? state.partyCode : null;
     fetch(API_BASE + '/api/report', {
       method: 'POST',
@@ -384,7 +384,7 @@ function reportMessage(messageId, messageText, senderId, reason, description) {
 function reportParty(partyId, hostId, reason, description) {
   console.log(`[Safety] Party reported: ${partyId}, reason: ${reason}`);
 
-  if (typeof fetch === 'function') {
+  if (typeof fetch === 'function' && typeof API_BASE !== 'undefined') {
     fetch(API_BASE + '/api/report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

@@ -1,22 +1,20 @@
-const { Router } = require('express');
+'use strict';
+const express = require('express');
 
-module.exports = function createStreamingRouter(context) {
+module.exports = function createStreamingRouter(deps) {
   const {
-    db, authMiddleware, redis, apiLimiter,
-    requireStreamingEnabled, requireStreamingEntitled,
-    hasStreamingAccess, normalizePlatformTrackRef,
-    getPlaybackUrl, parties,
-    isStreamingPartyEnabled, isRedisReady,
-    _heartbeatStore
-  } = context;
-  const router = Router();
+    apiLimiter,
+    authMiddleware,
+    requireStreamingEnabled,
+    requireStreamingEntitled,
+    normalizePlatformTrackRef,
+    hasStreamingAccess,
+    db
+  } = deps;
 
-  /**
-   * GET /api/streaming/providers
-   * Returns the list of supported streaming providers.
-   * Requires: feature flag ON + Party Pass or Pro tier.
-   */
-  router.get('/api/streaming/providers', apiLimiter, requireStreamingEnabled, authMiddleware.requireAuth, requireStreamingEntitled, async (req, res) => {
+  const router = express.Router();
+
+  router.get('/providers', apiLimiter, requireStreamingEnabled, authMiddleware.requireAuth, requireStreamingEntitled, async (req, res) => {
     try {
       return res.json({
         providers: [
@@ -53,14 +51,7 @@ module.exports = function createStreamingRouter(context) {
     }
   });
 
-  /**
-   * POST /api/streaming/select-track
-   * Host selects a track from a streaming provider.
-   * Requires: feature flag ON + Party Pass or Pro tier.
-   *
-   * Body: { partyCode, provider, trackId, title?, artist?, artwork? }
-   */
-  router.post('/api/streaming/select-track', apiLimiter, requireStreamingEnabled, authMiddleware.requireAuth, requireStreamingEntitled, async (req, res) => {
+  router.post('/select-track', apiLimiter, requireStreamingEnabled, authMiddleware.requireAuth, requireStreamingEntitled, async (req, res) => {
     try {
       const { partyCode, provider, trackId, title, artist, artwork } = req.body;
 
@@ -109,16 +100,7 @@ module.exports = function createStreamingRouter(context) {
     }
   });
 
-  /**
-   * GET /api/streaming/search
-   * Search for tracks on a streaming provider.
-   * Currently supports provider=youtube using the YouTube Data API v3.
-   * Falls back to an empty result set when YOUTUBE_API_KEY is not configured
-   * so the endpoint remains functional in test / CI environments.
-   *
-   * Query params: provider (required), q (required)
-   */
-  router.get('/api/streaming/search', apiLimiter, requireStreamingEnabled, authMiddleware.requireAuth, requireStreamingEntitled, async (req, res) => {
+  router.get('/search', apiLimiter, requireStreamingEnabled, authMiddleware.requireAuth, requireStreamingEntitled, async (req, res) => {
     try {
       const provider = (req.query.provider || '').toLowerCase();
       const q = (req.query.q || '').trim();
@@ -182,14 +164,9 @@ module.exports = function createStreamingRouter(context) {
     }
   });
 
-  /**
-   * GET /api/streaming/access
-   * Check if the authenticated user has Streaming Party access.
-   * Returns featureEnabled flag and entitlement status.
-   */
-  router.get('/api/streaming/access', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.get('/access', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
-      const featureEnabled = isStreamingPartyEnabled();
+      const featureEnabled = deps.isStreamingPartyEnabled();
       const userId = req.user.userId;
       const upgrades = await db.getOrCreateUserUpgrades(userId);
       const { hasPartyPass, hasPro } = db.resolveEntitlements(upgrades);
@@ -211,24 +188,6 @@ module.exports = function createStreamingRouter(context) {
       console.error('[StreamingParty] Access check error:', error.message);
       return res.status(500).json({ error: 'Failed to check streaming access' });
     }
-  });
-
-  /**
-   * POST /api/metrics/heartbeat
-   * Body: { userId }
-   * Stores lastSeen timestamp so /api/admin/stats can count active users.
-   */
-  router.post('/api/metrics/heartbeat', apiLimiter, async (req, res) => {
-    const { userId } = req.body || {};
-    if (!userId) return res.status(400).json({ error: 'userId required' });
-    _heartbeatStore.set(String(userId), new Date());
-    // Also try Redis so multi-instance deploys work
-    try {
-      if (isRedisReady()) {
-        await redis.set(`heartbeat:${userId}`, Date.now(), 'EX', 300);
-      }
-    } catch (_) { /* non-fatal */ }
-    return res.json({ ok: true });
   });
 
   return router;

@@ -1,10 +1,16 @@
-const { Router } = require('express');
+'use strict';
+const express = require('express');
 
-module.exports = function createReferralRouter(context) {
-  const { authMiddleware, referralSystem, apiLimiter } = context;
-  const router = Router();
+module.exports = function createReferralRouter(deps) {
+  const {
+    referralSystem,
+    authMiddleware,
+    apiLimiter
+  } = deps;
 
-  router.get('/api/referral/me', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  const router = express.Router();
+
+  router.get('/me', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
       const stats = await referralSystem.getStats(req.user.id);
@@ -16,7 +22,7 @@ module.exports = function createReferralRouter(context) {
   });
 
   // Keep old /stats alias for backward compatibility
-  router.get('/api/referral/stats', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.get('/stats', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
       const stats = await referralSystem.getStats(req.user.id);
@@ -27,13 +33,7 @@ module.exports = function createReferralRouter(context) {
     }
   });
 
-  /**
-   * POST /api/referral/click
-   * Body: { referralCode }
-   * Records a link click and returns { clickId }.
-   * No auth required (called on invite landing page before signup).
-   */
-  router.post('/api/referral/click', apiLimiter, async (req, res) => {
+  router.post('/click', apiLimiter, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
       const { referralCode } = req.body;
@@ -51,12 +51,7 @@ module.exports = function createReferralRouter(context) {
     }
   });
 
-  /**
-   * POST /api/referral/register
-   * Body: { referralCode, clickId }
-   * Links the currently-authenticated new user to an inviter (once only).
-   */
-  router.post('/api/referral/register', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.post('/register', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
       const { referralCode, clickId } = req.body;
@@ -73,11 +68,7 @@ module.exports = function createReferralRouter(context) {
     }
   });
 
-  /**
-   * POST /api/referral/profile-complete
-   * Advances the referral stage to PROFILE_DONE.
-   */
-  router.post('/api/referral/profile-complete', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.post('/profile-complete', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
       await referralSystem.markProfileDone(req.user.id);
@@ -88,11 +79,7 @@ module.exports = function createReferralRouter(context) {
     }
   });
 
-  /**
-   * POST /api/referral/party-first-join
-   * Final step – marks referral COMPLETED and checks milestones.
-   */
-  router.post('/api/referral/party-first-join', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.post('/party-first-join', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
       const result = await referralSystem.markPartyJoined(req.user.id);
@@ -103,11 +90,7 @@ module.exports = function createReferralRouter(context) {
     }
   });
 
-  /**
-   * GET /api/referral/rewards
-   * Returns the user's earned reward history.
-   */
-  router.get('/api/referral/rewards', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.get('/rewards', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
       const stats = await referralSystem.getStats(req.user.id);
@@ -119,7 +102,7 @@ module.exports = function createReferralRouter(context) {
   });
 
   // Keep old /track alias for backward compatibility
-  router.post('/api/referral/track', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.post('/track', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
       const { referralCode } = req.body;

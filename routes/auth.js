@@ -1,37 +1,16 @@
 'use strict';
-
 const express = require('express');
+const DJ_NAME_MAX_LENGTH = 50;
 
-/**
- * Auth and user profile routes.
- * @param {object} context - Shared server context
- * @returns {express.Router}
- */
-module.exports = function createAuthRouter(context) {
-  const router = express.Router();
+module.exports = function createAuthRouter(deps) {
   const {
-    db,
-    authMiddleware,
-    redis,
-    isHttpsRequest,
-    isStreamingPartyEnabled,
-    storeCatalog,
-    authLimiter,
-    apiLimiter,
-    canUseLocalAuthFallback,
-    buildLocalFallbackMePayload,
-    localFallbackUsersByEmail,
-    localFallbackUsersById,
-    localFallbackUserIdSeqRef,
-  } = context;
+    db, authMiddleware, storeCatalog, apiLimiter, authLimiter,
+    isStreamingPartyEnabled, isHttpsRequest, buildLocalFallbackMePayload,
+    ErrorMessages, setSecureCookie, parties, paymentProvider
+  } = deps;
+  const router = express.Router();
 
-  const DJ_NAME_MAX_LENGTH = 50;
-
-  /**
-   * POST /api/auth/signup
-   * Create new user account
-   */
-  router.post('/auth/signup', authLimiter, async (req, res) => {
+  router.post("/auth/signup", authLimiter, async (req, res) => {
     let dbClient = null;
     try {
       if (!req.body || typeof req.body !== 'object') {
@@ -39,12 +18,10 @@ module.exports = function createAuthRouter(context) {
       }
       const { email, password, djName, termsAccepted } = req.body;
 
-      // Validate input types before calling string methods
       if (typeof email !== 'string' || typeof password !== 'string' || typeof djName !== 'string') {
         return res.status(400).json({ error: 'Invalid request: email, password, and djName must be strings' });
       }
 
-      // Validate input
       if (!authMiddleware.isValidEmail(email)) {
         return res.status(400).json({ error: 'Invalid email address' });
       }
@@ -61,15 +38,15 @@ module.exports = function createAuthRouter(context) {
         return res.status(400).json({ error: 'You must accept the Terms & Conditions and Privacy Policy to create an account' });
       }
 
-      if (canUseLocalAuthFallback()) {
+      if (deps.canUseLocalAuthFallback()) {
         const normalizedEmail = email.toLowerCase();
-        if (localFallbackUsersByEmail.has(normalizedEmail)) {
+        if (deps.localFallbackUsersByEmail.has(normalizedEmail)) {
           return res.status(409).json({ error: 'Account already exists' });
         }
 
         const passwordHash = await authMiddleware.hashPassword(password);
         const user = {
-          id: context.localFallbackUserIdSeqRef.value++,
+          id: deps.localFallbackUserIdSeq++,
           email: normalizedEmail,
           djName: djName.trim(),
           passwordHash,
@@ -87,8 +64,8 @@ module.exports = function createAuthRouter(context) {
           }
         };
 
-        localFallbackUsersByEmail.set(normalizedEmail, user);
-        localFallbackUsersById.set(user.id, user);
+        deps.localFallbackUsersByEmail.set(normalizedEmail, user);
+        deps.localFallbackUsersById.set(user.id, user);
 
         const token = authMiddleware.generateToken({ userId: user.id, email: user.email });
         res.cookie('auth_token', token, {
@@ -111,7 +88,6 @@ module.exports = function createAuthRouter(context) {
         });
       }
 
-      // Check if email already exists
       const existingUser = await db.query(
         'SELECT id FROM users WHERE email = $1',
         [email.toLowerCase()]
@@ -121,16 +97,11 @@ module.exports = function createAuthRouter(context) {
         return res.status(409).json({ error: 'Account already exists' });
       }
 
-      // Hash password
       const passwordHash = await authMiddleware.hashPassword(password);
 
-      // Use a transaction so that user + dj_profile are created atomically.
-      // If the dj_profiles INSERT fails the users INSERT is rolled back,
-      // preventing orphaned user records that would block future signup attempts.
       dbClient = await db.getClient();
       await dbClient.query('BEGIN');
 
-      // Create user — set profile_completed immediately since djName is collected at signup
       const result = await dbClient.query(
         `INSERT INTO users (email, password_hash, dj_name, profile_completed, terms_accepted_at)
          VALUES ($1, $2, $3, TRUE, NOW())
@@ -140,7 +111,6 @@ module.exports = function createAuthRouter(context) {
 
       const user = result.rows[0];
 
-      // Create DJ profile for user
       await dbClient.query(
         `INSERT INTO dj_profiles (user_id, dj_score, dj_rank)
          VALUES ($1, 0, 'Bedroom DJ')`,
@@ -151,18 +121,16 @@ module.exports = function createAuthRouter(context) {
       dbClient.release();
       dbClient = null;
 
-      // Generate JWT token
       const token = authMiddleware.generateToken({
         userId: user.id,
         email: user.email
       });
 
-      // Set HTTP-only cookie — use HTTPS detection that works behind proxies
       res.cookie('auth_token', token, {
         httpOnly: true,
         path: '/',
         secure: isHttpsRequest(req),
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxAge: 7 * 24 * 60 * 60 * 1000,
         sameSite: 'lax'
       });
 
@@ -177,7 +145,6 @@ module.exports = function createAuthRouter(context) {
         }
       });
     } catch (error) {
-      // Roll back the transaction on any error to avoid partial state
       if (dbClient) {
         try { await dbClient.query('ROLLBACK'); } catch (rollbackErr) {
           console.error('[Auth] Signup transaction rollback failed:', rollbackErr.message);
@@ -186,7 +153,6 @@ module.exports = function createAuthRouter(context) {
         dbClient = null;
       }
       console.error('[Auth] Signup error:', error.code || error.message);
-      // 23505 = Postgres unique-constraint violation (race condition: two concurrent signups)
       if (error.code === '23505') {
         return res.status(409).json({ error: 'Account already exists' });
       }
@@ -195,21 +161,16 @@ module.exports = function createAuthRouter(context) {
     }
   });
 
-  /**
-   * POST /api/auth/login
-   * Log in existing user
-   */
-  router.post('/auth/login', authLimiter, async (req, res) => {
+  router.post("/auth/login", authLimiter, async (req, res) => {
     try {
       const { email, password } = req.body;
 
-      // Validate input
       if (!authMiddleware.isValidEmail(email)) {
         return res.status(400).json({ error: 'Invalid email address' });
       }
 
-      if (canUseLocalAuthFallback()) {
-        const user = localFallbackUsersByEmail.get(email.toLowerCase());
+      if (deps.canUseLocalAuthFallback()) {
+        const user = deps.localFallbackUsersByEmail.get(email.toLowerCase());
         if (!user) {
           return res.status(401).json({ error: 'Invalid email or password' });
         }
@@ -239,7 +200,6 @@ module.exports = function createAuthRouter(context) {
         });
       }
 
-      // Find user
       const result = await db.query(
         'SELECT id, email, password_hash, dj_name, is_admin FROM users WHERE email = $1',
         [email.toLowerCase()]
@@ -251,20 +211,16 @@ module.exports = function createAuthRouter(context) {
 
       const user = result.rows[0];
 
-      // Verify password
       const isValid = await authMiddleware.verifyPassword(password, user.password_hash);
       if (!isValid) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      // Update last login
       await db.query(
         'UPDATE users SET last_login = NOW() WHERE id = $1',
         [user.id]
       );
 
-      // Admin bootstrap: promote user on first successful login if email is in ADMIN_EMAILS allowlist
-      // or legacy ADMIN_BOOTSTRAP_EMAIL env var (kept for backwards compatibility)
       const isAdminByAllowlist = authMiddleware.isAdminEmail(user.email);
       const legacyBootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL
         ? process.env.ADMIN_BOOTSTRAP_EMAIL.toLowerCase()
@@ -275,19 +231,17 @@ module.exports = function createAuthRouter(context) {
         user.is_admin = true;
       }
 
-      // Generate JWT token — include isAdmin so requireAdmin middleware works without a DB query
       const token = authMiddleware.generateToken({
         userId: user.id,
         email: user.email,
         isAdmin: user.is_admin || false
       });
 
-      // Set HTTP-only cookie — use HTTPS detection that works behind proxies
       res.cookie('auth_token', token, {
         httpOnly: true,
         path: '/',
         secure: isHttpsRequest(req),
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        maxAge: 7 * 24 * 60 * 60 * 1000,
         sameSite: 'lax'
       });
 
@@ -306,12 +260,7 @@ module.exports = function createAuthRouter(context) {
     }
   });
 
-  /**
-   * POST /api/auth/logout
-   * Log out current user
-   */
-  router.post('/auth/logout', apiLimiter, (req, res) => {
-    // Clear cookie with IDENTICAL options to the cookie that was set, otherwise clearing fails
+  router.post("/auth/logout", apiLimiter, (req, res) => {
     res.clearCookie('auth_token', {
       path: '/',
       secure: isHttpsRequest(req),
@@ -321,34 +270,24 @@ module.exports = function createAuthRouter(context) {
     res.json({ success: true });
   });
 
-  /**
-   * GET /api/feature-flags
-   * Returns public feature flag values for the client to use.
-   * No authentication required — flag values are not secrets.
-   */
   router.get('/feature-flags', apiLimiter, (req, res) => {
     return res.json({
       STREAMING_PARTY_ENABLED: isStreamingPartyEnabled()
     });
   });
 
-  /**
-   * GET /api/me
-   * Get current user info with tier and entitlements
-   */
-  router.get('/me', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.get("/me", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       const userId = req.user.userId;
 
-      if (canUseLocalAuthFallback()) {
-        const user = localFallbackUsersById.get(userId);
+      if (deps.canUseLocalAuthFallback()) {
+        const user = deps.localFallbackUsersById.get(userId);
         if (!user) {
           return res.status(404).json({ error: 'User not found' });
         }
         return res.json(buildLocalFallbackMePayload(user));
       }
-      
-      // Get user basic info (including Stripe billing fields added by migration 003)
+
       const userResult = await db.query(
         `SELECT id, email, dj_name, created_at, profile_completed,
                 tier, subscription_status, current_period_end,
@@ -363,13 +302,11 @@ module.exports = function createAuthRouter(context) {
 
       const user = userResult.rows[0];
 
-      // Refresh presence TTL in Redis (120s) so admin live-user count is accurate
       try {
         const presenceKey = `presence:user:${userId}`;
-        await redis.set(presenceKey, JSON.stringify({ lastSeen: Date.now(), tier: user.tier || 'FREE' }), 'EX', 120);
+        await deps.redis.set(presenceKey, JSON.stringify({ lastSeen: Date.now(), tier: user.tier || 'FREE' }), 'EX', 120);
       } catch (_) { /* non-fatal */ }
 
-      // Get DJ profile
       const profileResult = await db.query(
         `SELECT dj_score, dj_rank, active_visual_pack, active_title,
                 verified_badge, crown_effect, animated_name, reaction_trail
@@ -388,7 +325,6 @@ module.exports = function createAuthRouter(context) {
         reaction_trail: false
       };
 
-      // Get active subscription
       const subResult = await db.query(
         `SELECT status, current_period_end
          FROM subscriptions
@@ -401,7 +337,6 @@ module.exports = function createAuthRouter(context) {
       const hasProSubscription = subResult.rows.length > 0 &&
         new Date(subResult.rows[0].current_period_end) > new Date();
 
-      // Get owned entitlements
       const entitlementsResult = await db.query(
         'SELECT item_type, item_key FROM entitlements WHERE user_id = $1 AND owned = true',
         [userId]
@@ -409,26 +344,20 @@ module.exports = function createAuthRouter(context) {
 
       const entitlements = entitlementsResult.rows;
 
-      // Get user upgrades (Party Pass and Pro Monthly)
       const upgrades = await db.getOrCreateUserUpgrades(userId);
       const { hasPartyPass, hasPro } = db.resolveEntitlements(upgrades);
 
-      // Determine tier
-      // Priority: Stripe billing tier (PRO) > legacy upgrades > FREE
       let tier = 'FREE';
       if (user.tier === 'PRO') {
-        // Stripe billing says PRO
         tier = 'PRO';
       } else if (hasPro) {
         tier = 'PRO_MONTHLY';
       } else if (hasPartyPass) {
         tier = 'PARTY_PASS';
       } else if (hasProSubscription) {
-        // Legacy subscription support
         tier = 'PRO';
       }
 
-      // Admin users get effective PRO tier and bypass all paywalls
       const isAdmin = user.is_admin || req.user.isAdmin || false;
       const effectiveTier = isAdmin ? 'PRO' : tier;
 
@@ -485,17 +414,13 @@ module.exports = function createAuthRouter(context) {
     }
   });
 
-  /**
-   * POST /api/complete-profile
-   * Mark user profile as completed after onboarding, optionally updating DJ name
-   */
-  router.post('/complete-profile', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.post("/complete-profile", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       const userId = req.user.userId;
       const { djName } = req.body;
 
-      if (canUseLocalAuthFallback()) {
-        const user = localFallbackUsersById.get(userId);
+      if (deps.canUseLocalAuthFallback()) {
+        const user = deps.localFallbackUsersById.get(userId);
         if (!user) {
           return res.status(404).json({ error: 'User not found' });
         }
@@ -525,17 +450,13 @@ module.exports = function createAuthRouter(context) {
     }
   });
 
-  /**
-   * POST /api/profile/update
-   * Update the logged-in user's DJ name.
-   */
-  router.post('/profile/update', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+  router.post("/profile/update", apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       const userId = req.user.userId;
       const { djName } = req.body;
 
-      if (canUseLocalAuthFallback()) {
-        const user = localFallbackUsersById.get(userId);
+      if (deps.canUseLocalAuthFallback()) {
+        const user = deps.localFallbackUsersById.get(userId);
         if (!user) {
           return res.status(404).json({ error: 'User not found' });
         }
@@ -571,20 +492,12 @@ module.exports = function createAuthRouter(context) {
     }
   });
 
-  /**
-   * GET /api/store
-   * Get store catalog
-   */
-  router.get('/store', authMiddleware.optionalAuth, (req, res) => {
+  router.get("/store", authMiddleware.optionalAuth, (req, res) => {
     const catalog = storeCatalog.getStoreCatalog();
     res.json(catalog);
   });
 
-  /**
-   * GET /api/tier-info
-   * Get tier definitions and feature information (single source of truth)
-   */
-  router.get('/tier-info', (req, res) => {
+  router.get("/tier-info", (req, res) => {
     res.json({
       appName: "Phone Party",
       tiers: {
@@ -608,7 +521,7 @@ module.exports = function createAuthRouter(context) {
         },
         PARTY_PASS: {
           label: "Party Pass",
-          price: "£3.99", // GBP - Party Pass one-time purchase for 2-hour party session
+          price: "£3.99",
           chatEnabled: true,
           autoMessages: true,
           quickMessages: true,
@@ -634,7 +547,7 @@ module.exports = function createAuthRouter(context) {
         },
         PRO_MONTHLY: {
           label: "Pro Monthly",
-          price: "£9.99/mo", // GBP - Monthly subscription for unlimited access
+          price: "£9.99/mo",
           chatEnabled: true,
           autoMessages: true,
           quickMessages: true,
