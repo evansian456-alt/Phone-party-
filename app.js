@@ -7007,9 +7007,7 @@ async function initAuthFlow() {
       setView('completeProfile', { fromHash: true });
     } else {
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
-      // Stay on the landing page so users see it rather than jumping past it.
-      // _updateNavVisibility() will reveal the "Go to Dashboard" button for authenticated users.
-      setView('landing', { fromHash: true });
+      setView('authHome', { fromHash: true });
       // Start referral polling now that user is authenticated
       if (window._referralUI) window._referralUI.startPolling();
     }
@@ -7320,12 +7318,12 @@ async function handleBillingReturn() {
     };
   }
 
-  // LANDING PAGE BUTTON (for logged-in users)
+  // LANDING PAGE BUTTON (for admin users)
   const btnGoToDashboard = el("btnGoToDashboard");
   if (btnGoToDashboard) {
     btnGoToDashboard.onclick = () => {
-      console.log("[UI] Go to Dashboard clicked");
-      setView('authHome');
+      console.log("[UI] Go to Admin Dashboard clicked");
+      setView('adminDashboard');
     };
   }
 
@@ -11822,6 +11820,11 @@ function setAdminNavVisible(isAdmin) {
   const btnAdmin = document.getElementById('btnAdminDashboard');
   if (btnAdmin) {
     btnAdmin.style.display = isAdmin ? '' : 'none';
+  }
+  // Show the admin dashboard button on the landing page for admins only
+  const landingAuthButtons = document.getElementById('landingAuthButtons');
+  if (landingAuthButtons) {
+    landingAuthButtons.style.display = isAdmin ? '' : 'none';
   }
 }
 
