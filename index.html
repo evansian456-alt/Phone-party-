@@ -113,10 +113,10 @@
             🔑 LOG IN
           </button>
         </div>
-        <!-- Dashboard button (for logged-in users) -->
-        <div class="landing-cta-buttons post-auth-only nav-hidden" id="landingAuthButtons">
+        <!-- Dashboard button (for admin users only) -->
+        <div class="landing-cta-buttons" id="landingAuthButtons" style="display:none">
           <button class="btn-landing-primary" id="btnGoToDashboard" data-testid="go-to-dashboard-button">
-            🎉 GO TO MY DASHBOARD
+            🛡️ VIEW ADMIN DASHBOARD
           </button>
         </div>
 
@@ -1721,8 +1721,6 @@
   </div>
 </div>
 
-</main>
-
   <div class="modal hidden" id="modalPaywall">
     <div class="modalCard">
       <h3>Support Phone Party</h3>
@@ -3126,6 +3124,8 @@
       </div>
     </div>
   </section>
+
+</main>
 
   <!-- State machine must load before app.js -->
   <script src="ui/stateMachine.js"></script>
