@@ -8229,8 +8229,8 @@ async function handleBillingReturn() {
     }
     
     // Create shareable join link
-    const baseUrl = window.location.origin + window.location.pathname;
-    const joinLink = `${baseUrl}?code=${state.code || ""}`;
+    const baseUrl = typeof getBaseUrl === 'function' ? getBaseUrl() : window.location.origin;
+    const joinLink = `${baseUrl}${window.location.pathname}?code=${state.code || ""}`;
     
     // Try to use native share API if available (mobile devices)
     if (navigator.share) {
