@@ -177,7 +177,7 @@ function setView(viewName, opts = {}) {
   // always see the marketing landing page first — consistent with the boot flow in
   // initAuthFlow() which also lands on 'landing' for logged-out users.
   if (view.requiresAuth) {
-    const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) || hasValidProfile();
+    const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn());
     if (!authenticated) {
       console.log('[NAV] Auth required for', viewName, '→ redirecting to landing');
       // Update the URL to #landing before redirecting so the address bar reflects reality.
@@ -261,7 +261,7 @@ function setView(viewName, opts = {}) {
  * Update header/nav visibility based on post-auth vs pre-auth state.
  */
 function _updateNavVisibility() {
-  const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) || hasValidProfile();
+  const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn());
   const postAuthEls = document.querySelectorAll('.post-auth-only');
   postAuthEls.forEach(el => {
     if (authenticated) {
@@ -6974,20 +6974,19 @@ async function initAuthFlow() {
   try {
     const response = await fetch(API_BASE + '/api/me', { credentials: 'include' });
     if (!response.ok) {
-      // Not authenticated — clear any stale user cache so isLoggedIn() returns false,
-      // and clear the saved profile so hasValidProfile() also returns false. Both are
-      // needed because setView()'s auth check uses: isLoggedIn() || hasValidProfile().
-      // Without clearing the profile, a stale syncSpeakerProfile entry in localStorage
-      // would allow hasValidProfile() to return true and bypass the landing-page gate
-      // for protected views after this 401 response.
+      // Not authenticated — clear any stale user cache/profile and explicitly mark
+      // the client session unauthenticated so protected-view guards keep the user on
+      // the landing page until the server confirms a real session again.
       try { localStorage.removeItem('syncspeaker_current_user'); } catch (_) {}
       try { clearProfile(); } catch (_) {}
+      if (typeof setAuthSessionState === 'function') setAuthSessionState('unauthenticated');
       if (headerAuthButtons) headerAuthButtons.style.display = 'none';
       window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
       setView('landing', { fromHash: true });
       return false;
     }
     const data = await response.json();
+    if (typeof setAuthSessionState === 'function') setAuthSessionState('authenticated');
     // Authenticated - show auth buttons
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     // Update state from server data
@@ -7014,10 +7013,11 @@ async function initAuthFlow() {
     return true;
   } catch (err) {
     console.warn('[Auth] Could not check auth status:', err.message);
-    // Clear stale user cache and profile on network error so isLoggedIn() and
-    // hasValidProfile() both return false, preventing protected view access.
+    // Clear stale user cache/profile and explicitly mark the session logged out so
+    // protected views cannot be reached from cached client-side state alone.
     try { localStorage.removeItem('syncspeaker_current_user'); } catch (_) {}
     try { clearProfile(); } catch (_) {}
+    if (typeof setAuthSessionState === 'function') setAuthSessionState('unauthenticated');
     if (headerAuthButtons) headerAuthButtons.style.display = 'none';
     window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.LOGGED_OUT);
     setView('landing', { fromHash: true });
@@ -10059,8 +10059,8 @@ async function handleSignup() {
     const result = await signUp(email, password, djName, termsAccepted);
 
     if (result.success) {
-      // Persist the profile locally right away so the user is considered
-      // authenticated even before initAuthFlow() confirms with the server.
+      // Persist the profile locally for profile-completion UX, but keep access
+      // to protected views gated on the server-confirmed auth session.
       if (result.user && result.user.djName) {
         saveProfile({ djName: result.user.djName, email: result.user.email || email, tier: USER_TIER.FREE });
       }
@@ -10088,11 +10088,15 @@ async function handleSignup() {
       await new Promise((r) => setTimeout(r, 1500));
       const sessionOk = await initAuthFlow();
       if (!sessionOk) {
-        // The signup API succeeded and the auth cookie was set, but /api/me failed
-        // (e.g. transient server hiccup). Since we already saved the profile locally,
-        // navigate directly to the authenticated home view instead of bouncing to login.
-        showToast('✅ Account created! Loading your dashboard…');
-        setView('authHome');
+        // Do not advance into authenticated views unless the server confirms the
+        // session. Keep the user on auth screens and surface a clear recovery path.
+        if (errorEl) {
+          errorEl.textContent = 'Account created, but we could not verify your session. Please log in to continue.';
+          errorEl.classList.remove('success');
+          errorEl.classList.remove('hidden');
+        }
+        showToast('⚠️ Account created, but your session could not be verified yet. Please log in.');
+        setView('login');
       }
     } else {
       if (result.status === 409) {

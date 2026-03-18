@@ -5,6 +5,15 @@
  */
 
 const CURRENT_USER_KEY = 'syncspeaker_current_user';
+let _authSessionState = 'unknown';
+
+function setAuthSessionState(nextState) {
+  _authSessionState = nextState;
+}
+
+function getAuthSessionState() {
+  return _authSessionState;
+}
 
 // Minimum milliseconds between consecutive auth API calls from the same client session.
 // This is a last-resort guard; the primary protection is the inFlight flags in app.js.
@@ -62,13 +71,16 @@ async function initAuth() {
       console.log('[Auth] User is logged in:', user.user.email);
       // Cache user data in localStorage for quick access
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+      setAuthSessionState('authenticated');
     } else {
       console.log('[Auth] No user logged in');
       localStorage.removeItem(CURRENT_USER_KEY);
+      setAuthSessionState('unauthenticated');
     }
   } catch (err) {
     console.log('[Auth] No active session');
     localStorage.removeItem(CURRENT_USER_KEY);
+    setAuthSessionState('unauthenticated');
   }
 }
 
@@ -147,6 +159,7 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
         isAdmin: false
       };
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(minimalSession));
+      setAuthSessionState('authenticated');
     }
 
     return { success: true, user: sanitizeUser(data.user) };
@@ -204,6 +217,7 @@ async function logIn(email, password) {
     const userData = await getCurrentUser();
     if (userData) {
       localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userData));
+      setAuthSessionState('authenticated');
     }
 
     return { success: true, user: sanitizeUser(data.user) };
@@ -224,11 +238,13 @@ async function logOut() {
     });
 
     localStorage.removeItem(CURRENT_USER_KEY);
+    setAuthSessionState('unauthenticated');
     return { success: true };
   } catch (error) {
     console.error('[Auth] Logout error:', error);
     // Still clear local cache even if request fails
     localStorage.removeItem(CURRENT_USER_KEY);
+    setAuthSessionState('unauthenticated');
     return { success: false, error: 'Logout failed' };
   }
 }
@@ -243,15 +259,20 @@ async function getCurrentUser() {
     if (!response.ok) {
       if (response.status === 401) {
         // Not authenticated
+        setAuthSessionState('unauthenticated');
         return null;
       }
       throw new Error('Failed to get user');
     }
 
     const data = await response.json();
+    setAuthSessionState('authenticated');
     return data;
   } catch (error) {
     console.error('[Auth] Get user error:', error);
+    if (_authSessionState !== 'authenticated') {
+      setAuthSessionState('unauthenticated');
+    }
     return null;
   }
 }
@@ -273,7 +294,7 @@ function getCachedUser() {
  * Check if user is logged in (uses cache)
  */
 function isLoggedIn() {
-  return getCachedUser() !== null;
+  return _authSessionState === 'authenticated';
 }
 
 /**
@@ -380,6 +401,8 @@ if (typeof module !== 'undefined' && module.exports) {
     getCurrentUser,
     getCachedUser,
     isLoggedIn,
+    getAuthSessionState,
+    setAuthSessionState,
     updateUserProfile,
     updateUserTier,
     updateDJStats,
