@@ -20,10 +20,23 @@ function generatePartyQRCode(partyCode) {
 }
 
 /**
+ * Return the base URL for share links.
+ * Uses window.PUBLIC_BASE_URL in production; falls back to window.location.origin
+ * in local development so that dev testing still works.
+ */
+function getBaseUrl() {
+  const isLocalhost = window.location.hostname.includes('localhost');
+  if (!isLocalhost && window.PUBLIC_BASE_URL) {
+    return window.PUBLIC_BASE_URL;
+  }
+  return window.location.origin;
+}
+
+/**
  * Get party join URL
  */
 function getPartyJoinUrl(partyCode) {
-  const baseUrl = window.location.origin;
+  const baseUrl = getBaseUrl();
   return `${baseUrl}?join=${partyCode}`;
 }
 
@@ -166,6 +179,7 @@ if (document.readyState === 'loading') {
 // Export functions if in module environment
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    getBaseUrl,
     generatePartyQRCode,
     getPartyJoinUrl,
     displayQRCode,

@@ -905,15 +905,18 @@ app.use((req, res, next) => {
 // dynamic handler takes precedence over the static file on disk.
 app.get('/config.js', (req, res) => {
   const prodUrl = 'https://syncspeaker-262593928124.us-central1.run.app';
+  const publicBaseUrl = process.env.PUBLIC_BASE_URL || '';
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
   res.setHeader('Cache-Control', NO_CACHE);
   // Runtime check: native Capacitor apps need the production URL because their
   // page origin is capacitor://localhost (relative URLs would not reach the server).
   // In all web-browser contexts (local dev, CI, production Cloud Run) an empty
   // string works — fetch('/api/...') automatically targets the serving origin.
-  res.send(
-    `const API_BASE = (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform()) ? ${JSON.stringify(prodUrl)} : '';\n`
-  );
+  let js = `const API_BASE = (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNativePlatform()) ? ${JSON.stringify(prodUrl)} : '';\n`;
+  if (publicBaseUrl) {
+    js += `window.PUBLIC_BASE_URL = ${JSON.stringify(publicBaseUrl)};\n`;
+  }
+  res.send(js);
 });
 
 // Serve static files from the repo root.

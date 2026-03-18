@@ -249,7 +249,7 @@ class ReferralUI {
   // ─── Sharing ───────────────────────────────────────────────────────────────
 
   _getInviteUrl(platform) {
-    const base = this.stats?.inviteUrl || window.location.origin;
+    const base = this.stats?.inviteUrl || (typeof getBaseUrl === 'function' ? getBaseUrl() : window.location.origin);
     return `${base}?utm_source=share&utm_medium=${platform}&utm_campaign=referral`;
   }
 
