@@ -11107,11 +11107,16 @@ function showUpgradeHub() {
  * @param {number} ms - Milliseconds remaining
  * @returns {string}
  */
+/** Minutes per day constant for time formatting */
+const MINUTES_PER_DAY = 1440;
+/** Milliseconds per hour constant for urgency threshold */
+const MS_PER_HOUR = 3600000;
+
 function _formatTimeRemaining(ms) {
   if (ms <= 0) return 'Expired';
   const totalMinutes = Math.floor(ms / 60000);
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const days = Math.floor(totalMinutes / MINUTES_PER_DAY);
+  const hours = Math.floor((totalMinutes % MINUTES_PER_DAY) / 60);
   const minutes = totalMinutes % 60;
   if (days > 0) return `${days}d ${hours}h left`;
   if (hours > 0) return `${hours}h ${minutes}m left`;
@@ -11139,14 +11144,16 @@ function _updateUpgradeHubButtons() {
         if (msLeft <= 0) {
           btnPro.textContent = 'Renew Pro';
           btnPro.classList.remove('btn-active-tier');
+          btnPro.disabled = false;
         } else {
           btnPro.textContent = _formatTimeRemaining(msLeft);
           btnPro.classList.add('btn-active-tier');
-          btnPro.disabled = false;
+          btnPro.disabled = true;
         }
       } else {
         btnPro.textContent = '✅ Active';
         btnPro.classList.add('btn-active-tier');
+        btnPro.disabled = true;
       }
     } else {
       btnPro.textContent = 'Go Pro Now';
@@ -11167,15 +11174,17 @@ function _updateUpgradeHubButtons() {
         if (msLeft <= 0) {
           btnPass.textContent = 'Renew Party Pass';
           btnPass.classList.remove('btn-active-tier');
+          btnPass.disabled = false;
         } else {
           const label = _formatTimeRemaining(msLeft);
-          btnPass.textContent = msLeft < 3600000 ? `⏰ ${label}` : label;
+          btnPass.textContent = msLeft < MS_PER_HOUR ? `⏰ ${label}` : label;
           btnPass.classList.add('btn-active-tier');
-          btnPass.disabled = false;
+          btnPass.disabled = true;
         }
       } else {
         btnPass.textContent = '✅ Active';
         btnPass.classList.add('btn-active-tier');
+        btnPass.disabled = true;
       }
     } else {
       btnPass.textContent = 'Activate Party Pass';
@@ -11415,9 +11424,9 @@ function processCheckoutPayment() {
       // For tier purchases (pro-sub / party pass), auto-redirect to Create Party
       const tierPurchase = currentCheckout.type === 'pro-subscription' || currentCheckout.type === 'party-pass';
       if (tierPurchase) {
-        // Update the success message to indicate the redirect
+        // Update the success message to indicate the redirect will happen
         const successMsg = document.querySelector('#checkoutSuccess .success-message');
-        if (successMsg) successMsg.textContent = 'Taking you to Create Party…';
+        if (successMsg) successMsg.textContent = 'Redirecting you to Create Party in 2 seconds…';
         setTimeout(() => {
           closeCheckout();
           showHome();
