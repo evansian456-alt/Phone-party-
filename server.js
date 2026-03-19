@@ -1154,7 +1154,7 @@ app.get("/", (req, res) => {
 // ─── Invite Landing Page ───────────────────────────────────────────────────────
 app.get('/invite/:code', async (req, res) => {
   const code    = (req.params.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get('host')}`;
   const inviteUrl = `${baseUrl}/invite/${code}`;
 
   // Record the click (fire-and-forget, don't delay the page response)

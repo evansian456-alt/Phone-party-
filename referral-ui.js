@@ -13,10 +13,10 @@
  */
 
 const SHARE_PLATFORMS = [
-  { id: 'whatsapp',  label: '💬 WhatsApp',  urlFn: (u, t) => `https://wa.me/?text=${encodeURIComponent(t + '\n' + u)}` },
+  { id: 'whatsapp',  label: '💬 WhatsApp',  urlFn: (u, t) => `https://wa.me/?text=${encodeURIComponent(t)}` },
   { id: 'facebook',  label: '👍 Facebook',  urlFn: (u)    => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}` },
-  { id: 'sms',       label: '📱 SMS',       urlFn: (u, t) => `sms:?body=${encodeURIComponent(t + '\n' + u)}` },
-  { id: 'email',     label: '📧 Email',     urlFn: (u, t) => `mailto:?subject=${encodeURIComponent('Join my Phone Party 🎉')}&body=${encodeURIComponent(t + '\n' + u)}` },
+  { id: 'sms',       label: '📱 SMS',       urlFn: (u, t) => `sms:?body=${encodeURIComponent(t)}` },
+  { id: 'email',     label: '📧 Email',     urlFn: (u, t) => `mailto:?subject=${encodeURIComponent('Join my Phone Party 🎉')}&body=${encodeURIComponent(t)}` },
   { id: 'snapchat',  label: '👻 Snapchat',  native: true  },
   { id: 'tiktok',    label: '🎵 TikTok',    native: true  },
 ];
@@ -248,13 +248,13 @@ class ReferralUI {
 
   // ─── Sharing ───────────────────────────────────────────────────────────────
 
-  _getInviteUrl(platform) {
-    const base = this.stats?.inviteUrl || (typeof getBaseUrl === 'function' ? getBaseUrl() : window.location.origin);
-    return `${base}?utm_source=share&utm_medium=${platform}&utm_campaign=referral`;
+  _getInviteUrl() {
+    return this.stats?.inviteUrl || '';
   }
 
   async _nativeShare() {
-    const url  = this._getInviteUrl('native');
+    const url  = this._getInviteUrl();
+    if (!url) return;
     const text = shareText(url);
     this._fireEvent('referral_share_opened', { platform: 'native' });
     if (navigator.share) {
@@ -400,7 +400,8 @@ class ReferralUI {
     if (platform.native) {
       // Snapchat / TikTok: try Web Share API, fallback to copy
       if (navigator.share) {
-        const url  = this._getInviteUrl(platformId);
+        const url  = this._getInviteUrl();
+        if (!url) { this._copyLink(); return; }
         const text = shareText(url);
         navigator.share({ title: 'Join my Phone Party 🎉', text, url })
           .catch(e => { if (e.name !== 'AbortError') this._copyLink(); });
@@ -416,13 +417,14 @@ class ReferralUI {
       return;
     }
 
-    const url  = this._getInviteUrl(platformId);
+    const url  = this._getInviteUrl();
+    if (!url) return;
     const link = buildUrl(platform, url);
     if (link) window.open(link, '_blank', 'noopener,noreferrer');
   }
 
   async _copyLink() {
-    const url = this._getInviteUrl('copy');
+    const url = this._getInviteUrl();
     this._fireEvent('referral_link_copied', { url });
     const copyBtn = document.getElementById('btnCopyInviteLink') ||
                     document.getElementById('btnCopyReferralLink');

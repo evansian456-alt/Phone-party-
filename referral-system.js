@@ -334,7 +334,7 @@ class ReferralSystem {
 
   async getStats(userId) {
     const code = await this.getOrCreateCode(userId);
-    const baseUrl = process.env.BASE_URL || 'https://phone-party.up.railway.app';
+    const baseUrl = process.env.PUBLIC_BASE_URL || 'https://www.phone-party.com';
     const inviteUrl = `${baseUrl}/invite/${code}`;
 
     if (!this.db) {
