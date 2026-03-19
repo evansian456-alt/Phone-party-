@@ -5237,6 +5237,13 @@ body.light-mode .input-field {
   color: #5AA9FF;
 }
 
+.tier-time-remaining {
+  font-size: 1.1rem;
+  font-weight: bold;
+  color: #7CFC00;
+  margin-bottom: 0.5rem;
+}
+
 /* Upgrade Cards Grid */
 .upgrade-cards-grid {
   display: grid;
@@ -5272,6 +5279,35 @@ body.light-mode .input-field {
 
 .upgrade-card.free-card {
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Active tier card highlight */
+.upgrade-card.tier-active {
+  border-width: 3px;
+  box-shadow: 0 0 18px rgba(90, 169, 255, 0.5);
+}
+
+.upgrade-card.pro-card.tier-active {
+  border-color: #FFD700;
+  box-shadow: 0 0 18px rgba(255, 215, 0, 0.5);
+}
+
+.upgrade-card.party-pass-card.tier-active {
+  border-color: #8B7CFF;
+  box-shadow: 0 0 18px rgba(139, 124, 255, 0.5);
+}
+
+.upgrade-card.free-card.tier-active {
+  border-color: rgba(90, 255, 90, 0.6);
+  box-shadow: 0 0 14px rgba(90, 255, 90, 0.4);
+}
+
+/* Active tier button style */
+.btn-active-tier {
+  background: linear-gradient(135deg, #2a6b2a, #1a8a1a) !important;
+  color: #fff !important;
+  cursor: default;
+  font-weight: bold;
 }
 
 .upgrade-badge {

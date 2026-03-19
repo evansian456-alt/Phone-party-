@@ -10376,6 +10376,15 @@ function loadMonetizationState() {
     monetizationState.activeTitle = savedData.activeTitle || null;
     monetizationState.proSubscriptionActive = savedData.proSubscriptionActive || false;
     monetizationState.proSubscriptionEndDate = savedData.proSubscriptionEndDate || null;
+    monetizationState.partyPassActiveForCurrentParty = savedData.partyPassActiveForCurrentParty || false;
+    monetizationState.partyPassEndTimeForCurrentParty = savedData.partyPassEndTimeForCurrentParty || null;
+    // If stored party pass has expired, clear it
+    if (monetizationState.partyPassActiveForCurrentParty && monetizationState.partyPassEndTimeForCurrentParty) {
+      if (Date.now() > monetizationState.partyPassEndTimeForCurrentParty) {
+        monetizationState.partyPassActiveForCurrentParty = false;
+        monetizationState.partyPassEndTimeForCurrentParty = null;
+      }
+    }
   }
 }
 
@@ -10394,7 +10403,9 @@ function saveMonetizationState() {
     activeVisualPack: monetizationState.activeVisualPack,
     activeTitle: monetizationState.activeTitle,
     proSubscriptionActive: monetizationState.proSubscriptionActive,
-    proSubscriptionEndDate: monetizationState.proSubscriptionEndDate
+    proSubscriptionEndDate: monetizationState.proSubscriptionEndDate,
+    partyPassActiveForCurrentParty: monetizationState.partyPassActiveForCurrentParty,
+    partyPassEndTimeForCurrentParty: monetizationState.partyPassEndTimeForCurrentParty
   };
   
   localStorage.setItem(`monetization_${email}`, JSON.stringify(stateData));
@@ -10621,6 +10632,7 @@ function purchasePartyPass() {
   state.partyPassActive = true;
   state.partyPassEndTime = endTime;
   
+  saveMonetizationState();
   updateUserTier();
   return { success: true };
 }
@@ -10873,7 +10885,11 @@ function initMonetizationUI() {
   
   // Close buttons
   document.getElementById('btnCloseUpgradeHub')?.addEventListener('click', () => {
-    showView('viewLanding');
+    showHome();
+  });
+
+  document.getElementById('btnUpgradeHubContinue')?.addEventListener('click', () => {
+    showHome();
   });
   
   document.getElementById('btnCloseVisualPacks')?.addEventListener('click', () => {
@@ -10907,7 +10923,7 @@ function initMonetizationUI() {
   
   document.getElementById('btnContinueFree')?.addEventListener('click', () => {
     showToast('✅ Continuing with Free mode');
-    showView('viewLanding');
+    showHome();
   });
   
   // Add-ons store navigation buttons
@@ -11038,6 +11054,7 @@ function initMonetizationUI() {
   
   document.getElementById('btnCloseCheckoutSuccess')?.addEventListener('click', () => {
     closeCheckout();
+    showHome();
   });
   
   // Upsell modal buttons
@@ -11060,10 +11077,127 @@ let currentCheckout = null;
 function showUpgradeHub() {
   // Update current status card
   const isPro = monetizationState.proSubscriptionActive;
-  document.getElementById('currentStatusFree').classList.toggle('hidden', isPro);
+  const isPartyPass = monetizationState.partyPassActiveForCurrentParty;
+
+  document.getElementById('currentStatusFree').classList.toggle('hidden', isPro || isPartyPass);
   document.getElementById('currentStatusPro').classList.toggle('hidden', !isPro);
-  
+  const passStatusEl = document.getElementById('currentStatusPartyPass');
+  if (passStatusEl) passStatusEl.classList.toggle('hidden', !isPartyPass);
+
+  // Show remaining time in the status cards
+  if (isPro && monetizationState.proSubscriptionEndDate) {
+    const msLeft = new Date(monetizationState.proSubscriptionEndDate) - Date.now();
+    const timerEl = document.getElementById('currentStatusProTimer');
+    if (timerEl) timerEl.textContent = msLeft > 0 ? _formatTimeRemaining(msLeft) : 'Subscription expired';
+  }
+  if (isPartyPass && monetizationState.partyPassEndTimeForCurrentParty) {
+    const msLeft = monetizationState.partyPassEndTimeForCurrentParty - Date.now();
+    const timerEl = document.getElementById('currentStatusPartyPassTimer');
+    if (timerEl) timerEl.textContent = msLeft > 0 ? _formatTimeRemaining(msLeft) : 'Party Pass expired';
+  }
+
+  // Update tier button states to reflect active tier and remaining time
+  _updateUpgradeHubButtons();
+
   showView('viewUpgradeHub');
+}
+
+/**
+ * Format remaining milliseconds as a friendly string
+ * @param {number} ms - Milliseconds remaining
+ * @returns {string}
+ */
+function _formatTimeRemaining(ms) {
+  if (ms <= 0) return 'Expired';
+  const totalMinutes = Math.floor(ms / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h left`;
+  if (hours > 0) return `${hours}h ${minutes}m left`;
+  return `${minutes}m left`;
+}
+
+/**
+ * Update Upgrade Hub tier buttons to reflect active/inactive state and timers
+ */
+function _updateUpgradeHubButtons() {
+  const isPro = monetizationState.proSubscriptionActive;
+  const isPartyPass = monetizationState.partyPassActiveForCurrentParty;
+  const isFree = !isPro && !isPartyPass;
+
+  // Pro button
+  const btnPro = document.getElementById('btnPurchaseProSub');
+  const proCard = btnPro ? btnPro.closest('.upgrade-card') : null;
+  if (btnPro) {
+    if (isPro) {
+      const endDate = monetizationState.proSubscriptionEndDate
+        ? new Date(monetizationState.proSubscriptionEndDate)
+        : null;
+      if (endDate) {
+        const msLeft = endDate - Date.now();
+        if (msLeft <= 0) {
+          btnPro.textContent = 'Renew Pro';
+          btnPro.classList.remove('btn-active-tier');
+        } else {
+          btnPro.textContent = _formatTimeRemaining(msLeft);
+          btnPro.classList.add('btn-active-tier');
+          btnPro.disabled = false;
+        }
+      } else {
+        btnPro.textContent = '✅ Active';
+        btnPro.classList.add('btn-active-tier');
+      }
+    } else {
+      btnPro.textContent = 'Go Pro Now';
+      btnPro.classList.remove('btn-active-tier');
+      btnPro.disabled = false;
+    }
+    proCard && proCard.classList.toggle('tier-active', isPro);
+  }
+
+  // Party Pass button
+  const btnPass = document.getElementById('btnPurchasePartyPass');
+  const passCard = btnPass ? btnPass.closest('.upgrade-card') : null;
+  if (btnPass) {
+    if (isPartyPass) {
+      const endTime = monetizationState.partyPassEndTimeForCurrentParty;
+      if (endTime) {
+        const msLeft = endTime - Date.now();
+        if (msLeft <= 0) {
+          btnPass.textContent = 'Renew Party Pass';
+          btnPass.classList.remove('btn-active-tier');
+        } else {
+          const label = _formatTimeRemaining(msLeft);
+          btnPass.textContent = msLeft < 3600000 ? `⏰ ${label}` : label;
+          btnPass.classList.add('btn-active-tier');
+          btnPass.disabled = false;
+        }
+      } else {
+        btnPass.textContent = '✅ Active';
+        btnPass.classList.add('btn-active-tier');
+      }
+    } else {
+      btnPass.textContent = 'Activate Party Pass';
+      btnPass.classList.remove('btn-active-tier');
+      btnPass.disabled = false;
+    }
+    passCard && passCard.classList.toggle('tier-active', isPartyPass);
+  }
+
+  // Free button
+  const btnFree = document.getElementById('btnContinueFree');
+  const freeCard = btnFree ? btnFree.closest('.upgrade-card') : null;
+  if (btnFree) {
+    if (isFree) {
+      btnFree.textContent = '✅ Active (Free)';
+      btnFree.classList.add('btn-active-tier');
+    } else {
+      btnFree.textContent = 'Continue Free';
+      btnFree.classList.remove('btn-active-tier');
+    }
+    freeCard && freeCard.classList.toggle('tier-active', isFree);
+  }
 }
 
 /**
@@ -11277,6 +11411,18 @@ function processCheckoutPayment() {
       applyProfileUpgrades();
       updateDJTitleDisplay();
       updateTierDisplay();
+
+      // For tier purchases (pro-sub / party pass), auto-redirect to Create Party
+      const tierPurchase = currentCheckout.type === 'pro-subscription' || currentCheckout.type === 'party-pass';
+      if (tierPurchase) {
+        // Update the success message to indicate the redirect
+        const successMsg = document.querySelector('#checkoutSuccess .success-message');
+        if (successMsg) successMsg.textContent = 'Taking you to Create Party…';
+        setTimeout(() => {
+          closeCheckout();
+          showHome();
+        }, 2000);
+      }
     } else {
       showToast('❌ Purchase failed: ' + (result.error || 'Unknown error'));
       closeCheckout();
