@@ -17,6 +17,28 @@ const { customAlphabet } = require('nanoid');
 
 const generateCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 10);
 
+// ─── Public URL helpers ────────────────────────────────────────────────────────
+
+/**
+ * Always returns the canonical production base URL.
+ * Never uses window.location, Railway URLs, or run.app URLs.
+ * Can be overridden via the PUBLIC_BASE_URL env var for staging/preview.
+ */
+function getPublicBaseUrl() {
+  const env = (typeof process !== 'undefined' && process.env && process.env.PUBLIC_BASE_URL) || '';
+  if (env) return env.replace(/\/$/, '');
+  return 'https://www.phone-party.com';
+}
+
+/**
+ * Build a canonical invite link that always lands on the signup page.
+ * Format: https://www.phone-party.com/signup?code=INVITE_CODE&inviter=USER_ID
+ */
+function buildInviteLink(inviteCode, inviterUserId) {
+  const base = getPublicBaseUrl();
+  return `${base}/signup?code=${encodeURIComponent(inviteCode)}&inviter=${encodeURIComponent(inviterUserId)}`;
+}
+
 // Milestones ordered ascending; each entry fires once per user.
 const MILESTONES = [
   { at: 3,  type: 'PARTY_PASS_SECONDS',  seconds: 1800 },
@@ -176,10 +198,15 @@ class ReferralSystem {
       if (cnt > 50)  return { ok: false, reason: 'rate_limited' };
     }
 
-    // Link the referred_by on the new user
+    // Link the referred_by on the new user and store invite metadata
     await this.db.query(
-      `UPDATE users SET referred_by_user_id = $1 WHERE id = $2`,
-      [inviterUserId, newUserId]
+      `UPDATE users
+          SET referred_by_user_id = $1,
+              invite_code_used    = $2,
+              referral_source     = 'friend_invite',
+              invited_at          = NOW()
+        WHERE id = $3`,
+      [inviterUserId, referralCode, newUserId]
     );
 
     // Update the referral row (CLICKED → SIGNED_UP)
@@ -334,12 +361,12 @@ class ReferralSystem {
 
   async getStats(userId) {
     const code = await this.getOrCreateCode(userId);
-    const baseUrl = process.env.BASE_URL || 'https://phone-party.up.railway.app';
-    const inviteUrl = `${baseUrl}/invite/${code}`;
+    const inviteUrl = buildInviteLink(code, userId);
 
     if (!this.db) {
       return {
         referralCode: code, inviteUrl,
+        userId, displayName: null,
         referralsCompleted: 0,
         nextMilestone: MILESTONES[0].at,
         progressCurrent: 0, progressTarget: MILESTONES[0].at,
@@ -353,7 +380,8 @@ class ReferralSystem {
       `SELECT referrals_completed,
               referral_reward_balance_seconds,
               referral_reward_balance_sessions,
-              referral_reward_balance_pro_until
+              referral_reward_balance_pro_until,
+              dj_name
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -378,6 +406,8 @@ class ReferralSystem {
 
     return {
       referralCode: code, inviteUrl,
+      userId,
+      displayName: u.dj_name || null,
       referralsCompleted: completed,
       nextMilestone: nm,
       progressCurrent: completed,
@@ -388,6 +418,22 @@ class ReferralSystem {
       proUntil: u.referral_reward_balance_pro_until || null,
       rewards:  rewardsResult.rows
     };
+  }
+
+  // ─── Inviter name lookup ────────────────────────────────────────────────────
+
+  /**
+   * Return just the display name of the user who owns a referral code.
+   * Used by the signup page banner ("Jenny invited you to join Phone Party").
+   * Returns null if the code is not found.
+   */
+  async getInviterName(referralCode) {
+    if (!this.db || !referralCode) return null;
+    const r = await this.db.query(
+      'SELECT dj_name FROM users WHERE referral_code = $1',
+      [referralCode.toUpperCase().replace(/[^A-Z0-9]/g, '')]
+    );
+    return r.rows[0]?.dj_name || null;
   }
 
   // ─── Admin stats ────────────────────────────────────────────────────────────
@@ -475,4 +521,4 @@ class ReferralSystem {
   }
 }
 
-module.exports = { ReferralSystem, MILESTONES, nextMilestone };
+module.exports = { ReferralSystem, MILESTONES, nextMilestone, getPublicBaseUrl, buildInviteLink };

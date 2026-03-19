@@ -110,7 +110,15 @@ const VIEWS = {
   guest:         { id: 'viewGuest',            requiresAuth: true,  hash: 'guest',       onEnter: () => showGuest() },
   payment:       { id: 'viewPayment',          requiresAuth: false, hash: 'payment',     onEnter: () => showPayment() },
   login:         { id: 'viewLogin',            requiresAuth: false, hash: 'login' },
-  signup:        { id: 'viewSignup',           requiresAuth: false, hash: 'signup' },
+  signup:        { id: 'viewSignup',           requiresAuth: false, hash: 'signup',
+                   onEnter: () => {
+                     try {
+                       const rc = localStorage.getItem('referral_code');
+                       if (rc && typeof _showSignupInviteBanner === 'function') {
+                         _showSignupInviteBanner(rc);
+                       }
+                     } catch (_) { /* ignore */ }
+                   } },
   passwordReset: { id: 'viewPasswordReset',    requiresAuth: false, hash: 'reset' },
   profile:       { id: 'viewProfile',          requiresAuth: true,  hash: 'profile' },
   upgradeHub:    { id: 'viewUpgradeHub',       requiresAuth: true,  hash: 'upgrade' },
@@ -2485,7 +2493,12 @@ function showParty() {
           );
         }
         // Clean up stored referral keys after completion
-        try { localStorage.removeItem('referral_code'); localStorage.removeItem('referral_click_id'); } catch (_) {}
+        try {
+          localStorage.removeItem('referral_code');
+          localStorage.removeItem('referral_click_id');
+          localStorage.removeItem('referral_inviter_id');
+          localStorage.removeItem('referral_ts');
+        } catch (_) {}
       }).catch(() => {});
     }
   } catch (_) { /* non-fatal */ }
@@ -7258,9 +7271,12 @@ async function handleBillingReturn() {
   // party is created or joined, to avoid connecting on the landing page.
 
   // BOOT: check if a specific view was requested via URL hash (e.g. after refresh or back navigation)
+  // Also support /signup path-based routing (used by invite links).
   const _bootHash = window.location.hash.replace('#', '');
+  const _bootPath = window.location.pathname;
   const _bootHashView = HASH_TO_VIEW[_bootHash];
-  console.log('[BOOT]', { commit: CHANGER_VERSION, hasProfile: hasValidProfile(), hash: _bootHashView || null });
+  const _isSignupPath = (_bootPath === '/signup' || _bootPath === '/signup/');
+  console.log('[BOOT]', { commit: CHANGER_VERSION, hasProfile: hasValidProfile(), hash: _bootHashView || null, path: _bootPath });
 
   // Always verify auth with the server first on startup. This prevents stale
   // localStorage data (isLoggedIn returning true for an expired session, or a
@@ -7275,22 +7291,47 @@ async function handleBillingReturn() {
   // Handle billing return parameters (billing=success or billing=cancel in URL)
   await handleBillingReturn();
 
-  // Capture referral code from ?ref= URL param and store in localStorage
+  // Capture invite params from URL: new format ?code=CODE&inviter=USER_ID
+  // and legacy ?ref=CODE format, storing both for use at signup time.
   try {
     const _refParams = new URLSearchParams(window.location.search);
-    const _refCode = _refParams.get('ref');
-    if (_refCode && _refCode.length <= 20) {
-      const _cleanCode = _refCode.toUpperCase();
-      localStorage.setItem('referral_code', _cleanCode);
+
+    // New invite link format: ?code=CODE&inviter=USER_ID
+    const _inviteCode   = _refParams.get('code');
+    const _inviterId    = _refParams.get('inviter');
+
+    // Legacy format: ?ref=CODE
+    const _legacyRef = _refParams.get('ref');
+
+    // Resolve the referral code (prefer new ?code= param, fall back to ?ref=)
+    const _referralCode = (_inviteCode && _inviteCode.length <= 20)
+      ? _inviteCode.toUpperCase()
+      : (_legacyRef && _legacyRef.length <= 20 ? _legacyRef.toUpperCase() : null);
+
+    if (_referralCode) {
+      localStorage.setItem('referral_code', _referralCode);
       localStorage.setItem('referral_ts', Date.now().toString());
+      if (_inviterId) {
+        localStorage.setItem('referral_inviter_id', _inviterId);
+      }
       // Record the click event (async, non-blocking)
       fetch(API_BASE + '/api/referral/click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ referralCode: _cleanCode })
+        body: JSON.stringify({ referralCode: _referralCode })
       }).then(r => r.json()).then(data => {
         if (data.clickId) localStorage.setItem('referral_click_id', data.clickId);
       }).catch(() => {});
+
+      // If arriving on the /signup path and not authenticated, navigate to signup
+      // and immediately show the invite banner with the inviter's name.
+      if (_isSignupPath && !_bootAuthenticated) {
+        setView('signup');
+        // Banner is also triggered by the signup onEnter hook, but call here
+        // too for the path-based entry point to avoid a race.
+        _showSignupInviteBanner(_referralCode);
+      }
+      // For hash-based entry (#signup) or other views the onEnter hook handles it.
     }
   } catch (_) { /* localStorage may be unavailable */ }
   
@@ -10002,6 +10043,29 @@ async function handleLogin() {
       delete submitBtn.dataset.originalText;
     }
   }
+}
+
+/**
+/**
+ * Show or hide the invite banner on the signup page.
+ * Fetches the inviter's display name from the backend so we can show
+ * e.g. "Jenny invited you to join Phone Party 🎉"
+ * Silently no-ops if the banner element is not in the DOM or no code exists.
+ */
+async function _showSignupInviteBanner(referralCode) {
+  const banner = document.getElementById('signupInviteBanner');
+  if (!banner || !referralCode) return;
+  try {
+    const res = await fetch(
+      API_BASE + '/api/referral/inviter-name?code=' + encodeURIComponent(referralCode)
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const name = data.name || 'Someone';
+      banner.textContent = `🎉 ${name} invited you to join Phone Party!`;
+      banner.classList.remove('hidden');
+    }
+  } catch (_) { /* silent — banner is optional UX */ }
 }
 
 /**

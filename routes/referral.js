@@ -117,5 +117,21 @@ module.exports = function createReferralRouter(deps) {
     }
   });
 
+  // GET /inviter-name?code=CODE — public endpoint for the signup page invite banner.
+  // Returns only the display name of the user who owns the given referral code.
+  router.get('/inviter-name', apiLimiter, async (req, res) => {
+    try {
+      if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
+      const code = (req.query.code || '').toString().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!code || code.length > 20) return res.status(400).json({ error: 'code is required' });
+      const name = await referralSystem.getInviterName(code);
+      if (!name) return res.status(404).json({ error: 'Invite code not found' });
+      return res.json({ name });
+    } catch (err) {
+      console.error('[Referral] /inviter-name error:', err.message);
+      return res.status(500).json({ error: 'Failed to look up inviter name' });
+    }
+  });
+
   return router;
 };

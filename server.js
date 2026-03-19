@@ -70,7 +70,7 @@ const CHANGER_VERSION = '2026-02-27-a';
 
 // Import production services
 const { MetricsService } = require('./metrics-service');
-const { ReferralSystem } = require('./referral-system');
+const { ReferralSystem, getPublicBaseUrl, buildInviteLink } = require('./referral-system');
 const { verifyStripeSignature, processStripeWebhook } = require('./stripe-webhook');
 
 // Stripe billing client (null when STRIPE_SECRET_KEY is unset)
@@ -886,6 +886,12 @@ if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
 // Cache-Control value used for all assets that must re-validate on every deploy.
 const NO_CACHE = 'no-cache, must-revalidate';
 
+// UA patterns that identify social-media link-preview crawlers.
+// These bots need the full OG meta-tag HTML page; regular browsers get
+// a lightweight redirect to the canonical invite signup URL instead.
+const SOCIAL_CRAWLER_UA_PATTERN =
+  /facebookexternalhit|twitterbot|linkedinbot|whatsapp|slackbot|telegrambot|discordbot|googlebot/i;
+
 // Loose rate limiter for explicit static asset routes (1200 req / 15 min per IP).
 // Prevents abuse of the sendFile file-system reads on these routes.
 const staticLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 1200 });
@@ -1151,17 +1157,48 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+// ─── /signup — SPA entry point for invite links ────────────────────────────────
+// Serves index.html so the SPA can read ?code= and ?inviter= query params and
+// show the invite-aware signup view.
+app.get('/signup', (req, res) => {
+  res.setHeader('Cache-Control', NO_CACHE);
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // ─── Invite Landing Page ───────────────────────────────────────────────────────
+// Kept for backward compatibility (old shared links) and for rich social previews
+// (Open Graph / Twitter Card meta tags).  Regular browsers are immediately
+// redirected to the signup page with the new canonical query-param format.
 app.get('/invite/:code', async (req, res) => {
   const code    = (req.params.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-  const inviteUrl = `${baseUrl}/invite/${code}`;
+  const prodBase = getPublicBaseUrl();
+  const inviteUrl = buildInviteLink(code, ''); // placeholder; real link built below
 
   // Record the click (fire-and-forget, don't delay the page response)
+  let inviterUserId = null;
   if (referralSystem) {
     referralSystem.recordClick(code, req.ip, req.headers['user-agent']).catch(() => {});
+    // Look up inviter ID so we can embed it in the redirect URL
+    try { inviterUserId = await referralSystem.codeToUserId(code); } catch (_) {}
   }
 
+  // Build the canonical invite URL that lands on signup
+  const signupLink = inviterUserId
+    ? buildInviteLink(code, inviterUserId)
+    : `${prodBase}/signup?code=${encodeURIComponent(code)}`;
+
+  // Detect social-media crawlers via User-Agent — they need the OG-tag page.
+  // Regular visitors get a lightweight JS redirect to the signup page.
+  const ua = req.headers['user-agent'] || '';
+  const isCrawler = SOCIAL_CRAWLER_UA_PATTERN.test(ua);
+
+  if (!isCrawler) {
+    // Normal browser: redirect immediately to the signup page
+    res.setHeader('Cache-Control', 'no-store');
+    return res.redirect(302, signupLink);
+  }
+
+  // Social crawler: render OG meta-tag page (no actual content visible to users)
   res.setHeader('Cache-Control', 'no-store');
   res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -1172,51 +1209,22 @@ app.get('/invite/:code', async (req, res) => {
 <!-- Open Graph -->
 <meta property="og:title" content="Join my Phone Party 🎉" />
 <meta property="og:description" content="Turn phones into one massive speaker system. Download the app and join my party instantly!" />
-<meta property="og:image" content="${baseUrl}/icons/icon-512.png" />
-<meta property="og:url" content="${inviteUrl}" />
+<meta property="og:image" content="${prodBase}/icons/icon-512.png" />
+<meta property="og:url" content="${signupLink}" />
 <meta property="og:type" content="website" />
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="Join my Phone Party 🎉" />
 <meta name="twitter:description" content="Turn phones into one massive speaker system." />
-<meta name="twitter:image" content="${baseUrl}/icons/icon-512.png" />
-<style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-         background: #0a0a0f; color: #fff; min-height: 100vh;
-         display: flex; align-items: center; justify-content: center; padding: 1rem; }
-  .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 16px; padding: 2rem; max-width: 420px; width: 100%; text-align: center; }
-  h1 { font-size: 2rem; margin-bottom: 0.5rem; }
-  p  { color: #aaa; margin-bottom: 1.5rem; }
-  .btn { display: block; width: 100%; padding: 0.9rem 1.5rem; border: none;
-         border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer;
-         text-decoration: none; margin-bottom: 0.75rem; }
-  .btn-primary { background: linear-gradient(135deg,#9D4EDD,#5AA9FF); color: #fff; }
-  .code { font-family: monospace; font-size: 1.4rem; letter-spacing: 4px;
-          color: #9D4EDD; background: rgba(157,78,221,0.1);
-          border-radius: 8px; padding: 0.75rem 1rem; margin: 1rem 0; }
-</style>
+<meta name="twitter:image" content="${prodBase}/icons/icon-512.png" />
 </head>
 <body>
-<div class="card">
-  <h1>🎉 Phone Party</h1>
-  <p>You've been invited to join a Phone Party!<br>
-     Turn your phones into one massive speaker system.</p>
-  <div class="code">${code}</div>
-  <a class="btn btn-primary" href="${baseUrl}/?ref=${code}&clickSource=invite_page">
-    🚀 Open Phone Party
-  </a>
-  <p style="font-size:0.8rem;color:#666;">
-    Your referral code is saved automatically.
-  </p>
-</div>
 <script>
-  // Store referral info so the app can pick it up after install / first launch
   try {
     localStorage.setItem('referral_code', ${JSON.stringify(code)});
     localStorage.setItem('referral_ts',   Date.now().toString());
   } catch(_) {}
+  window.location.replace(${JSON.stringify(signupLink)});
 </script>
 </body>
 </html>`);
