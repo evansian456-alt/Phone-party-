@@ -1,5 +1,21 @@
-<svg viewBox="0 0 152 152" xmlns="http://www.w3.org/2000/svg">
-  <rect width="152" height="152" fill="#6366f1" rx="19"/>
-  <text x="76" y="71" text-anchor="middle" font-size="57" fill="#ffffff">📱</text>
-  <text x="76" y="111" text-anchor="middle" font-size="19" fill="#ffffff" font-family="Arial, sans-serif" font-weight="bold">PHONE PARTY</text>
+<svg viewBox="0 0 192 192" width="152" height="152" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#0a0a1a"/>
+      <stop offset="100%" stop-color="#050510"/>
+    </radialGradient>
+    <linearGradient id="phoneGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5AA9FF"/>
+      <stop offset="100%" stop-color="#C850C0"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="192" height="192" fill="url(#bg)" rx="32"/>
+  <rect x="58" y="24" width="72" height="120" rx="12" ry="12" stroke="url(#phoneGrad)" stroke-width="7" fill="none" filter="url(#glow)"/>
+  <line x1="82" y1="36" x2="108" y2="36" stroke="url(#phoneGrad)" stroke-width="4" stroke-linecap="round"/>
+  <line x1="84" y1="132" x2="106" y2="132" stroke="url(#phoneGrad)" stroke-width="4" stroke-linecap="round"/>
+  <path d="M16 96 Q24 72 32 96 Q40 120 48 96 Q56 60 64 96 Q72 132 80 96 Q88 60 96 96 Q104 132 112 96 Q120 60 128 96 Q136 120 144 96 Q152 72 160 96 Q168 114 176 96" stroke="url(#phoneGrad)" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
 </svg>

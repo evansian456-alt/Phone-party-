@@ -65,7 +65,22 @@
 <body>
   <header class="top">
     <div class="brand" data-testid="nav-home">
-      <div class="logo">📱🎉</div>
+      <div class="logo">
+        <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg" width="44" height="44" aria-hidden="true">
+          <defs>
+            <linearGradient id="logoGrad" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#5AA9FF"/>
+              <stop offset="100%" stop-color="#C850C0"/>
+            </linearGradient>
+          </defs>
+          <!-- Phone outline -->
+          <rect x="11" y="3" width="18" height="30" rx="3" ry="3" stroke="url(#logoGrad)" stroke-width="2.5" fill="none"/>
+          <line x1="14" y1="6" x2="26" y2="6" stroke="url(#logoGrad)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="18" y1="30" x2="22" y2="30" stroke="url(#logoGrad)" stroke-width="1.5" stroke-linecap="round"/>
+          <!-- Sound wave -->
+          <path d="M4 18 Q6 12 8 18 Q10 24 12 18 Q14 10 16 18 Q18 26 20 18 Q22 10 24 18 Q26 26 28 18 Q30 12 32 18 Q34 22 36 18 Q38 16 40 18" stroke="url(#logoGrad)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
       <div>
         <div class="title">PHONE PARTY</div>
         <div class="subtitle">Turn phones into one big speaker.</div>
@@ -73,13 +88,27 @@
     </div>
     <div class="header-right auth-only" id="headerAuthButtons" style="display:none">
       <span id="connectionIndicator">● Connected</span>
-      <button class="btn-parent-info" id="btnParentInfo" title="Help & About">ℹ️</button>
-      <button class="btn-leaderboard post-auth-only nav-hidden" id="btnLeaderboard" title="Leaderboard">🏆</button>
-      <button class="btn-profile post-auth-only nav-hidden" id="btnProfile" title="My Profile" data-testid="nav-settings">👤</button>
-      <button class="btn-upgrade post-auth-only nav-hidden" id="btnUpgradeHub" title="Upgrade" aria-label="Upgrade options" data-testid="upgrade-button">⭐</button>
-      <button class="btn-admin admin-only nav-hidden" id="btnAdminDashboard" title="Admin Dashboard" style="display:none">🛡️</button>
-      <button class="btn-account" id="btnAccount" title="Account">🔑</button>
-      <button class="btn-logout" id="btnLogout" title="Log out" data-testid="logout-button">🚪</button>
+      <button class="btn-parent-info" id="btnParentInfo" title="Help & About">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+      </button>
+      <button class="btn-leaderboard post-auth-only nav-hidden" id="btnLeaderboard" title="Leaderboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><polyline points="18 20 18 10"/><polyline points="12 20 12 4"/><polyline points="6 20 6 14"/></svg>
+      </button>
+      <button class="btn-profile post-auth-only nav-hidden" id="btnProfile" title="My Profile" data-testid="nav-settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      </button>
+      <button class="btn-upgrade post-auth-only nav-hidden" id="btnUpgradeHub" title="Upgrade" aria-label="Upgrade options" data-testid="upgrade-button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      </button>
+      <button class="btn-admin admin-only nav-hidden" id="btnAdminDashboard" title="Admin Dashboard" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </button>
+      <button class="btn-account" id="btnAccount" title="Account">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      </button>
+      <button class="btn-logout" id="btnLogout" title="Log out" data-testid="logout-button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
       <div class="pill" id="planPill">Free · 2 phones</div>
     </div>
     <!-- Public header buttons — visible only when logged out -->
@@ -88,107 +117,60 @@
   </header>
 
   <main class="wrap">
-    <!-- Landing Page - PHONE PARTY Design -->
+    <!-- Landing Page -->
     <section class="landing-page" id="viewLanding">
       <div class="landing-hero-new">
-        <h1 class="landing-title-new">PHONE PARTY 🎉</h1>
-        <p class="landing-subtitle-new">Search YouTube. Start the party. Everyone's in sync.</p>
-        
-        <!-- Animated Background Element -->
-        <div class="party-background-animation">
-          <div class="sound-wave"></div>
-          <div class="sound-wave"></div>
-          <div class="sound-wave"></div>
+        <h1 class="landing-title-new">PHONE PARTY</h1>
+        <p class="landing-subtitle-new">Turn Phones Into One Big Speaker.</p>
+
+        <!-- Feature info cards -->
+        <div class="landing-info-cards">
+          <div class="info-card">
+            <div class="info-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="28" height="28" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            </div>
+            <div class="info-card-text">
+              <strong>Sync Music</strong>
+              <span>Play YouTube videos in perfect sync across all devices</span>
+            </div>
+          </div>
+          <div class="info-card">
+            <div class="info-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="28" height="28" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </div>
+            <div class="info-card-text">
+              <strong>Invite Friends</strong>
+              <span>Share a code — everyone joins instantly, no app needed</span>
+            </div>
+          </div>
+          <div class="info-card">
+            <div class="info-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="28" height="28" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            </div>
+            <div class="info-card-text">
+              <strong>Real-time Sync</strong>
+              <span>Advanced audio sync keeps every phone in perfect rhythm</span>
+            </div>
+          </div>
         </div>
 
-        <!-- YouTube Party Demo Flow -->
-        <div class="yt-demo-flow" aria-label="How YouTube Party works">
-
-          <!-- Step 1: Search YouTube -->
-          <div class="yt-demo-step">
-            <div class="yt-demo-step-icon">🔍</div>
-            <div class="yt-demo-step-body">
-              <div class="yt-demo-step-label">Step 1</div>
-              <div class="yt-demo-step-title">Search YouTube</div>
-              <div class="yt-demo-step-input">
-                <span class="yt-demo-input-placeholder">Search YouTube or paste a link</span>
-                <span class="yt-demo-search-btn">🔍</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="yt-demo-arrow">↓</div>
-
-          <!-- Step 2: Pick a video -->
-          <div class="yt-demo-step">
-            <div class="yt-demo-step-icon">🎬</div>
-            <div class="yt-demo-step-body">
-              <div class="yt-demo-step-label">Step 2</div>
-              <div class="yt-demo-step-title">Pick a Video</div>
-              <div class="yt-demo-result-card">
-                <div class="yt-demo-thumb"></div>
-                <div class="yt-demo-result-info">
-                  <div class="yt-demo-result-title">Top Result</div>
-                  <div class="yt-demo-result-channel">Channel Name</div>
-                </div>
-                <span class="yt-demo-play-btn">▶ Play</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="yt-demo-arrow">↓</div>
-
-          <!-- Step 3: Phones join -->
-          <div class="yt-demo-step">
-            <div class="yt-demo-step-icon">📱</div>
-            <div class="yt-demo-step-body">
-              <div class="yt-demo-step-label">Step 3</div>
-              <div class="yt-demo-step-title">Friends Join</div>
-              <div class="yt-demo-phones">
-                <span class="yt-demo-phone yt-demo-phone-host">🎤 Host</span>
-                <span class="yt-demo-phone">📱 +1</span>
-                <span class="yt-demo-phone">📱 +2</span>
-                <span class="yt-demo-phone">📱 +3</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="yt-demo-arrow">↓</div>
-
-          <!-- Step 4: In sync + reactions -->
-          <div class="yt-demo-step">
-            <div class="yt-demo-step-icon">🔥</div>
-            <div class="yt-demo-step-body">
-              <div class="yt-demo-step-label">Step 4</div>
-              <div class="yt-demo-step-title">Everyone Watches in Sync</div>
-              <div class="yt-demo-sync-bar">
-                <span class="yt-demo-sync-dot"></span>
-                <span class="yt-demo-sync-label">All devices synced</span>
-                <span class="yt-demo-reactions">🔥 😍 🎉 👏</span>
-              </div>
-            </div>
-          </div>
-
-        </div><!-- /.yt-demo-flow -->
-        
         <!-- Main CTA Buttons (for logged-out users) -->
         <div class="landing-cta-buttons pre-auth-only">
           <button class="btn-landing-primary" id="btnLandingSignup" data-testid="signup-button">
-            ▶ START YOUR YouTube PARTY
+            Sign Up
           </button>
-          <button class="btn-landing-addons" id="btnLandingLogin" data-testid="login-button">
-            🔑 LOG IN
+          <button class="btn-landing-login" id="btnLandingLogin" data-testid="login-button">
+            Log In
           </button>
         </div>
         <!-- Dashboard button (for admin users only) -->
         <div class="landing-cta-buttons" id="landingAuthButtons" style="display:none">
           <button class="btn-landing-primary" id="btnGoToDashboard" data-testid="go-to-dashboard-button">
-            🛡️ VIEW ADMIN DASHBOARD
+            View Admin Dashboard
           </button>
         </div>
 
       </div>
-      <div class="blob blob-3"></div>
     </section>
 
     <!-- PHONE PARTY Pricing Screen -->
