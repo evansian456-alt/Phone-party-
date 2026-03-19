@@ -1160,7 +1160,7 @@ app.get("/", (req, res) => {
 // ─── /signup — SPA entry point for invite links ────────────────────────────────
 // Serves index.html so the SPA can read ?code= and ?inviter= query params and
 // show the invite-aware signup view.
-app.get('/signup', (req, res) => {
+app.get('/signup', staticLimiter, (req, res) => {
   res.setHeader('Cache-Control', NO_CACHE);
   res.sendFile(path.join(__dirname, 'index.html'));
 });

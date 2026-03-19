@@ -415,7 +415,7 @@ describe('GET /invite/:code', () => {
     // Should redirect or serve crawler page — either way must not echo raw injection
     expect([200, 302]).toContain(res.status);
     const output = res.text + (res.headers['location'] || '');
-    expect(output).not.toMatch(/<script>/);
+    expect(output).not.toMatch(/<script>/i);
   });
 
   it('crawler page includes localStorage fallback script', async () => {
