@@ -4744,6 +4744,36 @@ h2,h3{margin:0; font-weight:800}
   box-shadow: 0 8px 32px rgba(90, 169, 255, 0.2);
 }
 
+/* Active tier card — highlighted with a neon glow */
+.tier-card-active {
+  border-color: rgba(57, 255, 20, 0.6) !important;
+  box-shadow: 0 0 24px rgba(57, 255, 20, 0.25), 0 8px 32px rgba(57, 255, 20, 0.15) !important;
+}
+
+.tier-card-active .btn-tier {
+  background: rgba(57, 255, 20, 0.15) !important;
+  border-color: rgba(57, 255, 20, 0.8) !important;
+  color: #39ff14 !important;
+  text-shadow: 0 0 8px rgba(57, 255, 20, 0.7);
+  box-shadow: 0 0 16px rgba(57, 255, 20, 0.4) !important;
+  font-size: 15px !important;
+  letter-spacing: 0.5px;
+}
+
+/* Expired tier card */
+.tier-card-expired {
+  border-color: rgba(255, 107, 53, 0.6) !important;
+  box-shadow: 0 0 16px rgba(255, 107, 53, 0.2) !important;
+  opacity: 0.85;
+}
+
+.tier-card-expired .btn-tier {
+  background: rgba(255, 107, 53, 0.15) !important;
+  border-color: rgba(255, 107, 53, 0.8) !important;
+  color: #ff6b35 !important;
+  box-shadow: 0 0 12px rgba(255, 107, 53, 0.3) !important;
+}
+
 .tier-featured {
   border: 2px solid rgba(255, 107, 237, 0.5);
   background: rgba(255, 107, 237, 0.08);
