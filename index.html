@@ -92,7 +92,7 @@
     <section class="landing-page" id="viewLanding">
       <div class="landing-hero-new">
         <h1 class="landing-title-new">PHONE PARTY 🎉</h1>
-        <p class="landing-subtitle-new">Turn Phones Into One Big Speaker</p>
+        <p class="landing-subtitle-new">Search YouTube. Start the party. Everyone's in sync.</p>
         
         <!-- Animated Background Element -->
         <div class="party-background-animation">
@@ -100,30 +100,81 @@
           <div class="sound-wave"></div>
           <div class="sound-wave"></div>
         </div>
-        
-        <!-- App Information Section -->
-        <div class="landing-info-section">
-          <div class="info-card">
-            <div class="info-icon">📱</div>
-            <h3 class="info-title">Multiple Phones = Massive Sound</h3>
-            <p class="info-desc">Connect your crew's phones and create the ultimate party speaker system.</p>
+
+        <!-- YouTube Party Demo Flow -->
+        <div class="yt-demo-flow" aria-label="How YouTube Party works">
+
+          <!-- Step 1: Search YouTube -->
+          <div class="yt-demo-step">
+            <div class="yt-demo-step-icon">🔍</div>
+            <div class="yt-demo-step-body">
+              <div class="yt-demo-step-label">Step 1</div>
+              <div class="yt-demo-step-title">Search YouTube</div>
+              <div class="yt-demo-step-input">
+                <span class="yt-demo-input-placeholder">Search YouTube or paste a link</span>
+                <span class="yt-demo-search-btn">🔍</span>
+              </div>
+            </div>
           </div>
-          <div class="info-card">
-            <div class="info-icon">🎧</div>
-            <h3 class="info-title">DJ Controls the Vibe</h3>
-            <p class="info-desc">One person plays the music, everyone hears it perfectly in sync.</p>
+
+          <div class="yt-demo-arrow">↓</div>
+
+          <!-- Step 2: Pick a video -->
+          <div class="yt-demo-step">
+            <div class="yt-demo-step-icon">🎬</div>
+            <div class="yt-demo-step-body">
+              <div class="yt-demo-step-label">Step 2</div>
+              <div class="yt-demo-step-title">Pick a Video</div>
+              <div class="yt-demo-result-card">
+                <div class="yt-demo-thumb"></div>
+                <div class="yt-demo-result-info">
+                  <div class="yt-demo-result-title">Top Result</div>
+                  <div class="yt-demo-result-channel">Channel Name</div>
+                </div>
+                <span class="yt-demo-play-btn">▶ Play</span>
+              </div>
+            </div>
           </div>
-          <div class="info-card">
-            <div class="info-icon">🔥</div>
-            <h3 class="info-title">Party Mode Activated</h3>
-            <p class="info-desc">Perfect for hangouts, parties, and turning up anywhere!</p>
+
+          <div class="yt-demo-arrow">↓</div>
+
+          <!-- Step 3: Phones join -->
+          <div class="yt-demo-step">
+            <div class="yt-demo-step-icon">📱</div>
+            <div class="yt-demo-step-body">
+              <div class="yt-demo-step-label">Step 3</div>
+              <div class="yt-demo-step-title">Friends Join</div>
+              <div class="yt-demo-phones">
+                <span class="yt-demo-phone yt-demo-phone-host">🎤 Host</span>
+                <span class="yt-demo-phone">📱 +1</span>
+                <span class="yt-demo-phone">📱 +2</span>
+                <span class="yt-demo-phone">📱 +3</span>
+              </div>
+            </div>
           </div>
-        </div>
+
+          <div class="yt-demo-arrow">↓</div>
+
+          <!-- Step 4: In sync + reactions -->
+          <div class="yt-demo-step">
+            <div class="yt-demo-step-icon">🔥</div>
+            <div class="yt-demo-step-body">
+              <div class="yt-demo-step-label">Step 4</div>
+              <div class="yt-demo-step-title">Everyone Watches in Sync</div>
+              <div class="yt-demo-sync-bar">
+                <span class="yt-demo-sync-dot"></span>
+                <span class="yt-demo-sync-label">All devices synced</span>
+                <span class="yt-demo-reactions">🔥 😍 🎉 👏</span>
+              </div>
+            </div>
+          </div>
+
+        </div><!-- /.yt-demo-flow -->
         
         <!-- Main CTA Buttons (for logged-out users) -->
         <div class="landing-cta-buttons pre-auth-only">
           <button class="btn-landing-primary" id="btnLandingSignup" data-testid="signup-button">
-            🚀 GET STARTED FREE
+            ▶ START YOUR YOUTUBE PARTY
           </button>
           <button class="btn-landing-addons" id="btnLandingLogin" data-testid="login-button">
             🔑 LOG IN
@@ -669,6 +720,23 @@
 
       <div class="line"></div>
 
+      <!-- YouTube Party Quick Access (Host) -->
+      <div class="box" id="youtubeQuickAccess" data-testid="youtube-quick-access" style="background:linear-gradient(135deg,rgba(255,0,0,0.12),rgba(180,0,0,0.06));border:1px solid rgba(255,60,60,0.25);">
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+          <img src="/public/assets/providers/youtube.svg" alt="YouTube" style="height:28px;width:auto;" loading="lazy" />
+          <div>
+            <div style="font-weight:700;font-size:1rem;">YouTube Party</div>
+            <div class="tiny muted">Search a video — guests watch in sync</div>
+          </div>
+        </div>
+        <button class="btn primary" id="btnOpenYoutubeParty" data-testid="btn-open-youtube-party"
+                style="width:100%;justify-content:center;background:linear-gradient(135deg,#e00,#c00);border:none;">
+          ▶ Play from YouTube
+        </button>
+      </div>
+
+      <div class="line"></div>
+
       <!-- Music Upload Section (Host Only) -->
       <div class="box" id="musicUploadSection" data-testid="music-tab">
         <h3>🎵 Music (from your phone)</h3>
@@ -875,7 +943,7 @@
           <!-- Search / URL input -->
           <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem;">
             <div style="display:flex;gap:0.5rem;align-items:center;">
-              <input class="input" id="youtubeSearchInput" placeholder="Search YouTube or paste URL…"
+              <input class="input" id="youtubeSearchInput" placeholder="Search YouTube or paste a link"
                      style="flex:1;" data-testid="youtube-search-input" />
               <button class="btn primary" id="btnYoutubeSearch" data-testid="btn-youtube-search">🔍 Search</button>
             </div>
@@ -1373,6 +1441,35 @@
       <div class="glass-card hidden" id="guestOfficialAppSyncPanel" style="text-align:center;padding:1.25rem;">
         <div style="font-size:1.05rem;font-weight:600;margin-bottom:0.5rem;" id="guestOfficialAppSyncLabel">Host selected a track</div>
         <button class="btn primary" id="btnGuestOpenInApp" style="font-size:1.1rem;padding:0.75rem 2rem;width:100%;max-width:320px;">Open in App</button>
+      </div>
+
+      <!-- YouTube Party Player (Guest) — shown when host starts a YouTube Party -->
+      <div class="glass-card hidden" id="guestYoutubeSection" data-testid="guest-youtube-section">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
+          <img src="/public/assets/providers/youtube.svg" alt="YouTube" style="height:20px;width:auto;" loading="lazy" />
+          <h3 style="margin:0;font-size:1rem;">▶ YouTube Party</h3>
+          <span class="badge" id="guestYoutubeSyncBadge"
+                style="background:rgba(0,200,80,0.2);color:#0f6;font-size:0.65rem;margin-left:auto;">● Synced</span>
+        </div>
+        <div id="guestYoutubeNowPlaying" style="margin-bottom:0.5rem;" data-testid="guest-youtube-now-playing">
+          <div class="tiny muted">Now playing (host-controlled):</div>
+          <div id="guestYoutubeNowPlayingTitle" style="font-size:0.9rem;font-weight:600;color:#fff;"></div>
+        </div>
+        <div id="guestYoutubePlayerContainer"
+             style="width:100%;aspect-ratio:16/9;background:#000;border-radius:8px;overflow:hidden;position:relative;margin-bottom:0.5rem;"
+             data-testid="guest-youtube-player-container">
+          <div id="guestYoutubePlayerPlaceholder"
+               style="display:flex;align-items:center;justify-content:center;height:100%;color:rgba(255,255,255,0.3);font-size:0.85rem;">
+            Waiting for host to start video…
+          </div>
+          <div id="guestYoutubePlayer" style="position:absolute;inset:0;"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;" data-testid="guest-youtube-status-row">
+          <span class="tiny muted" id="guestYoutubePlayerStatus" data-testid="guest-youtube-player-status">Syncing…</span>
+        </div>
+        <p class="tiny muted" style="font-size:0.65rem;opacity:0.7;margin-top:0.35rem;">
+          Host controls playback — your video stays in sync.
+        </p>
       </div>
 
       <!-- Up Next Section -->

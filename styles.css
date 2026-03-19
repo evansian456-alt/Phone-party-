@@ -8221,3 +8221,208 @@ body {
 #youtubeSearchInput::placeholder {
   color: rgba(255, 255, 255, 0.45);
 }
+
+/* ============================================================
+   YouTube Party Demo Flow — Landing page
+   ============================================================ */
+.yt-demo-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 420px;
+  margin: 1.5rem auto;
+  text-align: left;
+}
+
+.yt-demo-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+}
+
+.yt-demo-step-icon {
+  font-size: 1.6rem;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.yt-demo-step-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.yt-demo-step-label {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255,255,255,0.4);
+  margin-bottom: 2px;
+}
+
+.yt-demo-step-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 0.4rem;
+}
+
+/* Fake search bar */
+.yt-demo-step-input {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+}
+
+.yt-demo-input-placeholder {
+  flex: 1;
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.4);
+  font-style: italic;
+}
+
+.yt-demo-search-btn {
+  font-size: 0.85rem;
+  background: #e00;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+/* Fake search result card */
+.yt-demo-result-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0,0,0,0.25);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+
+.yt-demo-thumb {
+  width: 52px;
+  height: 38px;
+  background: linear-gradient(135deg,#e00,#800);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.yt-demo-result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.yt-demo-result-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.yt-demo-result-channel {
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.45);
+}
+
+.yt-demo-play-btn {
+  background: #e00;
+  color: #fff;
+  font-size: 0.72rem;
+  padding: 3px 10px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+/* Phones row */
+.yt-demo-phones {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.yt-demo-phone {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  color: rgba(255,255,255,0.8);
+}
+
+.yt-demo-phone-host {
+  background: rgba(255,0,0,0.18);
+  border-color: rgba(255,80,80,0.35);
+  color: #fff;
+}
+
+/* Sync bar */
+.yt-demo-sync-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0,200,80,0.1);
+  border: 1px solid rgba(0,200,80,0.25);
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.yt-demo-sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #0f6;
+  flex-shrink: 0;
+  animation: yt-demo-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes yt-demo-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.75); }
+}
+
+.yt-demo-sync-label {
+  flex: 1;
+  color: rgba(255,255,255,0.8);
+}
+
+.yt-demo-reactions {
+  font-size: 1rem;
+  letter-spacing: 0.15em;
+}
+
+/* Arrow between steps */
+.yt-demo-arrow {
+  text-align: center;
+  color: rgba(255,255,255,0.3);
+  font-size: 1.1rem;
+  padding: 0.1rem 0;
+}
+
+/* Mobile: keep demo flow readable on very small screens */
+@media (max-width: 380px) {
+  .yt-demo-flow {
+    margin: 1rem auto;
+  }
+  .yt-demo-step {
+    padding: 0.65rem 0.75rem;
+  }
+  .yt-demo-phones {
+    gap: 0.3rem;
+  }
+  .yt-demo-phone {
+    font-size: 0.7rem;
+    padding: 2px 8px;
+  }
+}

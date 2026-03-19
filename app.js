@@ -139,7 +139,7 @@ let _currentUserIsAdmin = false; // set to true when /api/me confirms user.isAdm
 
 // Feature flags — loaded from /api/feature-flags at startup
 let _featureFlags = {
-  STREAMING_PARTY_ENABLED: false // Conservative default — updated after fetch
+  STREAMING_PARTY_ENABLED: true // Default ON — YouTube Party is a core feature
 };
 
 /**
@@ -2350,13 +2350,6 @@ function handleServer(msg) {
     // Guest receives: host loaded a new video
     console.log("[YouTubePlayer] Guest received YOUTUBE_VIDEO:", msg.videoId);
     if (!state.isHost) {
-      // Ensure the YouTube section is visible for guests
-      var ytSection = document.getElementById('youtubePartySection');
-      if (ytSection) ytSection.classList.remove('hidden');
-      var ytPlayerBox = document.getElementById('youtubePartyPlayerBox');
-      if (ytPlayerBox) ytPlayerBox.classList.remove('hidden');
-      var ytUpgradeBox = document.getElementById('youtubePartyUpgradeBox');
-      if (ytUpgradeBox) ytUpgradeBox.classList.add('hidden');
       ytGuestLoadVideo(msg.videoId, msg.title || null);
     }
     return;
@@ -3186,6 +3179,10 @@ function showGuest() {
   
   // Start polling for guests to get party updates
   startGuestPartyStatusPolling();
+
+  // Initialize guest YouTube player (loads API if not already loaded)
+  loadYouTubeIframeAPI();
+  initYouTubeGuestPlayer();
 }
 
 // Check if host is already playing when guest joins mid-track
@@ -3193,6 +3190,21 @@ async function checkForMidTrackJoin(code) {
   try {
     const response = await fetch(API_BASE + `/api/party-state?code=${code}`);
     const data = await response.json();
+
+    // Late-join YouTube sync: if host already has a video selected, load it
+    if (data.exists && data.youtubeSync && data.youtubeSync.videoId) {
+      const ys = data.youtubeSync;
+      console.log('[Mid-Track Join] YouTube sync state:', ys);
+      ytGuestLoadVideo(ys.videoId, ys.title || null);
+      // If host was playing, also seek to approximate position and play
+      if (ys.isPlaying && ys.currentTime != null) {
+        var elapsed = (Date.now() - (ys.updatedAtMs || Date.now())) / 1000;
+        var targetTime = Math.max(0, (ys.currentTime || 0) + elapsed);
+        setTimeout(function() {
+          ytGuestPlay(targetTime);
+        }, 1500); // Give player time to load
+      }
+    }
     
     if (data.exists && data.currentTrack) {
       const currentTrack = data.currentTrack;
@@ -5171,16 +5183,12 @@ function updatePartyPassUI() {
   }
 
   // --- 4. Streaming party paywall ---
+  // YouTube Party is a core feature — show the section for all hosts when enabled.
   const officialAppSyncSection = el("officialAppSyncSection");
   const streamingPartyPaywall = el("streamingPartyPaywall");
   if (state.isHost && _featureFlags.STREAMING_PARTY_ENABLED) {
-    const isPaid = hasPartyPassEntitlement() || hasProTierEntitlement();
-    if (officialAppSyncSection) {
-      officialAppSyncSection.classList[isPaid ? 'remove' : 'add']('hidden');
-    }
-    if (streamingPartyPaywall) {
-      streamingPartyPaywall.classList[isPaid ? 'add' : 'remove']('hidden');
-    }
+    if (officialAppSyncSection) officialAppSyncSection.classList.remove('hidden');
+    if (streamingPartyPaywall) streamingPartyPaywall.classList.add('hidden');
   } else {
     if (officialAppSyncSection) officialAppSyncSection.classList.add('hidden');
     if (streamingPartyPaywall) streamingPartyPaywall.classList.add('hidden');
@@ -12681,11 +12689,20 @@ function handleOfficialAppSyncTrackSelected(msg) {
  * State for the embedded YouTube Party Player.
  */
 var _ytPlayer = {
-  player: null,        // YT.Player instance
+  player: null,        // YT.Player instance (host)
   ready: false,        // IFrame API loaded
   videoId: null,       // Currently loaded videoId
   isPlaying: false,    // Local playing flag
   apiLoaded: false,    // Whether script tag was injected
+  initPending: false,  // Whether init is queued
+};
+
+/**
+ * State for the guest-side YouTube Player (separate instance from host player).
+ */
+var _ytGuestPlayer = {
+  player: null,        // YT.Player instance (guest)
+  videoId: null,       // Currently loaded videoId
   initPending: false,  // Whether init is queued
 };
 
@@ -12716,7 +12733,74 @@ window.onYouTubeIframeAPIReady = function() {
     _ytPlayer.initPending = false;
     initYouTubePlayer();
   }
+  if (_ytGuestPlayer.initPending) {
+    _ytGuestPlayer.initPending = false;
+    initYouTubeGuestPlayer();
+  }
 };
+
+/**
+ * Initialize the guest-side YT.Player instance (inside viewGuest).
+ * Safe to call multiple times — only initialises once.
+ */
+function initYouTubeGuestPlayer() {
+  if (_ytGuestPlayer.player) return; // Already initialised
+  var container = document.getElementById('guestYoutubePlayer');
+  if (!container) return;
+
+  if (!_ytPlayer.ready) {
+    _ytGuestPlayer.initPending = true;
+    loadYouTubeIframeAPI();
+    return;
+  }
+
+  if (typeof YT === 'undefined' || typeof YT.Player === 'undefined') {
+    _ytGuestPlayer.initPending = true;
+    return;
+  }
+
+  _ytGuestPlayer.player = new YT.Player('guestYoutubePlayer', {
+    height: '100%',
+    width: '100%',
+    playerVars: {
+      autoplay: 0,
+      controls: 0,   // Host controls playback; guests just watch
+      rel: 0,
+      modestbranding: 1,
+      playsinline: 1
+    },
+    events: {
+      onReady: function() {
+        console.log('[YouTubePlayer] Guest player ready');
+        var ph = document.getElementById('guestYoutubePlayerPlaceholder');
+        if (ph) ph.style.display = 'none';
+        // If a video was pending, load it now
+        if (_ytGuestPlayer.videoId) {
+          _ytGuestPlayer.player.loadVideoById(_ytGuestPlayer.videoId);
+          setTimeout(function() {
+            if (_ytGuestPlayer.player && typeof _ytGuestPlayer.player.pauseVideo === 'function') {
+              _ytGuestPlayer.player.pauseVideo();
+            }
+          }, 1000);
+        }
+      },
+      onStateChange: function(event) {
+        var statusEl = document.getElementById('guestYoutubePlayerStatus');
+        if (statusEl) {
+          if (event.data === YT.PlayerState.PLAYING) statusEl.textContent = 'Playing';
+          else if (event.data === YT.PlayerState.PAUSED) statusEl.textContent = 'Paused';
+          else if (event.data === YT.PlayerState.BUFFERING) statusEl.textContent = 'Buffering…';
+          else if (event.data === YT.PlayerState.ENDED) statusEl.textContent = 'Ended';
+        }
+      },
+      onError: function(event) {
+        console.error('[YouTubePlayer] Guest player error:', event.data);
+        var statusEl = document.getElementById('guestYoutubePlayerStatus');
+        if (statusEl) statusEl.textContent = 'Playback error';
+      }
+    }
+  });
+}
 
 /**
  * Initialize the YT.Player instance.
@@ -12813,6 +12897,8 @@ function extractYouTubeVideoId(ref) {
 function ytLoadVideo(videoId, title) {
   _ytPlayer.videoId = videoId;
 
+  console.log('[YouTubePlayer] Loading video:', videoId, title || '');
+
   // Show player UI elements
   var container = document.getElementById('youtubePlayerContainer');
   var controls = document.getElementById('youtubePlayerControls');
@@ -12905,33 +12991,38 @@ function ytHostPause() {
  * @param {string|null} title
  */
 function ytGuestLoadVideo(videoId, title) {
-  _ytPlayer.videoId = videoId;
-  var ph = document.getElementById('youtubePlayerPlaceholder');
-  var controls = document.getElementById('youtubePlayerControls');
-  var nowPlaying = document.getElementById('youtubeNowPlaying');
-  var titleEl = document.getElementById('youtubeNowPlayingTitle');
-  var statusEl = document.getElementById('youtubePlayerStatus');
+  _ytGuestPlayer.videoId = videoId;
+
+  console.log('[YouTubePlayer] Guest loading video:', videoId, title || '');
+
+  // Show the guest YouTube section
+  var section = document.getElementById('guestYoutubeSection');
+  if (section) section.classList.remove('hidden');
+
+  var ph = document.getElementById('guestYoutubePlayerPlaceholder');
+  var nowPlaying = document.getElementById('guestYoutubeNowPlaying');
+  var titleEl = document.getElementById('guestYoutubeNowPlayingTitle');
+  var statusEl = document.getElementById('guestYoutubePlayerStatus');
 
   if (ph) ph.style.display = 'none';
-  if (controls) controls.classList.remove('hidden');
   if (nowPlaying && title) {
-    nowPlaying.classList.remove('hidden');
+    nowPlaying.style.display = '';
     if (titleEl) titleEl.textContent = title;
   }
   if (statusEl) statusEl.textContent = 'Loading…';
 
-  if (_ytPlayer.player && typeof _ytPlayer.player.loadVideoById === 'function') {
-    _ytPlayer.player.loadVideoById(videoId);
-    // Pause after ~1s: loadVideoById triggers autoplay; we want guests to hold
-    // on the first frame until they receive a HOST_YOUTUBE_PLAY command.
-    // 1000ms gives the player time to buffer and render a frame before pausing.
+  if (_ytGuestPlayer.player && typeof _ytGuestPlayer.player.loadVideoById === 'function') {
+    _ytGuestPlayer.player.loadVideoById(videoId);
+    // Pause after ~1s: loadVideoById triggers autoplay; hold on first frame
+    // until HOST_YOUTUBE_PLAY is received.
     setTimeout(function() {
-      if (_ytPlayer.player && typeof _ytPlayer.player.pauseVideo === 'function') {
-        _ytPlayer.player.pauseVideo();
+      if (_ytGuestPlayer.player && typeof _ytGuestPlayer.player.pauseVideo === 'function') {
+        _ytGuestPlayer.player.pauseVideo();
       }
     }, 1000);
   } else {
-    initYouTubePlayer();
+    // Player not ready yet — init it (onReady will load videoId)
+    initYouTubeGuestPlayer();
   }
 }
 
@@ -12940,15 +13031,17 @@ function ytGuestLoadVideo(videoId, title) {
  * @param {number} hostTime - Host's current playback position in seconds
  */
 function ytGuestPlay(hostTime) {
-  if (!_ytPlayer.player) return;
+  if (!_ytGuestPlayer.player) return;
   var seekTarget = (typeof hostTime === 'number' && hostTime >= 0) ? hostTime : 0;
   // Add ~0.3s to compensate for typical WebSocket round-trip latency so the
   // guest video position roughly aligns with the host's current position when
   // the message was sent. Adjust if measured drift is consistently higher/lower.
   seekTarget += 0.3;
   try {
-    _ytPlayer.player.seekTo(seekTarget, true);
-    _ytPlayer.player.playVideo();
+    _ytGuestPlayer.player.seekTo(seekTarget, true);
+    _ytGuestPlayer.player.playVideo();
+    var statusEl = document.getElementById('guestYoutubePlayerStatus');
+    if (statusEl) statusEl.textContent = 'Playing';
     console.log('[YouTubePlayer] Guest synced play at', seekTarget);
   } catch (e) {
     console.error('[YouTubePlayer] Guest play error:', e);
@@ -12959,9 +13052,11 @@ function ytGuestPlay(hostTime) {
  * Guest: receive host pause command and pause playback.
  */
 function ytGuestPause() {
-  if (!_ytPlayer.player) return;
+  if (!_ytGuestPlayer.player) return;
   try {
-    _ytPlayer.player.pauseVideo();
+    _ytGuestPlayer.player.pauseVideo();
+    var statusEl = document.getElementById('guestYoutubePlayerStatus');
+    if (statusEl) statusEl.textContent = 'Paused';
     console.log('[YouTubePlayer] Guest paused');
   } catch (e) {
     console.error('[YouTubePlayer] Guest pause error:', e);
@@ -12969,8 +13064,8 @@ function ytGuestPause() {
 }
 
 /**
- * Show / hide the YouTube Party Player section based on user tier.
- * Called from showParty().
+ * Show / hide the YouTube Party Player section based on user role.
+ * Called from showParty(). All users (hosts and guests) can use the player.
  */
 function updateYoutubePartySection() {
   var section = document.getElementById('youtubePartySection');
@@ -12979,28 +13074,15 @@ function updateYoutubePartySection() {
   var playerBox = document.getElementById('youtubePartyPlayerBox');
   var upgradeBox = document.getElementById('youtubePartyUpgradeBox');
 
-  if (!state.isHost) {
-    // Guests always see the player (controlled by host)
-    section.classList.remove('hidden');
-    if (playerBox) playerBox.classList.remove('hidden');
-    if (upgradeBox) upgradeBox.classList.add('hidden');
-    initYouTubePlayer();
-    loadYouTubeIframeAPI();
-    return;
-  }
-
-  var eligible = hasPartyPassEntitlement();
+  // Always show the section — YouTube Party is a core feature
   section.classList.remove('hidden');
 
-  if (eligible) {
-    if (playerBox) playerBox.classList.remove('hidden');
-    if (upgradeBox) upgradeBox.classList.add('hidden');
-    initYouTubePlayer();
-    loadYouTubeIframeAPI();
-  } else {
-    if (playerBox) playerBox.classList.add('hidden');
-    if (upgradeBox) upgradeBox.classList.remove('hidden');
-  }
+  // Show player box for all users; hide upgrade prompt
+  if (playerBox) playerBox.classList.remove('hidden');
+  if (upgradeBox) upgradeBox.classList.add('hidden');
+
+  initYouTubePlayer();
+  loadYouTubeIframeAPI();
 }
 
 /**
@@ -13013,8 +13095,25 @@ function initYoutubePartyControls() {
   var playBtn = document.getElementById('btnYoutubePlay');
   var pauseBtn = document.getElementById('btnYoutubePause');
   var closeBtn = document.getElementById('btnCloseYoutubePlayer');
+  var openYtBtn = document.getElementById('btnOpenYoutubeParty');
 
   if (searchBtn && searchBtn._ytInitDone) return; // Already wired
+
+  // Wire "Play from YouTube" quick access button
+  if (openYtBtn && !openYtBtn._ytInitDone) {
+    openYtBtn._ytInitDone = true;
+    openYtBtn.addEventListener('click', function() {
+      var section = document.getElementById('youtubePartySection');
+      if (section) {
+        section.classList.remove('hidden');
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      var input = document.getElementById('youtubeSearchInput');
+      if (input) {
+        setTimeout(function() { input.focus(); }, 400);
+      }
+    });
+  }
 
   if (searchBtn) {
     searchBtn._ytInitDone = true;
@@ -13073,6 +13172,8 @@ function performYoutubeSearch(query) {
   var resultsEl = document.getElementById('youtubeSearchResults');
   var listEl = document.getElementById('youtubeResultsList');
 
+  console.log('[YouTubeSearch] Search triggered:', query);
+
   if (statusEl) {
     statusEl.textContent = 'Searching…';
     statusEl.classList.remove('hidden');
@@ -13087,12 +13188,15 @@ function performYoutubeSearch(query) {
       if (data.warning || !data.results || data.results.length === 0) {
         if (statusEl) {
           statusEl.textContent = data.warning
-            ? 'Search unavailable (no API key configured). Paste a YouTube URL or video ID.'
+            ? 'YouTube search is unavailable right now. Paste a YouTube link or video ID.'
             : 'No results found.';
           statusEl.classList.remove('hidden');
         }
+        console.log('[YouTubeSearch] No results or warning:', data.warning || 'no results');
         return;
       }
+
+      console.log('[YouTubeSearch] Got', data.results.length, 'results');
 
       // Render results
       if (listEl) {
@@ -13131,6 +13235,7 @@ function performYoutubeSearch(query) {
           row.appendChild(playBtn);
 
           row.addEventListener('click', function() {
+            console.log('[YouTubeSearch] Result selected:', item.id, item.title);
             ytLoadVideo(item.id, item.title);
             if (resultsEl) resultsEl.classList.add('hidden');
             var searchInput = document.getElementById('youtubeSearchInput');
@@ -13146,7 +13251,7 @@ function performYoutubeSearch(query) {
     .catch(function(err) {
       console.error('[YouTubeSearch] Error:', err);
       if (statusEl) {
-        statusEl.textContent = 'Search failed. Paste a YouTube URL instead.';
+        statusEl.textContent = 'Search failed. Paste a YouTube link or video ID instead.';
         statusEl.classList.remove('hidden');
       }
     });
@@ -13155,14 +13260,15 @@ function performYoutubeSearch(query) {
 /**
  * Show the YouTube Service selection screen (post-party-creation interstitial).
  * Called right after showParty() completes when a party is first created.
+ * All users are eligible — YouTube Party is a core feature.
  */
 function showYoutubeServiceView() {
-  var eligible = hasPartyPassEntitlement();
   var eligibleBox = document.getElementById('ytServiceEligible');
   var upgradeBox = document.getElementById('ytServiceUpgrade');
 
-  if (eligibleBox) eligibleBox.classList[eligible ? 'remove' : 'add']('hidden');
-  if (upgradeBox) upgradeBox.classList[eligible ? 'add' : 'remove']('hidden');
+  // Always show the eligible/player box — no tier gate
+  if (eligibleBox) eligibleBox.classList.remove('hidden');
+  if (upgradeBox) upgradeBox.classList.add('hidden');
 
   // Wire buttons once
   var useBtn = document.getElementById('btnUseYoutubePlayer');

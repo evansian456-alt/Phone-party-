@@ -3111,6 +3111,7 @@ const routeDeps = {
   checkPartyPassActive,
   tierPolicyIsPaidForOfficialAppSync,
   getPolicyForTier,
+  isPaidForOfficialAppSyncParty,
   INSTANCE_ID,
   TEST_MODE,
   DEBUG_MODE,
@@ -5168,16 +5169,6 @@ function handleHostYouTubeVideo(ws, msg) {
 
   const party = authCheck.party;
 
-  // Tier check: YouTube Party Player requires Party Pass or Pro
-  if (!isPaidForOfficialAppSyncParty(party)) {
-    safeSend(ws, JSON.stringify({
-      t: 'ERROR',
-      errorType: 'TIER_NOT_PAID',
-      message: 'YouTube Party Player is only available for Party Pass and Pro Monthly subscribers.'
-    }));
-    return;
-  }
-
   const videoId = (msg.videoId || '').trim();
   if (!videoId || videoId.length !== 11 || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
     safeSend(ws, JSON.stringify({
@@ -5225,15 +5216,6 @@ function handleHostYouTubePlay(ws, msg) {
 
   const party = authCheck.party;
 
-  if (!isPaidForOfficialAppSyncParty(party)) {
-    safeSend(ws, JSON.stringify({
-      t: 'ERROR',
-      errorType: 'TIER_NOT_PAID',
-      message: 'YouTube Party Player is only available for Party Pass and Pro Monthly subscribers.'
-    }));
-    return;
-  }
-
   const videoId = (msg.videoId || (party.youtubeSync && party.youtubeSync.videoId) || '').trim();
   const currentTime = typeof msg.currentTime === 'number' ? msg.currentTime : 0;
 
@@ -5267,15 +5249,6 @@ function handleHostYouTubePause(ws, msg) {
   }
 
   const party = authCheck.party;
-
-  if (!isPaidForOfficialAppSyncParty(party)) {
-    safeSend(ws, JSON.stringify({
-      t: 'ERROR',
-      errorType: 'TIER_NOT_PAID',
-      message: 'YouTube Party Player is only available for Party Pass and Pro Monthly subscribers.'
-    }));
-    return;
-  }
 
   const videoId = (msg.videoId || (party.youtubeSync && party.youtubeSync.videoId) || '').trim();
   const currentTime = typeof msg.currentTime === 'number' ? msg.currentTime : 0;
