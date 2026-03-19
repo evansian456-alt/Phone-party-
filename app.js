@@ -176,8 +176,12 @@ function setView(viewName, opts = {}) {
   // Redirect to the landing page (not the sign-up form) so unauthenticated visitors
   // always see the marketing landing page first — consistent with the boot flow in
   // initAuthFlow() which also lands on 'landing' for logged-out users.
+  // A valid local profile (hasValidProfile) also counts as authenticated so that
+  // users who just logged in or signed up are never bounced back to the landing page
+  // due to a transient /api/me delay before isLoggedIn() reflects server state.
   if (view.requiresAuth) {
-    const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn());
+    const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) ||
+                          (typeof hasValidProfile === 'function' && hasValidProfile());
     if (!authenticated) {
       console.log('[NAV] Auth required for', viewName, '→ redirecting to landing');
       // Update the URL to #landing before redirecting so the address bar reflects reality.
@@ -261,7 +265,8 @@ function setView(viewName, opts = {}) {
  * Update header/nav visibility based on post-auth vs pre-auth state.
  */
 function _updateNavVisibility() {
-  const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn());
+  const authenticated = (typeof isLoggedIn === 'function' && isLoggedIn()) ||
+                        (typeof hasValidProfile === 'function' && hasValidProfile());
   const postAuthEls = document.querySelectorAll('.post-auth-only');
   postAuthEls.forEach(el => {
     if (authenticated) {
@@ -7026,8 +7031,62 @@ async function initAuthFlow() {
 }
 
 /**
- * Initialize the complete-profile view handlers
+ * Confirm auth session after a successful login or signup.
+ *
+ * Unlike initAuthFlow() (which is the boot-time guard), this function is called
+ * once the API has already confirmed the credentials are correct.  It contacts
+ * /api/me to refresh server state and route the user to the right authenticated
+ * view, but it intentionally does NOT:
+ *   - clear auth state / localStorage on failure
+ *   - redirect the user back to the landing page on failure
+ *
+ * This prevents a transient /api/me failure or a momentary session-propagation
+ * delay from undoing a just-completed login/signup.
+ *
+ * @returns {Promise<boolean>} true if the session was confirmed and the user was
+ *   routed to an authenticated view; false if the server check failed (the caller
+ *   should surface an appropriate inline error without redirecting to landing).
  */
+async function confirmAuthSession() {
+  const headerAuthButtons = document.getElementById('headerAuthButtons');
+  try {
+    const response = await fetch(API_BASE + '/api/me', { credentials: 'include' });
+    if (!response.ok) {
+      // The server did not confirm the session — surface an error but do NOT clear
+      // auth state or redirect to the landing page. The credentials API already
+      // returned success; a momentary 401 here is most likely a propagation race.
+      console.warn(`[Auth] Post-login /api/me returned ${response.status} ${response.statusText} — user remains authenticated. If this persists, check session cookie propagation.`);
+      return false;
+    }
+    const data = await response.json();
+    if (typeof setAuthSessionState === 'function') setAuthSessionState('authenticated');
+    if (headerAuthButtons) headerAuthButtons.style.display = '';
+    state.userTier = data.effectiveTier || data.tier || USER_TIER.FREE;
+    if (data.user && data.user.djName) {
+      state.djName = data.user.djName;
+      saveProfile({ djName: data.user.djName, email: data.user.email, tier: state.userTier });
+    }
+    _currentUserIsAdmin = !!(data.isAdmin || (data.user && data.user.isAdmin) || (data.user && data.user.role === 'admin'));
+    if (typeof setAdminNavVisible === 'function') setAdminNavVisible(_currentUserIsAdmin);
+    if (!data.user || !data.user.profileCompleted) {
+      window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PROFILE_INCOMPLETE);
+      setView('completeProfile', { fromHash: true });
+    } else {
+      window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
+      setView('authHome', { fromHash: true });
+      if (window._referralUI) window._referralUI.startPolling();
+    }
+    return true;
+  } catch (err) {
+    // Network or other error — do NOT clear auth state or send the user to landing.
+    // The login/signup API already confirmed the credentials; we keep the user in
+    // the authenticated flow so a connectivity blip does not undo their login.
+    console.warn(`[Auth] Post-login session check failed — user remains authenticated. Error: ${err.message}`);
+    return false;
+  }
+}
+
+
 function initCompleteProfileView() {
   const form = document.getElementById('formCompleteProfile');
   if (!form || form.dataset.initialized) return;
@@ -9976,12 +10035,13 @@ async function handleLogin() {
         state.userTier = result.user.tier;
         saveProfile({ djName: result.user.djName, email: result.user.email, tier: result.user.tier });
       }
-      const sessionOk = await initAuthFlow();
+      const sessionOk = await confirmAuthSession();
       if (sessionOk) {
         showToast('✅ Welcome back!');
       } else {
-        // Login API succeeded but session could not be confirmed — show visible error toast
-        // (initAuthFlow already redirected to landing, so errorEl may be hidden)
+        // Login API succeeded but session could not be confirmed — show visible error toast.
+        // The user remains in the authenticated flow (profile saved); they are NOT bounced
+        // to the landing page. A retry or page refresh will complete session propagation.
         showToast('⚠️ Login succeeded but session could not be verified. Please try again or clear your cookies.');
       }
     } else {
@@ -10086,10 +10146,13 @@ async function handleSignup() {
       errorEl.classList.add('success');
       // Wait ~1.5s so the user sees the success message before the view transitions
       await new Promise((r) => setTimeout(r, 1500));
-      const sessionOk = await initAuthFlow();
+      const sessionOk = await confirmAuthSession();
       if (!sessionOk) {
         // Do not advance into authenticated views unless the server confirms the
         // session. Keep the user on auth screens and surface a clear recovery path.
+        // NOTE: unlike initAuthFlow(), confirmAuthSession() does NOT redirect to
+        // landing — the user's profile is still in localStorage so they remain in
+        // the authenticated flow and can retry.
         if (errorEl) {
           errorEl.textContent = 'Account created, but we could not verify your session. Please log in to continue.';
           errorEl.classList.remove('success');
@@ -13511,6 +13574,7 @@ if (typeof module !== 'undefined' && module.exports) {
     showParty,
     showGuest,
     initAuthFlow,
+    confirmAuthSession,
     handleLogout,
     state,
     USER_TIER,
