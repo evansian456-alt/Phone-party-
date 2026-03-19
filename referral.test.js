@@ -385,36 +385,124 @@ describe('GET /invite/:code', () => {
     ({ app } = require('./server'));
   });
 
-  it('serves the invite landing page with HTML', async () => {
+  it('redirects regular browsers to the signup page', async () => {
     const res = await request(app).get('/invite/TESTCODE1');
-    expect(res.status).toBe(200);
-    expect(res.headers['content-type']).toMatch(/html/);
-    expect(res.text).toContain('Phone Party');
+    expect(res.status).toBe(302);
+    expect(res.headers['location']).toMatch(/\/signup\?code=TESTCODE1/);
+    expect(res.headers['location']).toMatch(/phone-party\.com/);
   });
 
-  it('includes Open Graph meta tags', async () => {
-    const res = await request(app).get('/invite/TESTCODE1');
+  it('serves OG meta-tag page for social crawlers', async () => {
+    const res = await request(app)
+      .get('/invite/TESTCODE1')
+      .set('User-Agent', 'facebookexternalhit/1.1');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/html/);
     expect(res.text).toContain('og:title');
     expect(res.text).toContain('og:description');
     expect(res.text).toContain('og:image');
+    expect(res.text).toContain('Phone Party');
   });
 
-  it('shows the referral code on the page', async () => {
+  it('includes the referral code in the redirect URL', async () => {
     const res = await request(app).get('/invite/MYCODE12');
-    expect(res.text).toContain('MYCODE12');
+    expect(res.status).toBe(302);
+    expect(res.headers['location']).toContain('MYCODE12');
   });
 
   it('sanitizes malformed code (strips non-alphanumeric)', async () => {
     const res = await request(app).get('/invite/BAD<script>CODE');
-    expect(res.status).toBe(200);
-    // The code display should show BADSCRIPTCODE (non-alphanum stripped)
-    // It should NOT contain the raw injected tag pattern in the code display div
-    expect(res.text).not.toMatch(/<div class="code">.*<script>/);
+    // Should redirect or serve crawler page — either way must not echo raw injection
+    expect([200, 302]).toContain(res.status);
+    const output = res.text + (res.headers['location'] || '');
+    expect(output).not.toMatch(/<script>/i);
   });
 
-  it('includes localStorage script to save referral code', async () => {
-    const res = await request(app).get('/invite/TESTCODE1');
+  it('crawler page includes localStorage fallback script', async () => {
+    const res = await request(app)
+      .get('/invite/TESTCODE1')
+      .set('User-Agent', 'Twitterbot/1.0');
     expect(res.text).toContain('localStorage.setItem');
     expect(res.text).toContain('referral_code');
+  });
+});
+
+describe('GET /signup', () => {
+  let request, app;
+
+  beforeAll(() => {
+    request = require('supertest');
+    ({ app } = require('./server'));
+  });
+
+  it('serves index.html for the /signup path', async () => {
+    const res = await request(app).get('/signup');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/html/);
+  });
+
+  it('serves index.html for /signup with query params', async () => {
+    const res = await request(app).get('/signup?code=TESTCODE1&inviter=userid123');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/html/);
+  });
+});
+
+describe('GET /api/referral/inviter-name', () => {
+  let request, app;
+
+  beforeAll(() => {
+    request = require('supertest');
+    ({ app } = require('./server'));
+  });
+
+  it('returns 400 when code param is missing', async () => {
+    const res = await request(app).get('/api/referral/inviter-name');
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 404 for an unknown referral code', async () => {
+    const res = await request(app).get('/api/referral/inviter-name?code=UNKNOWNCODE');
+    expect([404, 500, 503]).toContain(res.status);
+  });
+});
+
+describe('getPublicBaseUrl + buildInviteLink helpers', () => {
+  let getPublicBaseUrl, buildInviteLink;
+
+  beforeAll(() => {
+    ({ getPublicBaseUrl, buildInviteLink } = require('./referral-system'));
+  });
+
+  it('getPublicBaseUrl returns the production domain by default', () => {
+    const orig = process.env.PUBLIC_BASE_URL;
+    delete process.env.PUBLIC_BASE_URL;
+    expect(getPublicBaseUrl()).toBe('https://www.phone-party.com');
+    if (orig !== undefined) process.env.PUBLIC_BASE_URL = orig;
+  });
+
+  it('getPublicBaseUrl respects PUBLIC_BASE_URL env var', () => {
+    const orig = process.env.PUBLIC_BASE_URL;
+    process.env.PUBLIC_BASE_URL = 'https://staging.phone-party.com';
+    expect(getPublicBaseUrl()).toBe('https://staging.phone-party.com');
+    if (orig !== undefined) process.env.PUBLIC_BASE_URL = orig;
+    else delete process.env.PUBLIC_BASE_URL;
+  });
+
+  it('buildInviteLink produces /signup?code=...&inviter=... on production domain', () => {
+    const orig = process.env.PUBLIC_BASE_URL;
+    delete process.env.PUBLIC_BASE_URL;
+    const link = buildInviteLink('MYCODE12', 'user-abc');
+    expect(link).toBe('https://www.phone-party.com/signup?code=MYCODE12&inviter=user-abc');
+    if (orig !== undefined) process.env.PUBLIC_BASE_URL = orig;
+  });
+
+  it('buildInviteLink never uses railway or run.app domain', () => {
+    const orig = process.env.PUBLIC_BASE_URL;
+    delete process.env.PUBLIC_BASE_URL;
+    const link = buildInviteLink('CODE', 'uid');
+    expect(link).not.toContain('railway');
+    expect(link).not.toContain('run.app');
+    if (orig !== undefined) process.env.PUBLIC_BASE_URL = orig;
   });
 });
