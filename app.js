@@ -11055,15 +11055,91 @@ function initMonetizationUI() {
 let currentCheckout = null;
 
 /**
- * Show Upgrade Hub
+ * Show Upgrade Hub and populate tier status from backend.
  */
 function showUpgradeHub() {
-  // Update current status card
-  const isPro = monetizationState.proSubscriptionActive;
-  document.getElementById('currentStatusFree').classList.toggle('hidden', isPro);
-  document.getElementById('currentStatusPro').classList.toggle('hidden', !isPro);
-  
   showView('viewUpgradeHub');
+
+  // Fetch real tier status from backend so UI reflects persisted state
+  fetch(API_BASE + '/api/billing/status', { credentials: 'include' })
+    .then(r => r.ok ? r.json() : null)
+    .then(status => {
+      if (!status) return;
+      _renderUpgradeHubTierStatus(status);
+    })
+    .catch(() => {
+      // Fallback to local state on network error
+      _renderUpgradeHubTierStatus(null);
+    });
+}
+
+/**
+ * Render the tier status card in the Upgrade Hub.
+ * @param {object|null} status - response from /api/billing/status, or null for local fallback
+ */
+function _renderUpgradeHubTierStatus(status) {
+  const activeTier = status ? status.activeTier : (
+    monetizationState.proSubscriptionActive ? 'PRO' : 'FREE'
+  );
+  const isPro = activeTier === 'PRO';
+  const isPartyPass = activeTier === 'PARTY_PASS';
+  const isExpired = status ? !!status.isExpired : false;
+  const timeRemainingSeconds = (status && status.timeRemainingSeconds != null)
+    ? status.timeRemainingSeconds : null;
+
+  // Show/hide base status cards
+  const freeCard = document.getElementById('currentStatusFree');
+  const proCard = document.getElementById('currentStatusPro');
+  const passCard = document.getElementById('currentStatusPartyPass');
+
+  if (freeCard) freeCard.classList.toggle('hidden', isPro || isPartyPass);
+  if (proCard) proCard.classList.toggle('hidden', !isPro);
+  if (passCard) passCard.classList.toggle('hidden', !isPartyPass);
+
+  // Populate time-remaining for Party Pass
+  if (isPartyPass && passCard) {
+    const timerEl = document.getElementById('upgradeHubPassTimer');
+    const expiryEl = document.getElementById('upgradeHubPassExpiry');
+
+    if (timerEl) {
+      if (isExpired) {
+        timerEl.textContent = 'Expired';
+        timerEl.className = 'tier-time-expired';
+      } else if (timeRemainingSeconds !== null) {
+        const hours = Math.floor(timeRemainingSeconds / 3600);
+        const mins = Math.floor((timeRemainingSeconds % 3600) / 60);
+        if (hours >= 24) {
+          const days = Math.floor(hours / 24);
+          timerEl.textContent = `${days} day${days !== 1 ? 's' : ''} left`;
+        } else if (hours > 0) {
+          timerEl.textContent = `${hours}h ${mins}m left`;
+        } else if (mins > 0) {
+          timerEl.textContent = `${mins} minute${mins !== 1 ? 's' : ''} left`;
+        } else {
+          timerEl.textContent = 'Expires soon';
+        }
+        timerEl.className = timeRemainingSeconds < 3600 ? 'tier-time-warning' : 'tier-time-ok';
+      }
+    }
+
+    if (expiryEl && status && status.expiresAt) {
+      const expiryDate = new Date(status.expiresAt);
+      const now = new Date();
+      const isToday = expiryDate.toDateString() === now.toDateString();
+      expiryEl.textContent = isToday
+        ? 'Expires today'
+        : `Expires ${expiryDate.toLocaleDateString()}`;
+    }
+  }
+
+  // Populate expiry date for PRO
+  if (isPro && proCard) {
+    const proExpiryEl = document.getElementById('upgradeHubProExpiry');
+    if (proExpiryEl && status && status.expiresAt) {
+      const expiryDate = new Date(status.expiresAt);
+      proExpiryEl.textContent = `Renews/expires ${expiryDate.toLocaleDateString()}`;
+    }
+  }
 }
 
 /**

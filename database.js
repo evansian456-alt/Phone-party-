@@ -370,16 +370,18 @@ async function getOrCreateUserUpgrades(userId) {
 }
 
 /**
- * Update Party Pass expiration
+ * Update Party Pass expiration and record activation timestamp.
+ * Sets party_pass_started_at on first activation (not overwritten on renewal).
  */
 async function updatePartyPassExpiry(userId, expiresAt) {
   try {
     const result = await query(
-      `INSERT INTO user_upgrades (user_id, party_pass_expires_at, updated_at)
-       VALUES ($1, $2, NOW())
+      `INSERT INTO user_upgrades (user_id, party_pass_expires_at, party_pass_started_at, updated_at)
+       VALUES ($1, $2, NOW(), NOW())
        ON CONFLICT (user_id) 
        DO UPDATE SET 
          party_pass_expires_at = $2,
+         party_pass_started_at = COALESCE(user_upgrades.party_pass_started_at, NOW()),
          updated_at = NOW()
        RETURNING *`,
       [userId, expiresAt]
@@ -460,6 +462,100 @@ function resolveEntitlements(upgrades) {
   return { hasPartyPass, hasPro };
 }
 
+/**
+ * Build a comprehensive tier status object from users + user_upgrades rows.
+ * Returns a normalized object suitable for frontend display.
+ *
+ * @param {object} userRow - row from the users table
+ * @param {object|null} upgradesRow - row from user_upgrades (may be null)
+ * @returns {object} Comprehensive tier status
+ */
+function buildTierStatus(userRow, upgradesRow) {
+  const now = new Date();
+  const tier = (userRow && userRow.tier) || 'FREE';
+
+  // --- Determine active tier and timestamps ---
+  let activeTier = 'FREE';
+  let tierStatus = 'free';
+  let startedAt = null;
+  let expiresAt = null;
+  let timeRemainingSeconds = null;
+  let isExpired = false;
+
+  if (upgradesRow && upgradesRow.pro_monthly_active === true) {
+    // PRO subscription is active
+    activeTier = 'PRO';
+    startedAt = upgradesRow.pro_monthly_started_at || null;
+    // Pro expiry comes from Stripe's current_period_end on the users table
+    expiresAt = (userRow && userRow.current_period_end) || null;
+
+    if (expiresAt && new Date(expiresAt) <= now) {
+      tierStatus = 'expired';
+      isExpired = true;
+      timeRemainingSeconds = 0;
+    } else {
+      tierStatus = 'active';
+      isExpired = false;
+      timeRemainingSeconds = expiresAt
+        ? Math.max(0, Math.floor((new Date(expiresAt) - now) / 1000))
+        : null; // null = unlimited / no expiry tracked yet
+    }
+  } else if (upgradesRow && upgradesRow.party_pass_expires_at) {
+    // Party Pass (time-limited)
+    const passExpires = new Date(upgradesRow.party_pass_expires_at);
+    activeTier = 'PARTY_PASS';
+    startedAt = upgradesRow.party_pass_started_at || null;
+    expiresAt = upgradesRow.party_pass_expires_at;
+
+    if (passExpires <= now) {
+      tierStatus = 'expired';
+      isExpired = true;
+      timeRemainingSeconds = 0;
+    } else {
+      tierStatus = 'active';
+      isExpired = false;
+      timeRemainingSeconds = Math.max(0, Math.floor((passExpires - now) / 1000));
+    }
+  } else {
+    // Free tier – no expiry
+    activeTier = 'FREE';
+    tierStatus = 'free';
+    isExpired = false;
+    timeRemainingSeconds = null;
+  }
+
+  // Subscription status from Stripe (may be null for free / party-pass users)
+  const subscriptionStatus = (userRow && userRow.subscription_status) || null;
+
+  // Override tierStatus for cancelled/failed Stripe subscriptions
+  if (subscriptionStatus === 'canceled' || subscriptionStatus === 'cancelled') {
+    if (activeTier === 'PRO') {
+      tierStatus = 'cancelled';
+    }
+  } else if (subscriptionStatus === 'past_due') {
+    if (activeTier === 'PRO') {
+      tierStatus = 'past_due';
+    }
+  }
+
+  return {
+    activeTier,
+    tierStatus,
+    startedAt: startedAt ? new Date(startedAt).toISOString() : null,
+    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+    timeRemainingSeconds,
+    isExpired,
+    // Legacy fields preserved for backwards compatibility
+    tier,
+    subscription_status: subscriptionStatus,
+    current_period_end: (userRow && userRow.current_period_end)
+      ? new Date(userRow.current_period_end).toISOString()
+      : null,
+    stripe_customer_id: (userRow && userRow.stripe_customer_id) || null,
+    stripe_subscription_id: (userRow && userRow.stripe_subscription_id) || null
+  };
+}
+
 module.exports = {
   query,
   getClient,
@@ -478,5 +574,6 @@ module.exports = {
   updatePartyPassExpiry,
   activateProMonthly,
   deactivateProMonthly,
-  resolveEntitlements
+  resolveEntitlements,
+  buildTierStatus
 };
