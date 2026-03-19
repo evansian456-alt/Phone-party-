@@ -257,6 +257,10 @@ function setView(viewName, opts = {}) {
     }, 50);
   }
 
+  if (viewName === 'signup' && typeof updateInviteSignupBanner === 'function') {
+    updateInviteSignupBanner();
+  }
+
   // Show/hide header elements based on auth state
   _updateNavVisibility();
 }
@@ -7309,6 +7313,35 @@ async function handleBillingReturn() {
   }
 }
 
+
+async function updateInviteSignupBanner() {
+  const banner = document.getElementById('signupInviteBanner');
+  const textEl = document.getElementById('signupInviteBannerText');
+  if (!banner || !textEl || !window.InviteUtils) return;
+  const invite = window.InviteUtils.getInviteAttribution();
+  if (!invite.inviteCode) {
+    banner.classList.add('hidden');
+    return;
+  }
+  let inviterName = invite.inviterName;
+  if (!inviterName) {
+    try {
+      const params = new URLSearchParams({ code: invite.inviteCode, inviter: invite.inviterId || '' });
+      const res = await fetch(API_BASE + '/api/referral/preview?' + params.toString());
+      if (res.ok) {
+        const data = await res.json();
+        inviterName = data.inviterName;
+        try {
+          localStorage.setItem('referral_inviter_name', inviterName || '');
+          if (data.inviterId) localStorage.setItem('referral_inviter_id', data.inviterId);
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+  textEl.textContent = `${inviterName || 'Someone'} invited you to join Phone Party`;
+  banner.classList.remove('hidden');
+}
+
 (async function init(){
   // Fetch feature flags early — used to gate UI sections
   await fetchFeatureFlags();
@@ -7334,15 +7367,16 @@ async function handleBillingReturn() {
   // Handle billing return parameters (billing=success or billing=cancel in URL)
   await handleBillingReturn();
 
-  // Capture referral code from ?ref= URL param and store in localStorage
+  // Capture invite attribution from direct signup invite links and legacy ref links.
   try {
     const _refParams = new URLSearchParams(window.location.search);
-    const _refCode = _refParams.get('ref');
+    const _refCode = _refParams.get('code') || _refParams.get('ref');
+    const _inviterId = _refParams.get('inviter');
     if (_refCode && _refCode.length <= 20) {
       const _cleanCode = _refCode.toUpperCase();
       localStorage.setItem('referral_code', _cleanCode);
       localStorage.setItem('referral_ts', Date.now().toString());
-      // Record the click event (async, non-blocking)
+      if (_inviterId) localStorage.setItem('referral_inviter_id', _inviterId);
       fetch(API_BASE + '/api/referral/click', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -7350,7 +7384,11 @@ async function handleBillingReturn() {
       }).then(r => r.json()).then(data => {
         if (data.clickId) localStorage.setItem('referral_click_id', data.clickId);
       }).catch(() => {});
+      if (_refParams.get('code') && _bootAuthenticated === false) {
+        setView('signup');
+      }
     }
+    updateInviteSignupBanner();
   } catch (_) { /* localStorage may be unavailable */ }
   
   // Initialize music player
@@ -10125,20 +10163,7 @@ async function handleSignup() {
         saveProfile({ djName: result.user.djName, email: result.user.email || email, tier: USER_TIER.FREE });
       }
 
-      // Attempt to register referral if the user arrived via an invite link
-      try {
-        const refCode = localStorage.getItem('referral_code');
-        const clickId = localStorage.getItem('referral_click_id');
-        if (refCode) {
-          fetch(API_BASE + '/api/referral/register', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ referralCode: refCode, clickId: clickId || null })
-          }).catch(() => {});
-          // Don't clear yet — keep until profile-complete step fires
-        }
-      } catch (_) { /* ignore localStorage errors */ }
+      const usedInvite = !!(result.referral && result.referral.ok);
 
       // Show inline success message before navigating
       errorEl.textContent = 'Welcome to the party 🥳';
@@ -10160,6 +10185,9 @@ async function handleSignup() {
         }
         showToast('⚠️ Account created, but your session could not be verified yet. Please log in.');
         setView('login');
+      } else if (usedInvite) {
+        showToast('🎉 You joined via a friend invite. Invite your friends to join the party!');
+        setView('inviteFriends');
       }
     } else {
       if (result.status === 409) {

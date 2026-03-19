@@ -18,7 +18,19 @@ CREATE TABLE IF NOT EXISTS users (
   reset_password_expires TIMESTAMPTZ,
   profile_completed BOOLEAN NOT NULL DEFAULT FALSE,
   terms_accepted_at TIMESTAMPTZ,
-  is_admin BOOLEAN NOT NULL DEFAULT FALSE
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  referral_code VARCHAR(12) UNIQUE,
+  referred_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  invite_code_used VARCHAR(12),
+  referral_source TEXT,
+  invited_at TIMESTAMPTZ,
+  referrals_completed INT NOT NULL DEFAULT 0,
+  referral_count INT NOT NULL DEFAULT 0,
+  successful_invites INT NOT NULL DEFAULT 0,
+  signup_device_fingerprint VARCHAR(64),
+  referral_reward_balance_seconds INT NOT NULL DEFAULT 0,
+  referral_reward_balance_sessions INT NOT NULL DEFAULT 0,
+  referral_reward_balance_pro_until TIMESTAMPTZ
 );
 
 -- SUBSCRIPTIONS (Pro)
@@ -34,6 +46,11 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   cancel_at_period_end BOOLEAN NOT NULL DEFAULT FALSE,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code);
+CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_users_invite_code_used ON users(invite_code_used);
+CREATE INDEX IF NOT EXISTS idx_users_signup_device_fingerprint ON users(signup_device_fingerprint);
 
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id);
 

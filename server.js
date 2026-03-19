@@ -81,6 +81,7 @@ const { PRODUCTS, getProductByPlatformId } = require('./billing/products');
 const { applyPurchaseToUser } = require('./billing/entitlements');
 
 const createAuthRouter = require('./routes/auth');
+const { getPublicBaseUrl, buildInviteLink } = require('./invite-utils');
 const createTracksRouter = require('./routes/tracks');
 const createPartyRouter = require('./routes/party');
 const createAdminRouter = require('./routes/admin');
@@ -1151,16 +1152,24 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+app.get('/signup', (req, res) => {
+  res.setHeader('Cache-Control', NO_CACHE);
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
 // ─── Invite Landing Page ───────────────────────────────────────────────────────
 app.get('/invite/:code', async (req, res) => {
-  const code    = (req.params.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-  const inviteUrl = `${baseUrl}/invite/${code}`;
+  const code = (req.params.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const publicBaseUrl = getPublicBaseUrl({ publicBaseUrl: process.env.PUBLIC_BASE_URL, hostname: req.hostname });
+  let inviteDetails = null;
 
-  // Record the click (fire-and-forget, don't delay the page response)
   if (referralSystem) {
     referralSystem.recordClick(code, req.ip, req.headers['user-agent']).catch(() => {});
+    inviteDetails = await referralSystem.getInviteDetails(code, null).catch(() => null);
   }
+
+  const signupUrl = buildInviteLink(code, inviteDetails?.inviterId || '', { publicBaseUrl });
+  const inviterName = inviteDetails?.inviterName || 'Someone';
 
   res.setHeader('Cache-Control', 'no-store');
   res.send(`<!DOCTYPE html>
@@ -1168,55 +1177,46 @@ app.get('/invite/:code', async (req, res) => {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>You're invited to Phone Party 🎉</title>
-<!-- Open Graph -->
-<meta property="og:title" content="Join my Phone Party 🎉" />
-<meta property="og:description" content="Turn phones into one massive speaker system. Download the app and join my party instantly!" />
-<meta property="og:image" content="${baseUrl}/icons/icon-512.png" />
-<meta property="og:url" content="${inviteUrl}" />
+<title>${inviterName} invited you to Phone Party</title>
+<meta property="og:title" content="Phone Party – Join the vibe with your friends" />
+<meta property="og:description" content="Jump into live rooms, chat, and party with your friends instantly. Get invited and join the fun on Phone Party." />
+<meta property="og:url" content="${signupUrl}" />
+<meta property="og:image" content="${publicBaseUrl}/icons/icon-512.png" />
 <meta property="og:type" content="website" />
-<!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Join my Phone Party 🎉" />
-<meta name="twitter:description" content="Turn phones into one massive speaker system." />
-<meta name="twitter:image" content="${baseUrl}/icons/icon-512.png" />
+<meta name="twitter:title" content="Phone Party – Join the vibe with your friends" />
+<meta name="twitter:description" content="Join your friends in real-time. Tap the link and get into the party." />
+<meta name="twitter:image" content="${publicBaseUrl}/icons/icon-512.png" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-         background: #0a0a0f; color: #fff; min-height: 100vh;
-         display: flex; align-items: center; justify-content: center; padding: 1rem; }
-  .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 16px; padding: 2rem; max-width: 420px; width: 100%; text-align: center; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: radial-gradient(circle at top, #2f0d5f, #090612 65%); color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+  .card { background: rgba(8,8,20,0.86); border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 2rem; max-width: 460px; width: 100%; text-align: center; box-shadow: 0 25px 80px rgba(0,0,0,0.45); }
   h1 { font-size: 2rem; margin-bottom: 0.5rem; }
-  p  { color: #aaa; margin-bottom: 1.5rem; }
-  .btn { display: block; width: 100%; padding: 0.9rem 1.5rem; border: none;
-         border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer;
-         text-decoration: none; margin-bottom: 0.75rem; }
+  p  { color: #cfcfe8; margin-bottom: 1rem; line-height: 1.6; }
+  .btn { display: block; width: 100%; padding: 0.95rem 1.25rem; border-radius: 12px; font-size: 1rem; font-weight: 700; cursor: pointer; text-decoration: none; margin-bottom: 0.75rem; }
   .btn-primary { background: linear-gradient(135deg,#9D4EDD,#5AA9FF); color: #fff; }
-  .code { font-family: monospace; font-size: 1.4rem; letter-spacing: 4px;
-          color: #9D4EDD; background: rgba(157,78,221,0.1);
-          border-radius: 8px; padding: 0.75rem 1rem; margin: 1rem 0; }
+  .code { font-family: monospace; font-size: 1.2rem; letter-spacing: 3px; color: #9D4EDD; background: rgba(157,78,221,0.14); border-radius: 10px; padding: 0.85rem 1rem; margin: 1rem 0; }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>🎉 Phone Party</h1>
-  <p>You've been invited to join a Phone Party!<br>
-     Turn your phones into one massive speaker system.</p>
+  <h1>🎉 Join the Party</h1>
+  <p><strong>${inviterName}</strong> invited you to join Phone Party.</p>
+  <p>Sign up first, then jump into live rooms, chat, and keep the invite chain going.</p>
   <div class="code">${code}</div>
-  <a class="btn btn-primary" href="${baseUrl}/?ref=${code}&clickSource=invite_page">
-    🚀 Open Phone Party
-  </a>
-  <p style="font-size:0.8rem;color:#666;">
-    Your referral code is saved automatically.
-  </p>
+  <a class="btn btn-primary" href="${signupUrl}">🚀 Continue to signup</a>
+  <p style="font-size:0.86rem;color:#9fa3c8;">Your invite stays attached through signup so the referral is credited safely.</p>
 </div>
 <script>
-  // Store referral info so the app can pick it up after install / first launch
   try {
     localStorage.setItem('referral_code', ${JSON.stringify(code)});
-    localStorage.setItem('referral_ts',   Date.now().toString());
-  } catch(_) {}
+    localStorage.setItem('referral_ts', Date.now().toString());
+    if (${JSON.stringify(inviteDetails?.inviterId || '')}) localStorage.setItem('referral_inviter_id', ${JSON.stringify(inviteDetails?.inviterId || '')});
+    if (${JSON.stringify(inviterName)}) localStorage.setItem('referral_inviter_name', ${JSON.stringify(inviterName)});
+    window.location.replace(${JSON.stringify(signupUrl)});
+  } catch (_) {
+    window.location.replace(${JSON.stringify(signupUrl)});
+  }
 </script>
 </body>
 </html>`);

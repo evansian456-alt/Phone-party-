@@ -4,6 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes" />
   <meta name="description" content="Turn your phones into synchronized party speakers with real-time audio sync. Create or join parties, sync music across devices, and feel the energy together." />
+  <meta property="og:title" content="Phone Party – Join the vibe with your friends" />
+  <meta property="og:description" content="Jump into live rooms, chat, and party with your friends instantly. Get invited and join the fun on Phone Party." />
+  <meta property="og:url" content="https://www.phone-party.com/" />
+  <meta property="og:image" content="https://www.phone-party.com/icons/icon-512.png" />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Phone Party – Join the vibe with your friends" />
+  <meta name="twitter:description" content="Join your friends in real-time. Tap the link and get into the party." />
+  <meta name="twitter:image" content="https://www.phone-party.com/icons/icon-512.png" />
   
   <!-- PWA Meta Tags -->
   <meta name="mobile-web-app-capable" content="yes" />
@@ -2040,6 +2049,10 @@
     <div class="auth-container">
       <h2>🎵 Create Account</h2>
       <p class="muted">Join Phone Party and start your DJ journey</p>
+      <div class="glass-card hidden" id="signupInviteBanner" style="margin:1rem 0;padding:0.9rem 1rem;text-align:left;">
+        <div style="font-weight:700;color:#fff;margin-bottom:0.25rem;">🎉 Invite unlocked</div>
+        <div id="signupInviteBannerText" class="muted" style="margin:0;">Someone invited you to join Phone Party.</div>
+      </div>
       
       <form id="formSignup" class="auth-form" data-testid="signup-form">
         <div class="form-group">
@@ -2890,6 +2903,7 @@
   <script src="config.js"></script>
   <script src="auth-utils.js"></script>
   <script src="auth.js"></script>
+  <script src="invite-utils.js"></script>
   <script src="payment-client.js"></script>
   <script src="visual-stage.js"></script>
   <script src="moderation.js"></script>

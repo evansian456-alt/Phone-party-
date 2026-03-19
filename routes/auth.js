@@ -6,7 +6,7 @@ module.exports = function createAuthRouter(deps) {
   const {
     db, authMiddleware, storeCatalog, apiLimiter, authLimiter,
     isStreamingPartyEnabled, isHttpsRequest, buildLocalFallbackMePayload,
-    ErrorMessages, setSecureCookie, parties, paymentProvider
+    ErrorMessages, setSecureCookie, parties, paymentProvider, referralSystem
   } = deps;
   const router = express.Router();
 
@@ -16,7 +16,7 @@ module.exports = function createAuthRouter(deps) {
       if (!req.body || typeof req.body !== 'object') {
         return res.status(400).json({ error: 'Invalid request: JSON body required' });
       }
-      const { email, password, djName, termsAccepted } = req.body;
+      const { email, password, djName, termsAccepted, inviteCode, inviterId, clickId, deviceFingerprint } = req.body;
 
       if (typeof email !== 'string' || typeof password !== 'string' || typeof djName !== 'string') {
         return res.status(400).json({ error: 'Invalid request: email, password, and djName must be strings' });
@@ -78,6 +78,7 @@ module.exports = function createAuthRouter(deps) {
 
         return res.status(201).json({
           success: true,
+          referral: null,
           user: {
             id: user.id,
             email: user.email,
@@ -121,6 +122,14 @@ module.exports = function createAuthRouter(deps) {
       dbClient.release();
       dbClient = null;
 
+      let referralResult = null;
+      if (referralSystem && inviteCode) {
+        referralResult = await referralSystem.registerReferral(
+          inviteCode, clickId || null, user.id, user.email, req.ip || req.connection?.remoteAddress,
+          { inviterId: inviterId || null, deviceFingerprint: deviceFingerprint || null }
+        );
+      }
+
       const token = authMiddleware.generateToken({
         userId: user.id,
         email: user.email
@@ -136,6 +145,7 @@ module.exports = function createAuthRouter(deps) {
 
       res.status(201).json({
         success: true,
+        referral: referralResult,
         user: {
           id: user.id,
           email: user.email,
@@ -191,7 +201,8 @@ module.exports = function createAuthRouter(deps) {
 
         return res.json({
           success: true,
-          user: {
+          referral: referralResult,
+        user: {
             id: user.id,
             email: user.email,
             djName: user.djName,
@@ -231,6 +242,14 @@ module.exports = function createAuthRouter(deps) {
         user.is_admin = true;
       }
 
+      let referralResult = null;
+      if (referralSystem && inviteCode) {
+        referralResult = await referralSystem.registerReferral(
+          inviteCode, clickId || null, user.id, user.email, req.ip || req.connection?.remoteAddress,
+          { inviterId: inviterId || null, deviceFingerprint: deviceFingerprint || null }
+        );
+      }
+
       const token = authMiddleware.generateToken({
         userId: user.id,
         email: user.email,
@@ -247,6 +266,7 @@ module.exports = function createAuthRouter(deps) {
 
       res.json({
         success: true,
+        referral: referralResult,
         user: {
           id: user.id,
           email: user.email,
@@ -362,6 +382,7 @@ module.exports = function createAuthRouter(deps) {
       const effectiveTier = isAdmin ? 'PRO' : tier;
 
       res.json({
+        referral: referralResult,
         user: {
           id: user.id,
           email: user.email,

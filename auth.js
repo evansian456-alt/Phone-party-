@@ -112,6 +112,10 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
   _lastAuthCallAt = now;
 
   try {
+    const inviteAttribution = (window.InviteUtils && typeof window.InviteUtils.getInviteAttribution === 'function')
+      ? window.InviteUtils.getInviteAttribution()
+      : { inviteCode: null, inviterId: null, inviterName: null, clickId: null };
+    const deviceFingerprint = [navigator.userAgent, navigator.language, Intl.DateTimeFormat().resolvedOptions().timeZone].filter(Boolean).join('|');
     const response = await fetch(API_BASE + '/api/auth/signup', {
       method: 'POST',
       credentials: 'include',
@@ -122,7 +126,11 @@ async function signUp(email, password, djName = '', termsAccepted = false) {
         email,
         password,
         djName: djName.trim(),
-        termsAccepted
+        termsAccepted,
+        inviteCode: inviteAttribution.inviteCode,
+        inviterId: inviteAttribution.inviterId,
+        clickId: inviteAttribution.clickId,
+        deviceFingerprint
       })
     });
 
