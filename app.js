@@ -213,6 +213,16 @@ function setView(viewName, opts = {}) {
   _currentViewName = viewName;
   console.log('[NAV]', from, '->', viewName, { hash: '#' + view.hash });
 
+  // When leaving the guest view, hide the tap-to-play overlay and stop audio sync.
+  // cleanupGuestAudio() hides the full-screen overlay (guestTapOverlay) which is
+  // appended directly to <body> and would otherwise intercept touch events and
+  // block one-finger page scroll on any view the user navigates to.
+  if (from === 'guest' && viewName !== 'guest') {
+    if (typeof cleanupGuestAudio === 'function') {
+      cleanupGuestAudio();
+    }
+  }
+
   // Update location hash:
   // - pushState for normal navigation (new history entry)
   // - replaceState when redirected by auth flow (fromHash:true) so the address
