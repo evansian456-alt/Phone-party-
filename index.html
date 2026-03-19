@@ -170,7 +170,22 @@
           </div>
 
         </div><!-- /.yt-demo-flow -->
-        
+
+        <!-- Demo Audio Player -->
+        <audio id="demoAudio" src="/assets/audio/demo-track.wav" loop preload="auto"></audio>
+
+        <!-- Start Demo Button -->
+        <div class="demo-audio-bar" id="demoAudioBar">
+          <button class="btn-demo-play" id="btnStartDemo" data-testid="start-demo-button">
+            🎵 Start Demo
+          </button>
+          <div class="demo-audio-controls hidden" id="demoAudioControls">
+            <button class="btn-demo-toggle" id="btnToggleDemo" aria-label="Pause demo audio">⏸ Pause</button>
+            <label class="demo-volume-label" for="demoVolume">🔊</label>
+            <input type="range" id="demoVolume" class="demo-volume-slider" min="0" max="1" step="0.05" value="0.4" aria-label="Demo volume" />
+          </div>
+        </div>
+
         <!-- Main CTA Buttons (for logged-out users) -->
         <div class="landing-cta-buttons pre-auth-only">
           <button class="btn-landing-primary" id="btnLandingSignup" data-testid="signup-button">
