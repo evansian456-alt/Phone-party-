@@ -25,6 +25,9 @@ global.WebSocket = class {
 };
 
 // ── Stub cross-file globals (live in other <script> tags in the real page) ───
+// API_BASE is defined in config.js (loaded separately in the browser) — provide
+// an empty-string default here so fetch() calls use relative URLs in the test env.
+global.API_BASE = '';
 global.connectWS = jest.fn().mockResolvedValue(undefined);
 global.toast = jest.fn();
 global.showToast = jest.fn();
@@ -221,6 +224,7 @@ const {
   hasValidProfile,
   setView,
   initAuthFlow,
+  confirmAuthSession,
 } = appModule;
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -607,5 +611,106 @@ describe('initAuthFlow() — boot auth guard', () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
     await initAuthFlow();
     expect(hasValidProfile()).toBe(false);
+  });
+});
+
+// =============================================================================
+// confirmAuthSession() — post-login session confirmation
+// Verifies that confirmAuthSession() does NOT clear auth state or redirect to
+// landing on failure — unlike initAuthFlow() which is the boot-time guard.
+// =============================================================================
+
+describe('confirmAuthSession() — post-login session confirmation', () => {
+  let origFetch;
+
+  beforeEach(() => {
+    localStorage.clear();
+    global.isLoggedIn.mockReturnValue(false);
+    resetViews();
+    origFetch = global.fetch;
+  });
+
+  afterEach(() => {
+    global.fetch = origFetch;
+  });
+
+  test('returns true and navigates to authHome when /api/me succeeds with profileCompleted', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({
+        user: { id: '1', djName: 'DJ Test', email: 'test@test.com', profileCompleted: true },
+        tier: 'FREE',
+        effectiveTier: 'FREE',
+        isAdmin: false,
+      }),
+    });
+    const result = await confirmAuthSession();
+    expect(result).toBe(true);
+    expect(isVisible('viewAuthHome')).toBe(true);
+    expect(isVisible('viewLanding')).toBe(false);
+  });
+
+  test('returns true and navigates to completeProfile when profileCompleted is false', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({
+        user: { id: '1', djName: 'DJ Test', email: 'test@test.com', profileCompleted: false },
+        tier: 'FREE',
+        effectiveTier: 'FREE',
+        isAdmin: false,
+      }),
+    });
+    const result = await confirmAuthSession();
+    expect(result).toBe(true);
+    expect(isVisible('viewCompleteProfile')).toBe(true);
+    expect(isVisible('viewLanding')).toBe(false);
+  });
+
+  test('returns false but does NOT redirect to landing when /api/me returns 401', async () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+    const result = await confirmAuthSession();
+    expect(result).toBe(false);
+    // Must NOT redirect to landing — user just logged in successfully
+    expect(isVisible('viewLanding')).toBe(false);
+  });
+
+  test('does NOT clear saved profile when /api/me returns 401', async () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+    await confirmAuthSession();
+    // Profile must remain intact so the user stays in the authenticated flow
+    expect(hasValidProfile()).toBe(true);
+  });
+
+  test('returns false but does NOT redirect to landing on network error', async () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+    const result = await confirmAuthSession();
+    expect(result).toBe(false);
+    expect(isVisible('viewLanding')).toBe(false);
+  });
+
+  test('does NOT clear saved profile on network error', async () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+    await confirmAuthSession();
+    // Profile must remain so hasValidProfile() still allows access to protected views
+    expect(hasValidProfile()).toBe(true);
+  });
+
+  test('after confirmAuthSession() 401, saved profile still allows navigation to protected view', async () => {
+    saveProfile({ djName: 'DJ Test', tier: 'FREE' });
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401, statusText: 'Unauthorized' });
+    await confirmAuthSession();
+    resetViews();
+    // isLoggedIn returns false but hasValidProfile() is true — setView() should pass
+    setView('createJoin');
+    expect(isVisible('viewHome')).toBe(true);
+    expect(isVisible('viewLanding')).toBe(false);
   });
 });
