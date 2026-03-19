@@ -33,10 +33,26 @@ module.exports = function createReferralRouter(deps) {
     }
   });
 
+
+  router.get('/preview', apiLimiter, async (req, res) => {
+    try {
+      if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
+      const referralCode = String(req.query.code || '').trim().toUpperCase();
+      const inviterId = String(req.query.inviter || '').trim() || null;
+      if (!referralCode) return res.status(400).json({ error: 'code is required' });
+      const preview = await referralSystem.getInviteDetails(referralCode, inviterId);
+      if (!preview) return res.status(404).json({ error: 'Invite not found' });
+      return res.json(preview);
+    } catch (err) {
+      console.error('[Referral] /preview error:', err.message);
+      return res.status(500).json({ error: 'Failed to load invite preview' });
+    }
+  });
+
   router.post('/click', apiLimiter, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
-      const { referralCode } = req.body;
+      const { referralCode, inviterId, deviceFingerprint } = req.body;
       if (!referralCode || typeof referralCode !== 'string' || referralCode.length > 20) {
         return res.status(400).json({ error: 'referralCode is required' });
       }
@@ -54,12 +70,12 @@ module.exports = function createReferralRouter(deps) {
   router.post('/register', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
-      const { referralCode, clickId } = req.body;
+      const { referralCode, clickId, inviterId, deviceFingerprint } = req.body;
       if (!referralCode) return res.status(400).json({ error: 'referralCode is required' });
       const ip    = req.ip || req.connection?.remoteAddress;
       const email = req.user.email || null;
       const result = await referralSystem.registerReferral(
-        referralCode, clickId || null, req.user.id, email, ip
+        referralCode, clickId || null, req.user.id, email, ip, { inviterId, deviceFingerprint }
       );
       return res.json(result);
     } catch (err) {
@@ -105,10 +121,10 @@ module.exports = function createReferralRouter(deps) {
   router.post('/track', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       if (!referralSystem) return res.status(503).json({ error: 'Referral system not available' });
-      const { referralCode } = req.body;
+      const { referralCode, inviterId, deviceFingerprint } = req.body;
       if (!referralCode) return res.status(400).json({ error: 'referralCode is required' });
       const result = await referralSystem.registerReferral(
-        referralCode, null, req.user.id, req.user.email || null, req.ip
+        referralCode, null, req.user.id, req.user.email || null, req.ip, { inviterId, deviceFingerprint }
       );
       return res.json({ success: result.ok });
     } catch (err) {
