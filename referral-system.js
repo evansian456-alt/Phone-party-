@@ -15,6 +15,21 @@
 const crypto = require('crypto');
 const { customAlphabet } = require('nanoid');
 
+// Always use the canonical production domain for invite links.
+// Never use window.location.origin, Railway URLs, or run.app URLs.
+function getPublicBaseUrl() {
+  return process.env.PUBLIC_BASE_URL || 'https://www.phone-party.com';
+}
+
+/**
+ * Build an invite link in the canonical format:
+ *   https://www.phone-party.com/signup?code=INVITE_CODE&inviter=USER_ID
+ */
+function buildInviteLink(inviteCode, inviterUserId) {
+  const base = getPublicBaseUrl().replace(/\/$/, '');
+  return `${base}/signup?code=${encodeURIComponent(inviteCode)}&inviter=${encodeURIComponent(inviterUserId)}`;
+}
+
 const generateCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 10);
 
 // Milestones ordered ascending; each entry fires once per user.
@@ -34,6 +49,17 @@ function nextMilestone(completed) {
 
 function hashValue(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 64);
+}
+
+/**
+ * Resolve a user's display name from a DB row.
+ * Priority: dj_name → email username → "Someone"
+ */
+function _resolveDisplayName(row) {
+  if (!row) return 'Someone';
+  if (row.dj_name && row.dj_name.trim()) return row.dj_name.trim();
+  if (row.email && row.email.includes('@')) return row.email.split('@')[0];
+  return 'Someone';
 }
 
 class ReferralSystem {
@@ -176,10 +202,15 @@ class ReferralSystem {
       if (cnt > 50)  return { ok: false, reason: 'rate_limited' };
     }
 
-    // Link the referred_by on the new user
+    // Link the referred_by on the new user and store attribution metadata
     await this.db.query(
-      `UPDATE users SET referred_by_user_id = $1 WHERE id = $2`,
-      [inviterUserId, newUserId]
+      `UPDATE users
+         SET referred_by_user_id = $1,
+             invite_code_used    = $2,
+             referral_source     = 'friend_invite',
+             invited_at          = NOW()
+       WHERE id = $3`,
+      [inviterUserId, referralCode, newUserId]
     );
 
     // Update the referral row (CLICKED → SIGNED_UP)
@@ -334,12 +365,11 @@ class ReferralSystem {
 
   async getStats(userId) {
     const code = await this.getOrCreateCode(userId);
-    const baseUrl = process.env.BASE_URL || 'https://phone-party.up.railway.app';
-    const inviteUrl = `${baseUrl}/invite/${code}`;
+    const inviteUrl = buildInviteLink(code, userId);
 
     if (!this.db) {
       return {
-        referralCode: code, inviteUrl,
+        referralCode: code, inviteUrl, inviterName: null,
         referralsCompleted: 0,
         nextMilestone: MILESTONES[0].at,
         progressCurrent: 0, progressTarget: MILESTONES[0].at,
@@ -353,7 +383,9 @@ class ReferralSystem {
       `SELECT referrals_completed,
               referral_reward_balance_seconds,
               referral_reward_balance_sessions,
-              referral_reward_balance_pro_until
+              referral_reward_balance_pro_until,
+              dj_name,
+              email
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -370,6 +402,9 @@ class ReferralSystem {
       ? Math.min(100, Math.round((progressCurrent / progressRange) * 100))
       : 100;
 
+    // Resolve display name for invite messages
+    const inviterName = _resolveDisplayName(u);
+
     const rewardsResult = await this.db.query(
       `SELECT milestone, reward_type, amount_seconds, amount_sessions, pro_until, created_at
        FROM referral_rewards WHERE inviter_user_id = $1 ORDER BY created_at`,
@@ -377,7 +412,7 @@ class ReferralSystem {
     );
 
     return {
-      referralCode: code, inviteUrl,
+      referralCode: code, inviteUrl, inviterName,
       referralsCompleted: completed,
       nextMilestone: nm,
       progressCurrent: completed,
@@ -387,6 +422,23 @@ class ReferralSystem {
       rewardBalanceSessions: parseInt(u.referral_reward_balance_sessions || 0, 10),
       proUntil: u.referral_reward_balance_pro_until || null,
       rewards:  rewardsResult.rows
+    };
+  }
+
+  /**
+   * Resolve the display name of an inviter given a referral code.
+   * Returns { name, inviterUserId } or null if not found.
+   */
+  async resolveInviter(referralCode) {
+    if (!this.db) return null;
+    const r = await this.db.query(
+      `SELECT id, dj_name, email FROM users WHERE referral_code = $1`,
+      [referralCode]
+    );
+    if (!r.rows[0]) return null;
+    return {
+      inviterUserId: r.rows[0].id,
+      name: _resolveDisplayName(r.rows[0]),
     };
   }
 
@@ -475,4 +527,4 @@ class ReferralSystem {
   }
 }
 
-module.exports = { ReferralSystem, MILESTONES, nextMilestone };
+module.exports = { ReferralSystem, MILESTONES, nextMilestone, getPublicBaseUrl, buildInviteLink };
