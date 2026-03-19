@@ -2375,6 +2375,7 @@ function handleServer(msg) {
 }
 
 function showHome() {
+  stopDemoAudio();
   hide("viewLanding"); 
   hide("viewChooseTier");
   hide("viewPayment");
@@ -2407,6 +2408,91 @@ function showHome() {
   stopPartyStatusPolling();
   
   setPlanPill();
+}
+
+/**
+ * Stop the demo audio and reset the player UI to its initial state.
+ * Called when the user navigates away from the landing page.
+ */
+function stopDemoAudio() {
+  const audio    = el('demoAudio');
+  const btnStart = el('btnStartDemo');
+  const controls = el('demoAudioControls');
+  if (!audio) return;
+  audio.pause();
+  audio.currentTime = 0;
+  if (btnStart) btnStart.classList.remove('hidden');
+  if (controls) controls.classList.add('hidden');
+}
+
+/**
+ * Initialise the demo audio player on the landing page.
+ * Handles: Start Demo button, play/pause toggle, volume slider, looping, and
+ * autoplay-blocked fallback (requires explicit user interaction).
+ */
+const DEMO_AUDIO_DEFAULT_VOLUME = 0.4;
+
+function initDemoAudio() {
+  const audio    = el('demoAudio');
+  const btnStart = el('btnStartDemo');
+  const controls = el('demoAudioControls');
+  const btnToggle = el('btnToggleDemo');
+  const volumeSlider = el('demoVolume');
+
+  if (!audio || !btnStart) return;
+
+  // Set comfortable default volume
+  audio.volume = DEMO_AUDIO_DEFAULT_VOLUME;
+  audio.loop = true;
+
+  function startDemo() {
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        console.log('[Demo] Audio playing');
+        btnStart.classList.add('hidden');
+        if (controls) controls.classList.remove('hidden');
+      }).catch(err => {
+        // Play failed (e.g. audio file missing or browser restriction)
+        console.warn('[Demo] Failed to play demo audio:', err);
+      });
+    }
+  }
+
+  btnStart.addEventListener('click', () => {
+    console.log('[Demo] Start Demo clicked');
+    startDemo();
+  });
+
+  if (btnToggle) {
+    btnToggle.addEventListener('click', () => {
+      if (audio.paused) {
+        audio.play().catch(err => console.warn('[Demo] Play failed:', err));
+        btnToggle.textContent = '⏸ Pause';
+        btnToggle.setAttribute('aria-label', 'Pause demo audio');
+      } else {
+        audio.pause();
+        btnToggle.textContent = '▶ Play';
+        btnToggle.setAttribute('aria-label', 'Play demo audio');
+      }
+    });
+
+    audio.addEventListener('play',  () => {
+      btnToggle.textContent = '⏸ Pause';
+      btnToggle.setAttribute('aria-label', 'Pause demo audio');
+    });
+    audio.addEventListener('pause', () => {
+      btnToggle.textContent = '▶ Play';
+      btnToggle.setAttribute('aria-label', 'Play demo audio');
+    });
+  }
+
+  if (volumeSlider) {
+    volumeSlider.value = DEMO_AUDIO_DEFAULT_VOLUME;
+    volumeSlider.addEventListener('input', () => {
+      audio.volume = parseFloat(volumeSlider.value);
+    });
+  }
 }
 
 function showLanding() {
@@ -2462,6 +2548,7 @@ function showLanding() {
 }
 
 function showParty() {
+  stopDemoAudio();
   hide("viewLanding"); 
   hide("viewHome"); 
   hide("viewAuthHome");
@@ -3115,6 +3202,7 @@ function updatePartyTimeRemaining(timeRemainingMs) {
 }
 
 function showGuest() {
+  stopDemoAudio();
   hide("viewLanding"); 
   hide("viewHome"); 
   hide("viewAuthHome");
@@ -7393,6 +7481,9 @@ async function handleBillingReturn() {
       setView('adminDashboard');
     };
   }
+
+  // DEMO AUDIO PLAYER
+  initDemoAudio();
 
   // Tier selection handlers (from viewChooseTier page)
   el("btnSelectFree").onclick = () => {
