@@ -70,7 +70,7 @@ const CHANGER_VERSION = '2026-02-27-a';
 
 // Import production services
 const { MetricsService } = require('./metrics-service');
-const { ReferralSystem } = require('./referral-system');
+const { ReferralSystem, getPublicBaseUrl, buildInviteLink } = require('./referral-system');
 const { verifyStripeSignature, processStripeWebhook } = require('./stripe-webhook');
 
 // Stripe billing client (null when STRIPE_SECRET_KEY is unset)
@@ -1152,15 +1152,49 @@ app.get("/", (req, res) => {
 });
 
 // ─── Invite Landing Page ───────────────────────────────────────────────────────
+
+/** Minimal HTML-escaping to prevent XSS when embedding user-supplied content. */
+function _escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 app.get('/invite/:code', async (req, res) => {
   const code    = (req.params.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
-  const inviteUrl = `${baseUrl}/invite/${code}`;
+  const prodBase = getPublicBaseUrl();
+  const inviteUrl = `${prodBase}/invite/${code}`;
 
-  // Record the click (fire-and-forget, don't delay the page response)
+  // Resolve inviter name for personalised messaging
+  let inviterName = null;
+  let inviterUserId = null;
   if (referralSystem) {
+    try {
+      const inviter = await referralSystem.resolveInviter(code);
+      if (inviter) {
+        inviterName = inviter.name;
+        inviterUserId = inviter.inviterUserId;
+      }
+    } catch (_) { /* non-fatal */ }
     referralSystem.recordClick(code, req.ip, req.headers['user-agent']).catch(() => {});
   }
+
+  // Build the canonical signup link that stores code + inviterId
+  const signupUrl = inviterUserId
+    ? `${prodBase}/signup?code=${encodeURIComponent(code)}&inviter=${encodeURIComponent(inviterUserId)}`
+    : `${prodBase}/signup?code=${encodeURIComponent(code)}`;
+
+  // HTML-safe versions for embedding in markup
+  const safeInviterName  = inviterName ? _escapeHtml(inviterName) : null;
+  const headlineText = safeInviterName
+    ? `${safeInviterName} invited you to Phone Party 🎉`
+    : "You&#39;re invited to Phone Party 🎉";
+  const subText = safeInviterName
+    ? `${safeInviterName} wants you to join them on Phone Party — turn phones into one massive speaker system.`
+    : 'Turn your phones into one massive speaker system.';
 
   res.setHeader('Cache-Control', 'no-store');
   res.send(`<!DOCTYPE html>
@@ -1168,18 +1202,18 @@ app.get('/invite/:code', async (req, res) => {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>You're invited to Phone Party 🎉</title>
+<title>${headlineText}</title>
 <!-- Open Graph -->
-<meta property="og:title" content="Join my Phone Party 🎉" />
-<meta property="og:description" content="Turn phones into one massive speaker system. Download the app and join my party instantly!" />
-<meta property="og:image" content="${baseUrl}/icons/icon-512.png" />
+<meta property="og:title" content="${headlineText}" />
+<meta property="og:description" content="${subText}" />
+<meta property="og:image" content="${prodBase}/icons/icon-512.png" />
 <meta property="og:url" content="${inviteUrl}" />
 <meta property="og:type" content="website" />
 <!-- Twitter Card -->
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="Join my Phone Party 🎉" />
-<meta name="twitter:description" content="Turn phones into one massive speaker system." />
-<meta name="twitter:image" content="${baseUrl}/icons/icon-512.png" />
+<meta name="twitter:title" content="${headlineText}" />
+<meta name="twitter:description" content="${subText}" />
+<meta name="twitter:image" content="${prodBase}/icons/icon-512.png" />
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -1187,39 +1221,53 @@ app.get('/invite/:code', async (req, res) => {
          display: flex; align-items: center; justify-content: center; padding: 1rem; }
   .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
           border-radius: 16px; padding: 2rem; max-width: 420px; width: 100%; text-align: center; }
-  h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+  h1 { font-size: 1.75rem; margin-bottom: 0.5rem; }
   p  { color: #aaa; margin-bottom: 1.5rem; }
   .btn { display: block; width: 100%; padding: 0.9rem 1.5rem; border: none;
          border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer;
          text-decoration: none; margin-bottom: 0.75rem; }
   .btn-primary { background: linear-gradient(135deg,#9D4EDD,#5AA9FF); color: #fff; }
-  .code { font-family: monospace; font-size: 1.4rem; letter-spacing: 4px;
-          color: #9D4EDD; background: rgba(157,78,221,0.1);
-          border-radius: 8px; padding: 0.75rem 1rem; margin: 1rem 0; }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>🎉 Phone Party</h1>
-  <p>You've been invited to join a Phone Party!<br>
-     Turn your phones into one massive speaker system.</p>
-  <div class="code">${code}</div>
-  <a class="btn btn-primary" href="${baseUrl}/?ref=${code}&clickSource=invite_page">
-    🚀 Open Phone Party
+  <h1>${headlineText}</h1>
+  <p>${subText}</p>
+  <a class="btn btn-primary" href="${signupUrl}">
+    🚀 Join Phone Party
   </a>
   <p style="font-size:0.8rem;color:#666;">
-    Your referral code is saved automatically.
+    Your invite is saved automatically when you sign up.
   </p>
 </div>
 <script>
-  // Store referral info so the app can pick it up after install / first launch
+  // Store referral info so the app can pick it up after sign-up
   try {
     localStorage.setItem('referral_code', ${JSON.stringify(code)});
     localStorage.setItem('referral_ts',   Date.now().toString());
+    ${inviterUserId ? `localStorage.setItem('referral_inviter_id', ${JSON.stringify(inviterUserId)});` : ''}
   } catch(_) {}
+  // Immediately navigate to the canonical signup URL
+  window.location.replace(${JSON.stringify(signupUrl)});
 </script>
 </body>
 </html>`);
+});
+
+// ─── Inviter name lookup (public – used by signup page to personalise banner) ──
+app.get('/api/referral/inviter/:code', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const code = (req.params.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!code) return res.status(400).json({ error: 'Invalid code' });
+  if (!referralSystem) return res.status(503).json({ error: 'Referral system unavailable' });
+  try {
+    const inviter = await referralSystem.resolveInviter(code);
+    if (!inviter) return res.status(404).json({ error: 'Code not found' });
+    return res.json({ name: inviter.name, inviterUserId: inviter.inviterUserId });
+  } catch (err) {
+    console.error('[Referral] /inviter/:code error:', err.message);
+    return res.status(500).json({ error: 'Lookup failed' });
+  }
 });
 
 // Health check endpoint with detailed Redis status

@@ -110,7 +110,14 @@ const VIEWS = {
   guest:         { id: 'viewGuest',            requiresAuth: true,  hash: 'guest',       onEnter: () => showGuest() },
   payment:       { id: 'viewPayment',          requiresAuth: false, hash: 'payment',     onEnter: () => showPayment() },
   login:         { id: 'viewLogin',            requiresAuth: false, hash: 'login' },
-  signup:        { id: 'viewSignup',           requiresAuth: false, hash: 'signup' },
+  signup:        { id: 'viewSignup',           requiresAuth: false, hash: 'signup', onEnter: () => {
+    try {
+      const savedName = localStorage.getItem('referral_inviter_name');
+      if (savedName && typeof _showSignupInviteBanner === 'function') {
+        _showSignupInviteBanner(savedName);
+      }
+    } catch (_) { /* ignore */ }
+  } },
   passwordReset: { id: 'viewPasswordReset',    requiresAuth: false, hash: 'reset' },
   profile:       { id: 'viewProfile',          requiresAuth: true,  hash: 'profile' },
   upgradeHub:    { id: 'viewUpgradeHub',       requiresAuth: true,  hash: 'upgrade' },
@@ -2485,7 +2492,12 @@ function showParty() {
           );
         }
         // Clean up stored referral keys after completion
-        try { localStorage.removeItem('referral_code'); localStorage.removeItem('referral_click_id'); } catch (_) {}
+        try {
+          localStorage.removeItem('referral_code');
+          localStorage.removeItem('referral_click_id');
+          localStorage.removeItem('referral_inviter_id');
+          localStorage.removeItem('referral_inviter_name');
+        } catch (_) {}
       }).catch(() => {});
     }
   } catch (_) { /* non-fatal */ }
@@ -7275,14 +7287,24 @@ async function handleBillingReturn() {
   // Handle billing return parameters (billing=success or billing=cancel in URL)
   await handleBillingReturn();
 
-  // Capture referral code from ?ref= URL param and store in localStorage
+  // Capture invite/referral params from URL and store in localStorage.
+  // Supports both new format (?code=CODE&inviter=USER_ID) and legacy (?ref=CODE).
   try {
     const _refParams = new URLSearchParams(window.location.search);
+    // New canonical format: ?code=CODE&inviter=USER_ID
+    const _codeParam   = _refParams.get('code');
+    const _inviterParam = _refParams.get('inviter');
+    // Legacy format: ?ref=CODE
     const _refCode = _refParams.get('ref');
-    if (_refCode && _refCode.length <= 20) {
-      const _cleanCode = _refCode.toUpperCase();
+
+    const _rawCode = _codeParam || _refCode;
+    if (_rawCode && _rawCode.length <= 20) {
+      const _cleanCode = _rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
       localStorage.setItem('referral_code', _cleanCode);
       localStorage.setItem('referral_ts', Date.now().toString());
+      if (_inviterParam) {
+        localStorage.setItem('referral_inviter_id', _inviterParam);
+      }
       // Record the click event (async, non-blocking)
       fetch(API_BASE + '/api/referral/click', {
         method: 'POST',
@@ -7291,6 +7313,21 @@ async function handleBillingReturn() {
       }).then(r => r.json()).then(data => {
         if (data.clickId) localStorage.setItem('referral_click_id', data.clickId);
       }).catch(() => {});
+
+      // Fetch inviter name to show personalised banner on signup page
+      fetch(API_BASE + '/api/referral/inviter/' + encodeURIComponent(_cleanCode))
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data && data.name) {
+            localStorage.setItem('referral_inviter_name', data.name);
+            _showSignupInviteBanner(data.name);
+          }
+        }).catch(() => {});
+
+      // Redirect to signup if we landed on the root/home page via an invite link
+      if (_codeParam && (window.location.pathname === '/' || window.location.pathname === '')) {
+        setView('signup');
+      }
     }
   } catch (_) { /* localStorage may be unavailable */ }
   
@@ -10067,8 +10104,8 @@ async function handleSignup() {
 
       // Attempt to register referral if the user arrived via an invite link
       try {
-        const refCode = localStorage.getItem('referral_code');
-        const clickId = localStorage.getItem('referral_click_id');
+        const refCode  = localStorage.getItem('referral_code');
+        const clickId  = localStorage.getItem('referral_click_id');
         if (refCode) {
           fetch(API_BASE + '/api/referral/register', {
             method: 'POST',
@@ -10611,6 +10648,34 @@ function resetPartyMonetization() {
   monetizationState.partyTimeExtensionMins = 0;
   monetizationState.partyPhoneExtensionCount = 0;
   updateUserTier();
+}
+
+/**
+ * Show a personalised "X invited you" banner at the top of the signup view.
+ * Safe to call multiple times; updates the existing banner if present.
+ */
+function _showSignupInviteBanner(inviterName) {
+  const bannerId = 'signupInviteBanner';
+  let banner = document.getElementById(bannerId);
+  if (!inviterName) {
+    if (banner) banner.style.display = 'none';
+    return;
+  }
+  if (!banner) {
+    const signupCard = document.getElementById('viewSignup');
+    if (!signupCard) return;
+    banner = document.createElement('div');
+    banner.id = bannerId;
+    banner.style.cssText = 'background:linear-gradient(135deg,rgba(157,78,221,0.2),rgba(90,169,255,0.2));border:1px solid rgba(157,78,221,0.4);border-radius:10px;padding:0.75rem 1rem;margin-bottom:1rem;text-align:center;font-size:0.95rem;';
+    const authContainer = signupCard.querySelector('.auth-container');
+    if (authContainer) {
+      authContainer.insertBefore(banner, authContainer.firstChild);
+    } else {
+      signupCard.insertBefore(banner, signupCard.firstChild);
+    }
+  }
+  banner.textContent = `🎉 ${inviterName} invited you to join Phone Party`;
+  banner.style.display = '';
 }
 
 /**

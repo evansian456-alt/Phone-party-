@@ -12,9 +12,36 @@
  *   referral_share_opened, referral_link_copied
  */
 
+// ─── Centralised URL helpers ──────────────────────────────────────────────────
+
+/**
+ * Always returns the canonical production base URL.
+ * In production PUBLIC_BASE_URL is injected by the server into window.
+ * Never uses window.location.origin, Railway URLs, or run.app URLs.
+ */
+function getPublicBaseUrl() {
+  // Server injects window.PUBLIC_BASE_URL via /config.js in production
+  if (typeof window !== 'undefined' && window.PUBLIC_BASE_URL) {
+    return window.PUBLIC_BASE_URL.replace(/\/$/, '');
+  }
+  return 'https://www.phone-party.com';
+}
+
+/**
+ * Build the canonical invite link:
+ *   https://www.phone-party.com/signup?code=INVITE_CODE&inviter=USER_ID
+ */
+function buildInviteLink(inviteCode, inviterUserId) {
+  const base = getPublicBaseUrl();
+  return `${base}/signup?code=${encodeURIComponent(inviteCode)}&inviter=${encodeURIComponent(inviterUserId)}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const SHARE_PLATFORMS = [
   { id: 'whatsapp',  label: '💬 WhatsApp',  urlFn: (u, t) => `https://wa.me/?text=${encodeURIComponent(t + '\n' + u)}` },
   { id: 'facebook',  label: '👍 Facebook',  urlFn: (u)    => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}` },
+  { id: 'twitter',   label: '🐦 Twitter/X', urlFn: (u, t) => `https://twitter.com/intent/tweet?text=${encodeURIComponent(t)}&url=${encodeURIComponent(u)}` },
   { id: 'sms',       label: '📱 SMS',       urlFn: (u, t) => `sms:?body=${encodeURIComponent(t + '\n' + u)}` },
   { id: 'email',     label: '📧 Email',     urlFn: (u, t) => `mailto:?subject=${encodeURIComponent('Join my Phone Party 🎉')}&body=${encodeURIComponent(t + '\n' + u)}` },
   { id: 'snapchat',  label: '👻 Snapchat',  native: true  },
@@ -30,12 +57,20 @@ const MILESTONES = [
   { at: 50, label: '1 month Pro'       },
 ];
 
-function shareText(inviteUrl) {
+/**
+ * Build the share message. When inviterName is provided the message reads
+ * "Jenny invited you to join her on Phone Party".
+ * All share methods must call this single function so messages are consistent.
+ */
+function shareText(inviteUrl, inviterName) {
+  if (inviterName) {
+    return `${inviterName} invited you to join them on Phone Party 🎉: ${inviteUrl}`;
+  }
   return `Join my Phone Party 🎉\nDownload the app and join my party instantly.\nUse my invite link: ${inviteUrl}`;
 }
 
-function buildUrl(platform, inviteUrl) {
-  const text = shareText(inviteUrl);
+function buildUrl(platform, inviteUrl, inviterName) {
+  const text = shareText(inviteUrl, inviterName);
   if (platform.urlFn) return platform.urlFn(inviteUrl, text);
   return null;
 }
@@ -248,14 +283,29 @@ class ReferralUI {
 
   // ─── Sharing ───────────────────────────────────────────────────────────────
 
-  _getInviteUrl(platform) {
-    const base = this.stats?.inviteUrl || (typeof getBaseUrl === 'function' ? getBaseUrl() : window.location.origin);
-    return `${base}?utm_source=share&utm_medium=${platform}&utm_campaign=referral`;
+  /**
+   * Returns the canonical invite URL from stats (if loaded) or falls back to
+   * the production domain. Never uses window.location.origin.
+   */
+  _getInviteUrl() {
+    // stats.inviteUrl is set by the server using the canonical production URL
+    if (this.stats?.inviteUrl) return this.stats.inviteUrl;
+    // Fallback: build from referral code + user id stored in stats
+    if (this.stats?.referralCode && this.stats?.inviterUserId) {
+      return buildInviteLink(this.stats.referralCode, this.stats.inviterUserId);
+    }
+    // Last resort: production base only
+    return getPublicBaseUrl();
+  }
+
+  /** Sender name from loaded stats, or null. */
+  _getInviterName() {
+    return this.stats?.inviterName || null;
   }
 
   async _nativeShare() {
-    const url  = this._getInviteUrl('native');
-    const text = shareText(url);
+    const url  = this._getInviteUrl();
+    const text = shareText(url, this._getInviterName());
     this._fireEvent('referral_share_opened', { platform: 'native' });
     if (navigator.share) {
       try {
@@ -269,7 +319,8 @@ class ReferralUI {
   }
 
   _showShareFallback(url) {
-    const text = shareText(url);
+    const inviterName = this._getInviterName();
+    const text = shareText(url, inviterName);
     // Remove any existing share fallback modal
     const existing = document.getElementById('shareSheetModal');
     if (existing) existing.remove();
@@ -397,11 +448,13 @@ class ReferralUI {
     if (!platform) return;
     this._fireEvent('referral_share_opened', { platform: platformId });
 
+    const url          = this._getInviteUrl();
+    const inviterName  = this._getInviterName();
+    const text         = shareText(url, inviterName);
+
     if (platform.native) {
       // Snapchat / TikTok: try Web Share API, fallback to copy
       if (navigator.share) {
-        const url  = this._getInviteUrl(platformId);
-        const text = shareText(url);
         navigator.share({ title: 'Join my Phone Party 🎉', text, url })
           .catch(e => { if (e.name !== 'AbortError') this._copyLink(); });
       } else {
@@ -416,13 +469,12 @@ class ReferralUI {
       return;
     }
 
-    const url  = this._getInviteUrl(platformId);
-    const link = buildUrl(platform, url);
+    const link = buildUrl(platform, url, inviterName);
     if (link) window.open(link, '_blank', 'noopener,noreferrer');
   }
 
   async _copyLink() {
-    const url = this._getInviteUrl('copy');
+    const url = this._getInviteUrl();
     this._fireEvent('referral_link_copied', { url });
     const copyBtn = document.getElementById('btnCopyInviteLink') ||
                     document.getElementById('btnCopyReferralLink');
