@@ -9,7 +9,7 @@ module.exports = function createTracksRouter(deps) {
     getPlaybackUrl, parties, partySyncEngines, TEST_MODE, DEBUG_MODE,
     INSTANCE_ID, validatePayload, logValidationFailure, normalizePlatformTrackRef,
     safeJsonParse, normalizePartyCode, loadPartyState, savePartyState,
-    storageProvider, TRACK_MAX_BYTES, fallbackPartyStorage,
+    TRACK_MAX_BYTES, fallbackPartyStorage,
     getPartyFromRedis, setPartyInRedis, PARTY_KEY_PREFIX,
     SYNC_TEST_MODE, customAlphabet
   } = deps;
@@ -56,12 +56,12 @@ module.exports = function createTracksRouter(deps) {
       }
       
       // Validate storage provider is ready and supports presigned URLs
-      if (!storageProvider) {
+      if (!deps.storageProvider) {
         return res.status(503).json({ error: 'Storage provider not ready' });
       }
       
       // Check if storage provider supports presigned URLs (S3 only)
-      if (typeof storageProvider.generatePresignedPutUrl !== 'function') {
+      if (typeof deps.storageProvider.generatePresignedPutUrl !== 'function') {
         return res.status(400).json({ 
           error: 'Presigned uploads not supported',
           message: 'Presigned uploads require S3-compatible storage. Use the standard upload endpoint instead.'
@@ -73,7 +73,7 @@ module.exports = function createTracksRouter(deps) {
       const trackId = customAlphabet('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ', 12)();
       
       // Generate presigned PUT URL
-      const { putUrl, key } = await storageProvider.generatePresignedPutUrl(trackId, {
+      const { putUrl, key } = await deps.storageProvider.generatePresignedPutUrl(trackId, {
         contentType,
         originalName: filename
       });
@@ -112,7 +112,7 @@ module.exports = function createTracksRouter(deps) {
       }
 
       // Check storage provider is ready
-      if (!storageProvider) {
+      if (!deps.storageProvider) {
         console.error('[HTTP] Storage provider not initialized');
         // Clean up temp file if present
         if (req.file.path) {
@@ -138,7 +138,7 @@ module.exports = function createTracksRouter(deps) {
       const fileData = req.file.buffer || fs.createReadStream(tempFilePath);
       
       // Upload to storage provider
-      const uploadResult = await storageProvider.upload(trackId, fileData, {
+      const uploadResult = await deps.storageProvider.upload(trackId, fileData, {
         contentType,
         originalName,
         size: sizeBytes
@@ -275,13 +275,13 @@ module.exports = function createTracksRouter(deps) {
     
     try {
       // Check storage provider is ready
-      if (!storageProvider) {
+      if (!deps.storageProvider) {
         console.error('[HTTP] Storage provider not initialized');
         return res.status(503).json({ error: 'Storage service not available' });
       }
 
       // Get metadata
-      const metadata = await storageProvider.getMetadata(trackId);
+      const metadata = await deps.storageProvider.getMetadata(trackId);
       if (!metadata) {
         console.log(`[HTTP] Track not found: ${trackId}`);
         return res.status(404).json({ error: 'Track not found' });
@@ -309,7 +309,7 @@ module.exports = function createTracksRouter(deps) {
         const chunksize = (end - start) + 1;
         
         // Stream from storage provider with range
-        const streamResult = await storageProvider.stream(trackId, { start, end });
+        const streamResult = await deps.storageProvider.stream(trackId, { start, end });
         if (!streamResult) {
           return res.status(404).json({ error: 'Track not found' });
         }
@@ -326,7 +326,7 @@ module.exports = function createTracksRouter(deps) {
         streamResult.stream.pipe(res);
       } else {
         // No range header - send entire file
-        const streamResult = await storageProvider.stream(trackId);
+        const streamResult = await deps.storageProvider.stream(trackId);
         if (!streamResult) {
           return res.status(404).json({ error: 'Track not found' });
         }
