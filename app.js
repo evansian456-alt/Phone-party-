@@ -7092,9 +7092,7 @@ async function initAuthFlow() {
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     // Update state from server data
     state.userTier = data.effectiveTier || data.tier || USER_TIER.FREE;
-    state.tierExpiresAt = (data.upgrades && data.upgrades.partyPass && data.upgrades.partyPass.expiresAt)
-      || (data.billing && data.billing.currentPeriodEnd)
-      || null;
+    state.tierExpiresAt = _extractTierExpiry(data);
     if (data.user && data.user.djName) {
       state.djName = data.user.djName;
       saveProfile({ djName: data.user.djName, email: data.user.email, tier: state.userTier });
@@ -7161,9 +7159,7 @@ async function confirmAuthSession() {
     if (typeof setAuthSessionState === 'function') setAuthSessionState('authenticated');
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     state.userTier = data.effectiveTier || data.tier || USER_TIER.FREE;
-    state.tierExpiresAt = (data.upgrades && data.upgrades.partyPass && data.upgrades.partyPass.expiresAt)
-      || (data.billing && data.billing.currentPeriodEnd)
-      || null;
+    state.tierExpiresAt = _extractTierExpiry(data);
     if (data.user && data.user.djName) {
       state.djName = data.user.djName;
       saveProfile({ djName: data.user.djName, email: data.user.email, tier: state.userTier });
@@ -7502,14 +7498,15 @@ async function handleBillingReturn() {
   }
 
   // Tier selection handlers (from viewChooseTier page)
+  const _isTierPageUserAuth = () => (typeof isLoggedIn === 'function' && isLoggedIn()) ||
+                                    (typeof hasValidProfile === 'function' && hasValidProfile());
+
   el("btnSelectFree").onclick = () => {
     console.log("[UI] Free tier selected");
     state.selectedTier = USER_TIER.FREE;
     state.userTier = USER_TIER.FREE;
     state.tierExpiresAt = null;
-    const isAuth = (typeof isLoggedIn === 'function' && isLoggedIn()) ||
-                   (typeof hasValidProfile === 'function' && hasValidProfile());
-    if (isAuth) {
+    if (_isTierPageUserAuth()) {
       setView('authHome');
     } else {
       setView('signup');
@@ -7519,9 +7516,7 @@ async function handleBillingReturn() {
   el("btnSelectPartyPass").onclick = () => {
     console.log("[UI] Party Pass tier selected");
     state.selectedTier = USER_TIER.PARTY_PASS;
-    const isAuth = (typeof isLoggedIn === 'function' && isLoggedIn()) ||
-                   (typeof hasValidProfile === 'function' && hasValidProfile());
-    if (isAuth) {
+    if (_isTierPageUserAuth()) {
       // Redirect to upgrade hub to initiate purchase, then on success to authHome
       setView('upgradeHub');
     } else {
@@ -7532,9 +7527,7 @@ async function handleBillingReturn() {
   el("btnSelectPro").onclick = () => {
     console.log("[UI] Pro tier selected");
     state.selectedTier = USER_TIER.PRO;
-    const isAuth = (typeof isLoggedIn === 'function' && isLoggedIn()) ||
-                   (typeof hasValidProfile === 'function' && hasValidProfile());
-    if (isAuth) {
+    if (_isTierPageUserAuth()) {
       setView('upgradeHub');
     } else {
       setView('signup');
@@ -7545,9 +7538,7 @@ async function handleBillingReturn() {
   if (_btnContinueToCreateParty) {
     _btnContinueToCreateParty.onclick = () => {
       console.log("[UI] Continue to Create Party from tier page");
-      const isAuth = (typeof isLoggedIn === 'function' && isLoggedIn()) ||
-                     (typeof hasValidProfile === 'function' && hasValidProfile());
-      if (isAuth) {
+      if (_isTierPageUserAuth()) {
         setView('authHome');
       } else {
         setView('signup');
