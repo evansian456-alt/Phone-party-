@@ -165,6 +165,7 @@ document.body.innerHTML = `
     <button id="btnSelectPro"></button>
     <button id="btnBackToLanding"></button>
     <button id="btnBackToTiers"></button>
+    <button id="btnContinueToCreateParty"></button>
     <button id="btnLandingAddons"></button>
     <button id="btnShowCreateParty"></button>
     <button id="btnShowJoinParty"></button>
