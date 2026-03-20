@@ -362,6 +362,7 @@ h2,h3{margin:0; font-weight:800}
   background: rgba(0,0,0,0.55);
   display:flex; align-items:center; justify-content:center;
   padding:18px;
+  touch-action:pan-y; /* allow one-finger vertical scroll inside modal content */
 }
 .modalCard{
   width:min(520px, 100%);
@@ -5460,6 +5461,7 @@ body.light-mode .input-field {
   z-index: 10000;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  touch-action: pan-y; /* allow one-finger vertical scroll inside modal content */
 }
 
 .modal-content {
