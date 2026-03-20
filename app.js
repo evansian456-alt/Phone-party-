@@ -160,6 +160,40 @@ async function fetchFeatureFlags() {
 }
 
 /**
+ * Close any stray full-screen overlays and body-level modals.
+ * Must be called on every view transition so that position:fixed overlays
+ * (appended directly to <body> rather than inside a section) cannot remain
+ * on-screen after navigation — an open overlay would intercept all touch
+ * events and freeze the page on mobile.
+ *
+ * Handles:
+ *  - The guest "tap to play" overlay (#guestTapOverlay)
+ *  - The referral share-sheet (#shareSheetModal)
+ *  - Any body-level .modal elements that have had .hidden removed
+ */
+function _closeAllOverlays() {
+  // Hide the guest tap-to-play overlay if it exists and is visible
+  const tapOverlay = document.getElementById('guestTapOverlay');
+  if (tapOverlay) {
+    tapOverlay.style.display = 'none';
+  }
+
+  // Remove the dynamically-created referral share sheet from the DOM
+  const shareSheet = document.getElementById('shareSheetModal');
+  if (shareSheet) {
+    shareSheet.remove();
+  }
+
+  // Re-add .hidden to any body-level .modal elements that are currently shown.
+  // Modals inside view sections are automatically hidden when their parent section
+  // gets display:none via showView(), but modals appended to <body> directly are
+  // not affected and must be closed explicitly.
+  document.querySelectorAll('body > .modal:not(.hidden)').forEach(modal => {
+    modal.classList.add('hidden');
+  });
+}
+
+/**
  * Navigate to a named view.
  * @param {string} viewName  - Key from VIEWS registry
  * @param {object} [opts]
@@ -212,6 +246,20 @@ function setView(viewName, opts = {}) {
   const from = _currentViewName;
   _currentViewName = viewName;
   console.log('[NAV]', from, '->', viewName, { hash: '#' + view.hash });
+
+  // Close any stray full-screen overlays and open modals before switching views.
+  // position:fixed overlays appended directly to <body> are not affected by
+  // showView()'s section hide/show and would remain on-screen, intercepting
+  // every touch event and freezing the page on mobile if not explicitly closed.
+  _closeAllOverlays();
+
+  // When leaving the guest view, also stop audio sync (audio cleanup is handled
+  // by _closeAllOverlays above for the tap overlay; this stops the sync loop).
+  if (from === 'guest' && viewName !== 'guest') {
+    if (typeof cleanupGuestAudio === 'function') {
+      cleanupGuestAudio();
+    }
+  }
 
   // Update location hash:
   // - pushState for normal navigation (new history entry)
@@ -345,6 +393,7 @@ const state = {
   offlineMode: false, // Track if party was created in offline fallback mode
   chatMode: "OPEN", // OPEN, EMOJI_ONLY, LOCKED
   userTier: USER_TIER.FREE, // User's subscription tier
+  tierExpiresAt: null, // ISO string: expiry date of current paid tier (null = no expiry / free)
   // Guest-specific state
   nowPlayingFilename: null,
   upNextFilename: null,
@@ -2580,6 +2629,93 @@ function showChooseTier() {
   hide("viewPayment");
   hide("viewAccountCreation");
   show("viewChooseTier");
+  updateChooseTierButtons();
+}
+
+/**
+ * Compute a human-readable remaining-time label for a given ISO expiry string.
+ * Returns null if expiresAt is falsy or already expired.
+ */
+function _tierRemainingLabel(expiresAt) {
+  if (!expiresAt) return null;
+  const now = Date.now();
+  const expiry = new Date(expiresAt).getTime();
+  const msLeft = expiry - now;
+  if (msLeft <= 0) return null; // expired
+  const hoursLeft = msLeft / (1000 * 60 * 60);
+  if (hoursLeft < 1) {
+    const minsLeft = Math.ceil(msLeft / (1000 * 60));
+    return `${minsLeft} min${minsLeft !== 1 ? 's' : ''} left`;
+  }
+  if (hoursLeft < 24) {
+    const hrs = Math.ceil(hoursLeft);
+    return `${hrs} hour${hrs !== 1 ? 's' : ''} left`;
+  }
+  const daysLeft = Math.ceil(hoursLeft / 24);
+  return `${daysLeft} day${daysLeft !== 1 ? 's' : ''} left`;
+}
+
+/** Extract the tier expiry timestamp from a /api/me response payload. */
+function _extractTierExpiry(data) {
+  return (data.upgrades && data.upgrades.partyPass && data.upgrades.partyPass.expiresAt)
+    || (data.billing && data.billing.currentPeriodEnd)
+    || null;
+}
+
+/**
+ * Update the tier selection buttons on viewChooseTier to reflect the user's
+ * current active tier (Active / timer / Expired / Renew) rather than generic CTA text.
+ */
+function updateChooseTierButtons() {
+  const btnFree = document.getElementById('btnSelectFree');
+  const btnPass = document.getElementById('btnSelectPartyPass');
+  const btnPro  = document.getElementById('btnSelectPro');
+  const tierFreeCard  = document.getElementById('tierFree');
+  const tierPassCard  = document.getElementById('tierPartyPass');
+  const tierProCard   = document.getElementById('tierPro');
+
+  // Remove any previously set active class
+  [tierFreeCard, tierPassCard, tierProCard].forEach(c => {
+    if (c) c.classList.remove('tier-card-active', 'tier-card-expired');
+  });
+
+  const tier = state.userTier || USER_TIER.FREE;
+  const expiresAt = state.tierExpiresAt;
+  const isExpired = expiresAt ? new Date(expiresAt).getTime() < Date.now() : false;
+  const remainingLabel = expiresAt && !isExpired ? _tierRemainingLabel(expiresAt) : null;
+
+  // Reset all buttons to default text
+  if (btnFree) btnFree.textContent = 'START FREE 🎵';
+  if (btnPass) btnPass.textContent = 'GET PARTY PASS 🎉';
+  if (btnPro)  btnPro.textContent  = 'GO PRO 🚀';
+
+  // Mark active tier
+  if (tier === USER_TIER.FREE) {
+    if (btnFree) btnFree.textContent = 'Active ✓';
+    if (tierFreeCard) tierFreeCard.classList.add('tier-card-active');
+  } else if (tier === USER_TIER.PARTY_PASS || tier === 'PARTY_PASS') {
+    if (isExpired) {
+      if (btnPass) btnPass.textContent = 'Renew Party Pass';
+      if (tierPassCard) tierPassCard.classList.add('tier-card-expired');
+    } else {
+      const label = remainingLabel || 'Active ✓';
+      if (btnPass) btnPass.textContent = label;
+      if (tierPassCard) tierPassCard.classList.add('tier-card-active');
+    }
+    // Free button shows upgrade-down option
+    if (btnFree) btnFree.textContent = 'Switch to Free';
+  } else if (tier === USER_TIER.PRO || tier === 'PRO_MONTHLY') {
+    if (isExpired) {
+      if (btnPro) btnPro.textContent = 'Renew Pro';
+      if (tierProCard) tierProCard.classList.add('tier-card-expired');
+    } else {
+      const label = remainingLabel || 'Active ✓';
+      if (btnPro) btnPro.textContent = label;
+      if (tierProCard) tierProCard.classList.add('tier-card-active');
+    }
+    if (btnFree) btnFree.textContent = 'Switch to Free';
+    if (btnPass) btnPass.textContent = 'Switch to Pass';
+  }
 }
 
 // Show account creation screen
@@ -4214,6 +4350,23 @@ function cleanupGuestAudio() {
     // Stop drift correction
     stopDriftCorrection();
 
+    // Clear source to free memory
+    state.guestAudioElement.src = "";
+    state.guestAudioElement.load(); // Force release
+    
+    // Remove element
+    state.guestAudioElement = null;
+    state.guestAudioReady = false;
+    state.guestNeedsTap = false;
+  }
+  
+  // Hide tap overlay if visible
+  const overlay = el("guestTapOverlay");
+  if (overlay) {
+    overlay.style.display = "none";
+  }
+}
+
 // Update guest queue display
 // PHASE 7: Update host queue UI display
 function updateHostQueueUI() {
@@ -4282,23 +4435,6 @@ function updateGuestQueue(queue) {
       </div>
     </div>
   `).join('');
-}
-    
-    // Clear source to free memory
-    state.guestAudioElement.src = "";
-    state.guestAudioElement.load(); // Force release
-    
-    // Remove element
-    state.guestAudioElement = null;
-    state.guestAudioReady = false;
-    state.guestNeedsTap = false;
-  }
-  
-  // Hide tap overlay if visible
-  const overlay = el("guestTapOverlay");
-  if (overlay) {
-    overlay.style.display = "none";
-  }
 }
 
 // Display DJ auto-generated message
@@ -7004,6 +7140,7 @@ async function initAuthFlow() {
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     // Update state from server data
     state.userTier = data.effectiveTier || data.tier || USER_TIER.FREE;
+    state.tierExpiresAt = _extractTierExpiry(data);
     if (data.user && data.user.djName) {
       state.djName = data.user.djName;
       saveProfile({ djName: data.user.djName, email: data.user.email, tier: state.userTier });
@@ -7070,6 +7207,7 @@ async function confirmAuthSession() {
     if (typeof setAuthSessionState === 'function') setAuthSessionState('authenticated');
     if (headerAuthButtons) headerAuthButtons.style.display = '';
     state.userTier = data.effectiveTier || data.tier || USER_TIER.FREE;
+    state.tierExpiresAt = _extractTierExpiry(data);
     if (data.user && data.user.djName) {
       state.djName = data.user.djName;
       saveProfile({ djName: data.user.djName, email: data.user.email, tier: state.userTier });
@@ -7223,15 +7361,28 @@ function initBillingBox() {
     // Show subscription end date if available
     const statusEl = document.getElementById('billingProStatus');
     if (statusEl) {
-      fetch(API_BASE + '/api/billing/status')
-        .then(r => r.json())
-        .then(d => {
-          if (d.current_period_end) {
-            const until = new Date(d.current_period_end).toLocaleDateString();
-            statusEl.textContent = `Renews/expires ${until}`;
-          }
-        })
-        .catch(() => {});
+      // Use cached expiry from state if available, else fetch
+      if (state.tierExpiresAt) {
+        const label = _tierRemainingLabel(state.tierExpiresAt);
+        const until = new Date(state.tierExpiresAt).toLocaleDateString();
+        statusEl.textContent = label ? `${label} (expires ${until})` : `Expired ${until}`;
+      } else {
+        fetch(API_BASE + '/api/billing/status')
+          .then(r => r.json())
+          .then(d => {
+            if (d.current_period_end) {
+              const until = new Date(d.current_period_end).toLocaleDateString();
+              statusEl.textContent = `Renews/expires ${until}`;
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    // Wire "View My Plan" button
+    const btnViewPlan = document.getElementById('btnViewMyPlan');
+    if (btnViewPlan && !btnViewPlan.dataset.wired) {
+      btnViewPlan.dataset.wired = '1';
+      btnViewPlan.addEventListener('click', () => setView('chooseTier'));
     }
   } else {
     if (freeSection) freeSection.classList.remove('hidden');
@@ -7395,24 +7546,53 @@ async function handleBillingReturn() {
   }
 
   // Tier selection handlers (from viewChooseTier page)
+  const _isTierPageUserAuth = () => (typeof isLoggedIn === 'function' && isLoggedIn()) ||
+                                    (typeof hasValidProfile === 'function' && hasValidProfile());
+
   el("btnSelectFree").onclick = () => {
     console.log("[UI] Free tier selected");
     state.selectedTier = USER_TIER.FREE;
     state.userTier = USER_TIER.FREE;
-    setView('signup');
+    state.tierExpiresAt = null;
+    if (_isTierPageUserAuth()) {
+      setView('authHome');
+    } else {
+      setView('signup');
+    }
   };
 
   el("btnSelectPartyPass").onclick = () => {
     console.log("[UI] Party Pass tier selected");
     state.selectedTier = USER_TIER.PARTY_PASS;
-    setView('signup');
+    if (_isTierPageUserAuth()) {
+      // Redirect to upgrade hub to initiate purchase, then on success to authHome
+      setView('upgradeHub');
+    } else {
+      setView('signup');
+    }
   };
 
   el("btnSelectPro").onclick = () => {
     console.log("[UI] Pro tier selected");
     state.selectedTier = USER_TIER.PRO;
-    setView('signup');
+    if (_isTierPageUserAuth()) {
+      setView('upgradeHub');
+    } else {
+      setView('signup');
+    }
   };
+
+  const _btnContinueToCreateParty = document.getElementById('btnContinueToCreateParty');
+  if (_btnContinueToCreateParty) {
+    _btnContinueToCreateParty.onclick = () => {
+      console.log("[UI] Continue to Create Party from tier page");
+      if (_isTierPageUserAuth()) {
+        setView('authHome');
+      } else {
+        setView('signup');
+      }
+    };
+  }
 
   el("btnBackToLanding").onclick = () => {
     console.log("[UI] Back to landing from tier selection");
@@ -12881,6 +13061,10 @@ function initYouTubePlayer() {
         console.log('[YouTubePlayer] Player ready');
         var ph = document.getElementById('youtubePlayerPlaceholder');
         if (ph) ph.style.display = 'none';
+        // Load any video that was queued before the player was ready
+        if (_ytPlayer.videoId) {
+          event.target.loadVideoById(_ytPlayer.videoId);
+        }
       },
       onStateChange: function(event) {
         _ytPlayer.isPlaying = (event.data === YT.PlayerState.PLAYING);
@@ -12894,11 +13078,33 @@ function initYouTubePlayer() {
       },
       onError: function(event) {
         console.error('[YouTubePlayer] Player error:', event.data);
+        // Clear the stale video state so the UI is not left in a broken condition
+        resetYouTubePlayerUI();
         var statusEl = document.getElementById('youtubePlayerStatus');
-        if (statusEl) statusEl.textContent = 'Playback error — check the video ID';
+        if (statusEl) statusEl.textContent = 'Playback error — try another video';
+        var searchStatus = document.getElementById('youtubeSearchStatus');
+        if (searchStatus) {
+          searchStatus.textContent = 'Video playback failed. Try a different video or paste a direct URL.';
+          searchStatus.classList.remove('hidden');
+        }
       }
     }
   });
+}
+
+/**
+ * Reset the host YouTube player UI to its empty/placeholder state.
+ * Called when playback errors, searches return no results, or searches fail.
+ */
+function resetYouTubePlayerUI() {
+  _ytPlayer.videoId = null;
+  _ytPlayer.isPlaying = false;
+  var controls = document.getElementById('youtubePlayerControls');
+  if (controls) controls.classList.add('hidden');
+  var nowPlayingEl = document.getElementById('youtubeNowPlaying');
+  if (nowPlayingEl) nowPlayingEl.classList.add('hidden');
+  var ph = document.getElementById('youtubePlayerPlaceholder');
+  if (ph) ph.style.display = '';
 }
 
 /**
@@ -12937,6 +13143,17 @@ function extractYouTubeVideoId(ref) {
  * @param {string} [title]  - Optional display title
  */
 function ytLoadVideo(videoId, title) {
+  // Guard: only accept valid 11-character YouTube video IDs
+  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    console.error('[YouTubePlayer] Rejected invalid videoId:', videoId);
+    var searchStatus = document.getElementById('youtubeSearchStatus');
+    if (searchStatus) {
+      searchStatus.textContent = 'Invalid video ID. Please paste a valid YouTube link.';
+      searchStatus.classList.remove('hidden');
+    }
+    return;
+  }
+
   _ytPlayer.videoId = videoId;
 
   console.log('[YouTubePlayer] Loading video:', videoId, title || '');
@@ -12962,12 +13179,10 @@ function ytLoadVideo(videoId, title) {
   if (_ytPlayer.player && typeof _ytPlayer.player.loadVideoById === 'function') {
     _ytPlayer.player.loadVideoById(videoId);
   } else {
-    // Player not initialised yet — init it and load after ready
+    // Player not initialised yet — init it; onReady will load _ytPlayer.videoId automatically
     if (!_ytPlayer.player) {
       initYouTubePlayer();
     }
-    // Will auto-load once player is ready via the stored videoId
-    // We store it and rely on initYouTubePlayer + onReady
   }
 
   // Broadcast video change to guests (host only)
@@ -13235,6 +13450,10 @@ function performYoutubeSearch(query) {
           statusEl.classList.remove('hidden');
         }
         console.log('[YouTubeSearch] No results or warning:', data.warning || 'no results');
+        // Clear any stale player state that is not actively playing
+        if (!_ytPlayer.isPlaying) {
+          resetYouTubePlayerUI();
+        }
         return;
       }
 
@@ -13295,6 +13514,10 @@ function performYoutubeSearch(query) {
       if (statusEl) {
         statusEl.textContent = 'Search failed. Paste a YouTube link or video ID instead.';
         statusEl.classList.remove('hidden');
+      }
+      // Clear stale player state if not actively playing
+      if (!_ytPlayer.isPlaying) {
+        resetYouTubePlayerUI();
       }
     });
 }
