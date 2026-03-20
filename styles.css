@@ -112,12 +112,15 @@
 *{box-sizing:border-box}
 html{
   min-height:100%;
-  overflow-y:auto;
-  /* clip (not hidden) avoids the CSS overflow-interaction rule that converts
-     overflow-y:visible to overflow-y:auto when the other axis is hidden,
-     which would make <html> the scroll container instead of the viewport */
+  /* overflow-y must NOT be set here — setting overflow-y:auto on <html> creates a
+     CSS scroll container separate from the native viewport scroll, which results in
+     two nested scroll containers (html + body) and causes iOS/Android to require
+     two-finger scroll instead of one-finger. Let the viewport handle vertical
+     scrolling naturally; only body is the intentional scroll container. */
   overflow-x:clip;
-  overscroll-behavior:none;
+  /* overscroll-behavior removed from html — only body needs it to suppress the
+     pull-to-refresh / bounce effect at page ends. */
+  touch-action:pan-y; /* explicitly allow one-finger vertical scroll */
 }
 body{
   margin:0;
@@ -134,6 +137,7 @@ body{
   display:flex;
   flex-direction:column;
   scroll-behavior:smooth;
+  touch-action:pan-y; /* explicitly allow one-finger vertical scroll on mobile */
 }
 .top{
   display:flex; justify-content:space-between; align-items:center;
@@ -358,6 +362,7 @@ h2,h3{margin:0; font-weight:800}
   background: rgba(0,0,0,0.55);
   display:flex; align-items:center; justify-content:center;
   padding:18px;
+  touch-action:pan-y; /* allow one-finger vertical scroll inside modal content */
 }
 .modalCard{
   width:min(520px, 100%);
@@ -4407,18 +4412,15 @@ h2,h3{margin:0; font-weight:800}
   margin: 3px 0;
 }
 
-/* Guest tap overlay improvements */
+/* Guest tap overlay improvements — only override non-display properties so the
+   display:none default from the first .guest-tap-overlay rule (above) is preserved.
+   JavaScript explicitly sets style.display="flex" to show and style.display="none"
+   to hide this overlay. Setting display:flex here would override the initial
+   display:none and make the overlay always visible when it is in the DOM, which
+   would intercept every touch event and block one-finger page scroll. */
 .guest-tap-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
   background: rgba(0, 0, 0, 0.95);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 10000;
+  /* display intentionally omitted — inherits display:none from the rule above */
 }
 
 .guest-tap-content {
@@ -5459,6 +5461,7 @@ body.light-mode .input-field {
   z-index: 10000;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  touch-action: pan-y; /* allow one-finger vertical scroll inside modal content */
 }
 
 .modal-content {
@@ -8254,11 +8257,36 @@ body {
   }
 }
 
+/* YouTube search row — keep input + button in a single flex line on all screen sizes */
+.yt-search-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Override the global mobile width:100% reset for the search row elements */
+.yt-search-input,
+.yt-search-btn {
+  width: auto;
+  box-sizing: border-box;
+}
+
+.yt-search-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.yt-search-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* YouTube search input — ensure text is always clearly visible */
 #youtubeSearchInput {
-  font-size: 16px;
+  font-size: 16px; /* prevents iOS auto-zoom on focus */
   color: #ffffff;
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
 }
 #youtubeSearchInput::placeholder {

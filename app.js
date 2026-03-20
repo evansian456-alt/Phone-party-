@@ -213,6 +213,16 @@ function setView(viewName, opts = {}) {
   _currentViewName = viewName;
   console.log('[NAV]', from, '->', viewName, { hash: '#' + view.hash });
 
+  // When leaving the guest view, hide the tap-to-play overlay and stop audio sync.
+  // cleanupGuestAudio() hides the full-screen overlay (guestTapOverlay) which is
+  // appended directly to <body> and would otherwise intercept touch events and
+  // block one-finger page scroll on any view the user navigates to.
+  if (from === 'guest' && viewName !== 'guest') {
+    if (typeof cleanupGuestAudio === 'function') {
+      cleanupGuestAudio();
+    }
+  }
+
   // Update location hash:
   // - pushState for normal navigation (new history entry)
   // - replaceState when redirected by auth flow (fromHash:true) so the address
@@ -12915,6 +12925,10 @@ function initYouTubePlayer() {
         console.log('[YouTubePlayer] Player ready');
         var ph = document.getElementById('youtubePlayerPlaceholder');
         if (ph) ph.style.display = 'none';
+        // Load any video that was queued before the player was ready
+        if (_ytPlayer.videoId) {
+          event.target.loadVideoById(_ytPlayer.videoId);
+        }
       },
       onStateChange: function(event) {
         _ytPlayer.isPlaying = (event.data === YT.PlayerState.PLAYING);
@@ -12928,11 +12942,33 @@ function initYouTubePlayer() {
       },
       onError: function(event) {
         console.error('[YouTubePlayer] Player error:', event.data);
+        // Clear the stale video state so the UI is not left in a broken condition
+        resetYouTubePlayerUI();
         var statusEl = document.getElementById('youtubePlayerStatus');
-        if (statusEl) statusEl.textContent = 'Playback error — check the video ID';
+        if (statusEl) statusEl.textContent = 'Playback error — try another video';
+        var searchStatus = document.getElementById('youtubeSearchStatus');
+        if (searchStatus) {
+          searchStatus.textContent = 'Video playback failed. Try a different video or paste a direct URL.';
+          searchStatus.classList.remove('hidden');
+        }
       }
     }
   });
+}
+
+/**
+ * Reset the host YouTube player UI to its empty/placeholder state.
+ * Called when playback errors, searches return no results, or searches fail.
+ */
+function resetYouTubePlayerUI() {
+  _ytPlayer.videoId = null;
+  _ytPlayer.isPlaying = false;
+  var controls = document.getElementById('youtubePlayerControls');
+  if (controls) controls.classList.add('hidden');
+  var nowPlayingEl = document.getElementById('youtubeNowPlaying');
+  if (nowPlayingEl) nowPlayingEl.classList.add('hidden');
+  var ph = document.getElementById('youtubePlayerPlaceholder');
+  if (ph) ph.style.display = '';
 }
 
 /**
@@ -12971,6 +13007,17 @@ function extractYouTubeVideoId(ref) {
  * @param {string} [title]  - Optional display title
  */
 function ytLoadVideo(videoId, title) {
+  // Guard: only accept valid 11-character YouTube video IDs
+  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    console.error('[YouTubePlayer] Rejected invalid videoId:', videoId);
+    var searchStatus = document.getElementById('youtubeSearchStatus');
+    if (searchStatus) {
+      searchStatus.textContent = 'Invalid video ID. Please paste a valid YouTube link.';
+      searchStatus.classList.remove('hidden');
+    }
+    return;
+  }
+
   _ytPlayer.videoId = videoId;
 
   console.log('[YouTubePlayer] Loading video:', videoId, title || '');
@@ -12996,12 +13043,10 @@ function ytLoadVideo(videoId, title) {
   if (_ytPlayer.player && typeof _ytPlayer.player.loadVideoById === 'function') {
     _ytPlayer.player.loadVideoById(videoId);
   } else {
-    // Player not initialised yet — init it and load after ready
+    // Player not initialised yet — init it; onReady will load _ytPlayer.videoId automatically
     if (!_ytPlayer.player) {
       initYouTubePlayer();
     }
-    // Will auto-load once player is ready via the stored videoId
-    // We store it and rely on initYouTubePlayer + onReady
   }
 
   // Broadcast video change to guests (host only)
@@ -13269,6 +13314,10 @@ function performYoutubeSearch(query) {
           statusEl.classList.remove('hidden');
         }
         console.log('[YouTubeSearch] No results or warning:', data.warning || 'no results');
+        // Clear any stale player state that is not actively playing
+        if (!_ytPlayer.isPlaying) {
+          resetYouTubePlayerUI();
+        }
         return;
       }
 
@@ -13329,6 +13378,10 @@ function performYoutubeSearch(query) {
       if (statusEl) {
         statusEl.textContent = 'Search failed. Paste a YouTube link or video ID instead.';
         statusEl.classList.remove('hidden');
+      }
+      // Clear stale player state if not actively playing
+      if (!_ytPlayer.isPlaying) {
+        resetYouTubePlayerUI();
       }
     });
 }
