@@ -716,26 +716,26 @@ const monetizationState = {
 const VISUAL_PACKS = {
   'neon_pack': {
     id: 'neon_pack',
-    name: 'Neon Lights',
+    name: 'Neon',
     price: 3.99, // GBP - DJ visual effects pack (one-time purchase)
     currency: '£',
-    description: 'Vibrant neon light show',
+    description: 'Electric neon visuals with pulsing energy',
     previewColor: '#5AA9FF'
   },
   'club_pack': {
     id: 'club_pack',
-    name: 'Festival Stage',
-    price: 4.99, // GBP - DJ visual effects pack (one-time purchase)
+    name: 'Club',
+    price: 2.99, // GBP - DJ visual effects pack (one-time purchase)
     currency: '£',
-    description: 'Epic festival vibes',
+    description: 'Dark club vibes with strobing lights',
     previewColor: '#8B7CFF'
   },
   'pulse_pack': {
     id: 'pulse_pack',
-    name: 'Club Pulse',
-    price: 2.99, // GBP - DJ visual effects pack (one-time purchase)
+    name: 'Pulse',
+    price: 3.49, // GBP - DJ visual effects pack (one-time purchase)
     currency: '£',
-    description: 'Underground club energy',
+    description: 'Rhythmic pulse effects synced to the beat',
     previewColor: '#FF6B9D'
   }
 };
@@ -7422,16 +7422,27 @@ async function handleBillingReturn() {
   // Payment screen handlers
   const _btnCompletePayment = el("btnCompletePayment");
   if (_btnCompletePayment) {
-    _btnCompletePayment.onclick = () => {
-      console.log("[UI] Party Pass payment completed (demo)");
-      state.userTier = USER_TIER.PARTY_PASS;
-      state.partyPassActive = true;
-      state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours from now
-      
-      // Notify user about Party Pass activation
-      toast("🎉 Party Pass activated! You have 2 hours of party time.");
-      
-      showHome();
+    _btnCompletePayment.onclick = async () => {
+      console.log("[UI] Party Pass payment initiated");
+      _btnCompletePayment.disabled = true;
+      _btnCompletePayment.textContent = 'Processing...';
+      try {
+        const result = await purchaseUpgrade('party_pass', PAYMENT_METHOD.CARD);
+        if (result.success) {
+          if (result.entitlements && result.upgrades) {
+            applyEntitlementsToState(result.entitlements, result.upgrades);
+          }
+          toast("🎉 Party Pass activated! You have 2 hours of party time.");
+          showHome();
+        } else {
+          toast('❌ Payment failed: ' + (result.error || 'Unknown error'));
+        }
+      } catch (err) {
+        toast('❌ Payment error: ' + err.message);
+      } finally {
+        _btnCompletePayment.disabled = false;
+        _btnCompletePayment.textContent = 'Complete Purchase';
+      }
     };
   }
 
@@ -8853,8 +8864,7 @@ async function handleBillingReturn() {
   const btnSubscribeMonthly = el("btnSubscribeMonthly");
   if (btnSubscribeMonthly) {
     btnSubscribeMonthly.onclick = () => {
-      console.log("[UI] Subscribe Monthly clicked");
-      showHome();
+      initiateCheckout('pro-subscription', 'Pro Subscription', 9.99);
     };
   }
 })();
