@@ -210,6 +210,7 @@ body{
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  touch-action: pan-y; /* allow one-finger vertical scroll on mobile */
 }
 h1{margin:0 0 12px 0; font-weight:900}
 h2,h3{margin:0; font-weight:800}
@@ -614,6 +615,7 @@ h2,h3{margin:0; font-weight:800}
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   position: relative;
   z-index: 2;
+  touch-action: pan-y; /* allow one-finger vertical scroll on mobile */
 }
 
 .glass-card h2 {
@@ -2464,6 +2466,8 @@ h2,h3{margin:0; font-weight:800}
   background: linear-gradient(135deg, #0B0F14 0%, #1a1f2e 50%, #0B0F14 100%);
   z-index: 9999;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
   padding: 20px;
   animation: djScreenSlideIn 0.4s ease;
 }
@@ -2627,6 +2631,8 @@ h2,h3{margin:0; font-weight:800}
   max-height: 500px;
   overflow-y: auto;
   scroll-behavior: smooth;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
 }
 
 .dj-no-messages {
@@ -2800,6 +2806,8 @@ h2,h3{margin:0; font-weight:800}
   max-height: 500px;
   overflow-y: auto;
   scroll-behavior: smooth;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
   padding: 12px;
   background: rgba(0, 0, 0, 0.2);
   border-radius: var(--radius);
@@ -2851,6 +2859,8 @@ h2,h3{margin:0; font-weight:800}
   gap: 10px;
   max-height: 250px;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
   padding: 10px;
   background: rgba(18,24,35,0.4);
   border-radius: var(--radius-sm);
@@ -4005,6 +4015,8 @@ h2,h3{margin:0; font-weight:800}
   max-width: 600px;
   max-height: 80vh;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
   padding: 24px;
 }
 
@@ -4227,6 +4239,7 @@ h2,h3{margin:0; font-weight:800}
   gap: 8px;
   max-width: 90%;
   width: 400px;
+  touch-action: pan-y; /* allow one-finger vertical scroll behind the overlay */
 }
 
 .dj-message {
@@ -4323,6 +4336,8 @@ h2,h3{margin:0; font-weight:800}
 #guestQueueList {
   max-height: 200px;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
 }
 
 .queue-item {
@@ -6256,6 +6271,8 @@ body.light-mode .input-field {
   gap: 0.5rem;
   max-height: 300px;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
 }
 
 .scoreboard-item {
@@ -6405,6 +6422,8 @@ body.light-mode .input-field {
   gap: 0.5rem;
   max-height: 200px;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
 }
 
 .guest-scoreboard-list .scoreboard-item {
@@ -7350,6 +7369,8 @@ body.light-mode .input-field {
 .messaging-feed {
   max-height: 300px;
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
   padding: 0.5rem;
   background: rgba(0, 0, 0, 0.3);
   border-radius: 8px;
@@ -7627,6 +7648,8 @@ body.light-mode .input-field {
   padding: var(--spacing-lg);
   max-height: calc(70vh - 80px);
   overflow-y: auto;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
 }
 
 .dev-nav-subtitle {
