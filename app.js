@@ -750,13 +750,13 @@ const Analytics = {
  */
 const monetizationState = {
   // User's purchased items
-  ownedVisualPacks: [], // ['neon-lights', 'festival-stage', 'club-pulse']
-  ownedTitles: [], // ['rising-dj', 'club-dj', 'superstar-dj', 'legend-dj']
-  ownedProfileUpgrades: [], // ['verified-badge', 'crown-effect', 'animated-name', 'reaction-trail']
+  ownedVisualPacks: [], // ['neon_pack', 'club_pack', 'pulse_pack']
+  ownedTitles: [], // ['rising_title', 'club_title', 'superstar_title', 'legend_title']
+  ownedProfileUpgrades: [], // ['verified_badge', 'crown_effect', 'animated_name', 'reaction_trail']
   
   // Currently active items (only one visual pack and one title at a time)
-  activeVisualPack: null, // 'neon-lights' | 'festival-stage' | 'club-pulse' | null
-  activeTitle: null, // 'rising-dj' | 'club-dj' | 'superstar-dj' | 'legend-dj' | null
+  activeVisualPack: null, // 'neon_pack' | 'club_pack' | 'pulse_pack' | null
+  activeTitle: null, // 'rising_title' | 'club_title' | 'superstar_title' | 'legend_title' | null
   
   // Current party temporary extensions (reset when party ends)
   partyTimeExtensionMins: 0, // Additional minutes added to party
@@ -773,57 +773,57 @@ const monetizationState = {
 
 // Visual Pack definitions
 const VISUAL_PACKS = {
-  'neon-lights': {
-    id: 'neon-lights',
-    name: 'Neon Lights',
+  'neon_pack': {
+    id: 'neon_pack',
+    name: 'Neon',
     price: 3.99, // GBP - DJ visual effects pack (one-time purchase)
     currency: '£',
-    description: 'Vibrant neon light show',
+    description: 'Electric neon visuals with pulsing energy',
     previewColor: '#5AA9FF'
   },
-  'festival-stage': {
-    id: 'festival-stage',
-    name: 'Festival Stage',
-    price: 4.99, // GBP - DJ visual effects pack (one-time purchase)
-    currency: '£',
-    description: 'Epic festival vibes',
-    previewColor: '#8B7CFF'
-  },
-  'club-pulse': {
-    id: 'club-pulse',
-    name: 'Club Pulse',
+  'club_pack': {
+    id: 'club_pack',
+    name: 'Club',
     price: 2.99, // GBP - DJ visual effects pack (one-time purchase)
     currency: '£',
-    description: 'Underground club energy',
+    description: 'Dark club vibes with strobing lights',
+    previewColor: '#8B7CFF'
+  },
+  'pulse_pack': {
+    id: 'pulse_pack',
+    name: 'Pulse',
+    price: 3.49, // GBP - DJ visual effects pack (one-time purchase)
+    currency: '£',
+    description: 'Rhythmic pulse effects synced to the beat',
     previewColor: '#FF6B9D'
   }
 };
 
 // DJ Title definitions
 const DJ_TITLES = {
-  'rising-dj': {
-    id: 'rising-dj',
+  'rising_title': {
+    id: 'rising_title',
     name: 'Rising DJ',
     price: 0.99, // GBP - DJ cosmetic title (one-time purchase)
     currency: '£',
     description: 'Starting your journey'
   },
-  'club-dj': {
-    id: 'club-dj',
+  'club_title': {
+    id: 'club_title',
     name: 'Club DJ',
     price: 1.49, // GBP - DJ cosmetic title (one-time purchase)
     currency: '£',
     description: 'Making moves'
   },
-  'superstar-dj': {
-    id: 'superstar-dj',
+  'superstar_title': {
+    id: 'superstar_title',
     name: 'Superstar DJ',
     price: 2.49, // GBP - DJ cosmetic title (one-time purchase)
     currency: '£',
     description: 'On top of the scene'
   },
-  'legend-dj': {
-    id: 'legend-dj',
+  'legend_title': {
+    id: 'legend_title',
     name: 'Legend DJ',
     price: 3.49, // GBP - DJ cosmetic title (one-time purchase)
     currency: '£',
@@ -833,32 +833,32 @@ const DJ_TITLES = {
 
 // Profile Upgrade definitions (stackable)
 const PROFILE_UPGRADES = {
-  'verified-badge': {
-    id: 'verified-badge',
+  'verified_badge': {
+    id: 'verified_badge',
     name: 'Verified DJ Badge',
     price: 1.99, // GBP - Profile cosmetic upgrade (one-time purchase, stackable)
     currency: '£',
     description: 'Show you\'re legit',
     icon: '✓'
   },
-  'crown-effect': {
-    id: 'crown-effect',
+  'crown_effect': {
+    id: 'crown_effect',
     name: 'Crown Effect',
     price: 2.99, // GBP - Profile cosmetic upgrade (one-time purchase, stackable)
     currency: '£',
     description: 'Royalty vibes',
     icon: '👑'
   },
-  'animated-name': {
-    id: 'animated-name',
+  'animated_name': {
+    id: 'animated_name',
     name: 'Animated Name',
     price: 2.49, // GBP - Profile cosmetic upgrade (one-time purchase, stackable)
     currency: '£',
     description: 'Make your name pop',
     icon: '✨'
   },
-  'reaction-trail': {
-    id: 'reaction-trail',
+  'reaction_trail': {
+    id: 'reaction_trail',
     name: 'Reaction Trail',
     price: 1.99, // GBP - Profile cosmetic upgrade (one-time purchase, stackable)
     currency: '£',
@@ -869,16 +869,16 @@ const PROFILE_UPGRADES = {
 
 // Party Extension definitions
 const PARTY_EXTENSIONS = {
-  'time-30': {
-    id: 'time-30',
+  'add_30min': {
+    id: 'add_30min',
     name: 'Add 30 Minutes',
     price: 0.99, // GBP - Party session extension (per session, stackable)
     currency: '£',
     description: 'Keep the party going',
     extensionMinutes: 30
   },
-  'phones-5': {
-    id: 'phones-5',
+  'add_5phones': {
+    id: 'add_5phones',
     name: 'Add 5 More Phones',
     price: 1.49, // GBP - Party capacity boost (per session, stackable)
     currency: '£',
@@ -888,8 +888,8 @@ const PARTY_EXTENSIONS = {
 };
 
 const HYPE_EFFECTS = {
-  'confetti-blast': {
-    id: 'confetti-blast',
+  'confetti_blast': {
+    id: 'confetti_blast',
     name: 'Confetti Blast',
     price: 0.49, // GBP - Single-use hype effect
     currency: '£',
@@ -897,8 +897,8 @@ const HYPE_EFFECTS = {
     icon: '🎊',
     duration: 5
   },
-  'laser-show': {
-    id: 'laser-show',
+  'laser_show': {
+    id: 'laser_show',
     name: 'Laser Show',
     price: 0.99, // GBP - Single-use hype effect
     currency: '£',
@@ -906,8 +906,8 @@ const HYPE_EFFECTS = {
     icon: '⚡',
     duration: 10
   },
-  'crowd-roar': {
-    id: 'crowd-roar',
+  'crowd_roar': {
+    id: 'crowd_roar',
     name: 'Crowd Roar',
     price: 0.79, // GBP - Single-use hype effect
     currency: '£',
@@ -6883,7 +6883,7 @@ function initializeMusicPlayer() {
   const chooseBtnEl = el("btnChooseMusic");
   if (chooseBtnEl) {
     chooseBtnEl.onclick = () => {
-      const fileInputEl = el("musicFileInput");
+      const fileInputEl = el("musicFileInputCreate");
       if (fileInputEl) {
         fileInputEl.click();
       }
@@ -6894,7 +6894,7 @@ function initializeMusicPlayer() {
   const changeBtnEl = el("btnChangeMusic");
   if (changeBtnEl) {
     changeBtnEl.onclick = () => {
-      const fileInputEl = el("musicFileInput");
+      const fileInputEl = el("musicFileInputCreate");
       if (fileInputEl) {
         fileInputEl.click();
       }
@@ -7612,16 +7612,27 @@ async function handleBillingReturn() {
   // Payment screen handlers
   const _btnCompletePayment = el("btnCompletePayment");
   if (_btnCompletePayment) {
-    _btnCompletePayment.onclick = () => {
-      console.log("[UI] Party Pass payment completed (demo)");
-      state.userTier = USER_TIER.PARTY_PASS;
-      state.partyPassActive = true;
-      state.partyPassEndTime = Date.now() + (2 * 60 * 60 * 1000); // 2 hours from now
-      
-      // Notify user about Party Pass activation
-      toast("🎉 Party Pass activated! You have 2 hours of party time.");
-      
-      showHome();
+    _btnCompletePayment.onclick = async () => {
+      console.log("[UI] Party Pass payment initiated");
+      _btnCompletePayment.disabled = true;
+      _btnCompletePayment.textContent = 'Processing...';
+      try {
+        const result = await purchaseUpgrade('party_pass', PAYMENT_METHOD.CARD);
+        if (result.success) {
+          if (result.entitlements && result.upgrades) {
+            applyEntitlementsToState(result.entitlements, result.upgrades);
+          }
+          toast("🎉 Party Pass activated! You have 2 hours of party time.");
+          showHome();
+        } else {
+          toast('❌ Payment failed: ' + (result.error || 'Unknown error'));
+        }
+      } catch (err) {
+        toast('❌ Payment error: ' + err.message);
+      } finally {
+        _btnCompletePayment.disabled = false;
+        _btnCompletePayment.textContent = 'Complete Purchase';
+      }
     };
   }
 
@@ -9043,8 +9054,7 @@ async function handleBillingReturn() {
   const btnSubscribeMonthly = el("btnSubscribeMonthly");
   if (btnSubscribeMonthly) {
     btnSubscribeMonthly.onclick = () => {
-      console.log("[UI] Subscribe Monthly clicked");
-      showHome();
+      initiateCheckout('pro-subscription', 'Pro Subscription', 9.99);
     };
   }
 })();
@@ -10114,6 +10124,9 @@ function setupAuthEventListeners() {
   if (btnLogout) {
     btnLogout.addEventListener('click', handleLogout);
   }
+
+  // Logout button in profile view
+  document.getElementById('btnLogoutProfile')?.addEventListener('click', handleLogout);
   
   // Close profile
   const btnCloseProfile = document.getElementById('btnCloseProfile');
@@ -11421,57 +11434,86 @@ function showCheckoutStep(stepId) {
 /**
  * Process checkout payment
  */
-function processCheckoutPayment() {
+async function processCheckoutPayment() {
   if (!currentCheckout) return;
-  
-  // Simulate payment processing
-  setTimeout(() => {
-    // Process the purchase based on type
-    let result = { success: false };
-    
-    switch (currentCheckout.type) {
-      case 'pro-subscription':
-        result = purchaseProSubscription();
-        break;
-      case 'party-pass':
-        result = purchasePartyPass();
-        break;
-      case 'visual-pack':
-        result = purchaseVisualPack(currentCheckout.itemId);
-        break;
-      case 'dj-title':
-        result = purchaseTitle(currentCheckout.itemId);
-        break;
-      case 'profile-upgrade':
-        result = purchaseProfileUpgrade(currentCheckout.itemId);
-        break;
-      case 'party-extension':
-        result = purchasePartyExtension(currentCheckout.itemId);
-        break;
-      case 'hype-effect':
-        result = purchaseHypeEffect(currentCheckout.itemId);
-        break;
-    }
-    
-    if (result.success) {
+
+  const { type, itemId } = currentCheckout;
+
+  // Map checkout type to backend itemId
+  const backendItemId = type === 'pro-subscription' ? 'pro_monthly'
+    : type === 'party-pass' ? 'party_pass'
+    : itemId;
+
+  // Party Pass and Pro Monthly use Stripe payment flow (purchaseUpgrade from payment-client.js)
+  if (type === 'party-pass' || type === 'pro-subscription') {
+    const productId = type === 'party-pass' ? 'party_pass' : 'pro_monthly';
+    try {
+      const result = await purchaseUpgrade(productId, PAYMENT_METHOD.CARD);
+      if (!result.success) {
+        showToast('❌ Purchase failed: ' + (result.error || 'Unknown error'));
+        closeCheckout();
+        return;
+      }
+      if (result.entitlements && result.upgrades) {
+        applyEntitlementsToState(result.entitlements, result.upgrades);
+      }
       showCheckoutStep('checkoutSuccess');
-      
-      // Update relevant store UIs
-      updateVisualPackStore();
-      updateProfileUpgradesStore();
-      updateDjTitleStore();
-      updateHypeEffectsStore();
-      
-      // Apply changes immediately
-      applyActiveVisualPack();
-      applyProfileUpgrades();
-      updateDJTitleDisplay();
       updateTierDisplay();
-    } else {
-      showToast('❌ Purchase failed: ' + (result.error || 'Unknown error'));
+    } catch (err) {
+      showToast('❌ Payment error: ' + err.message);
       closeCheckout();
     }
-  }, 1000);
+    return;
+  }
+
+  // All other items go through /api/purchase
+  try {
+    const partyCode = state.partyCode || null;
+    const resp = await fetch(API_BASE + '/api/purchase', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ itemId: backendItemId, partyCode })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) {
+      showToast('❌ Purchase failed: ' + (data.error || 'Unknown error'));
+      closeCheckout();
+      return;
+    }
+
+    // Update local monetization state to reflect ownership
+    if (type === 'visual-pack') {
+      if (!monetizationState.ownedVisualPacks.includes(backendItemId)) {
+        monetizationState.ownedVisualPacks.push(backendItemId);
+      }
+      if (!monetizationState.activeVisualPack) {
+        monetizationState.activeVisualPack = backendItemId;
+      }
+    } else if (type === 'dj-title') {
+      if (!monetizationState.ownedTitles.includes(backendItemId)) {
+        monetizationState.ownedTitles.push(backendItemId);
+      }
+    } else if (type === 'profile-upgrade') {
+      if (!monetizationState.ownedProfileUpgrades.includes(backendItemId)) {
+        monetizationState.ownedProfileUpgrades.push(backendItemId);
+      }
+    }
+    saveMonetizationState();
+
+    showCheckoutStep('checkoutSuccess');
+    updateVisualPackStore();
+    updateProfileUpgradesStore();
+    updateDjTitleStore();
+    updateHypeEffectsStore();
+    applyActiveVisualPack();
+    applyProfileUpgrades();
+    updateDJTitleDisplay();
+    updateTierDisplay();
+  } catch (err) {
+    showToast('❌ Purchase error: ' + err.message);
+    closeCheckout();
+  }
 }
 
 /**
@@ -11736,7 +11778,7 @@ async function loadMyProfile() {
     if (profileContent) profileContent.classList.remove('hidden');
     
     // Update profile data
-    const djName = document.getElementById('profileDjName');
+    const djName = document.getElementById('profileDjNameHeader');
     if (djName) djName.textContent = data.user.djName || 'Guest DJ';
     
     const tier = document.getElementById('profileTier');

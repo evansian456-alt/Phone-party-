@@ -436,7 +436,7 @@
           <div class="music-section">
             <h4 class="music-section-title">🎵 Music (from your phone)</h4>
             <div class="music-controls">
-              <input type="file" id="musicFileInput" accept="audio/*" style="display: none;" />
+              <input type="file" id="musicFileInputCreate" accept="audio/*" style="display: none;" />
               <button type="button" class="btn secondary" id="btnChooseMusic">Choose music file</button>
               <button type="button" class="btn secondary hidden" id="btnChangeMusic">Change file</button>
             </div>
@@ -449,12 +449,12 @@
             </div>
             
             <!-- Upload Status -->
-            <div class="hidden" id="uploadStatus">
+            <div class="hidden" id="uploadStatusCreate">
               <div class="upload-progress-container">
                 <div class="upload-progress-bar">
                   <div class="upload-progress-fill" id="uploadProgressBar" style="width: 0%"></div>
                 </div>
-                <div class="upload-progress-text" id="uploadProgress">Preparing upload...</div>
+                <div class="upload-progress-text" id="uploadProgressCreate">Preparing upload...</div>
               </div>
             </div>
             
@@ -1341,10 +1341,10 @@
 
       <div class="payment-form glass-card">
         <h3>Payment Method</h3>
-        <p class="muted tiny">This is a prototype - payment processing not implemented</p>
+        <p class="muted tiny">Payments processed securely via Stripe</p>
         
         <div class="payment-buttons">
-          <button class="btn btn-party-pass" id="btnCompletePayment">Complete Purchase (Demo)</button>
+          <button class="btn btn-party-pass" id="btnCompletePayment">Complete Purchase</button>
           <button class="btn secondary" id="btnCancelPayment">Cancel</button>
         </div>
       </div>
@@ -1533,14 +1533,7 @@
           🔄 Tap to Sync
         </button>
         <div class="tiny muted" style="margin-bottom: 20px;">Manually re-sync if audio drifts</div>
-        
-        <!-- Volume Control -->
-        <div class="guest-volume-control">
-          <label class="tiny muted" for="guestVolumeSlider">🔊 Volume</label>
-          <input type="range" id="guestVolumeSlider" min="0" max="100" value="80" class="volume-slider" />
-          <span class="tiny muted" id="guestVolumeValue">80%</span>
-        </div>
-        
+
         <!-- Sync Quality Indicator -->
         <div class="sync-quality-section">
           <div class="sync-quality-header">
@@ -2297,7 +2290,7 @@
       </div>
 
       <div class="glass-card">
-        <button class="btn danger full-width" id="btnLogout" data-testid="logout-button-profile">Log Out</button>
+        <button class="btn danger full-width" id="btnLogoutProfile" data-testid="logout-button-profile">Log Out</button>
       </div>
     </div>
   </section>
@@ -2422,39 +2415,39 @@
 
       <div class="store-grid">
         <!-- Neon Pack -->
-        <div class="store-item" data-pack-id="neon-pack">
+        <div class="store-item" data-pack-id="neon_pack">
           <div class="store-preview" style="background: linear-gradient(135deg, #5AA9FF, #8B7CFF);">
             <div class="preview-animation neon-pulse"></div>
           </div>
           <h3>Neon Pack</h3>
           <p class="store-price">£3.99</p>
           <p class="store-description">Vibrant neon light show</p>
-          <button class="btn primary btn-buy-pack" data-pack-id="neon-pack">BUY</button>
-          <button class="btn btn-activate-pack hidden" data-pack-id="neon-pack">Set Active</button>
+          <button class="btn primary btn-buy-pack" data-pack-id="neon_pack">BUY</button>
+          <button class="btn btn-activate-pack hidden" data-pack-id="neon_pack">Set Active</button>
         </div>
 
         <!-- Club Pack -->
-        <div class="store-item" data-pack-id="club-pack">
+        <div class="store-item" data-pack-id="club_pack">
           <div class="store-preview" style="background: linear-gradient(135deg, #FF6B9D, #5AA9FF);">
             <div class="preview-animation club-pulse"></div>
           </div>
           <h3>Club Pack</h3>
           <p class="store-price">£2.99</p>
           <p class="store-description">Underground club energy</p>
-          <button class="btn primary btn-buy-pack" data-pack-id="club-pack">BUY</button>
-          <button class="btn btn-activate-pack hidden" data-pack-id="club-pack">Set Active</button>
+          <button class="btn primary btn-buy-pack" data-pack-id="club_pack">BUY</button>
+          <button class="btn btn-activate-pack hidden" data-pack-id="club_pack">Set Active</button>
         </div>
 
         <!-- Pulse Pack -->
-        <div class="store-item" data-pack-id="pulse-pack">
+        <div class="store-item" data-pack-id="pulse_pack">
           <div class="store-preview" style="background: linear-gradient(135deg, #8B7CFF, #FF6B9D);">
             <div class="preview-animation festival-pulse"></div>
           </div>
           <h3>Pulse Pack</h3>
           <p class="store-price">£3.49</p>
           <p class="store-description">Dynamic pulse effects</p>
-          <button class="btn primary btn-buy-pack" data-pack-id="pulse-pack">BUY</button>
-          <button class="btn btn-activate-pack hidden" data-pack-id="pulse-pack">Set Active</button>
+          <button class="btn primary btn-buy-pack" data-pack-id="pulse_pack">BUY</button>
+          <button class="btn btn-activate-pack hidden" data-pack-id="pulse_pack">Set Active</button>
         </div>
       </div>
     </div>
@@ -2472,42 +2465,42 @@
 
       <div class="store-grid">
         <!-- Verified DJ Badge -->
-        <div class="store-item" data-upgrade-id="verified-badge">
+        <div class="store-item" data-upgrade-id="verified_badge">
           <div class="store-icon">✓</div>
           <h3>Verified DJ Badge</h3>
           <p class="store-price">£1.99</p>
           <p class="store-description">Show you're legit</p>
-          <button class="btn primary btn-buy-upgrade" data-upgrade-id="verified-badge">BUY</button>
+          <button class="btn primary btn-buy-upgrade" data-upgrade-id="verified_badge">BUY</button>
           <div class="owned-badge hidden">OWNED</div>
         </div>
 
         <!-- Crown Effect -->
-        <div class="store-item" data-upgrade-id="crown-effect">
+        <div class="store-item" data-upgrade-id="crown_effect">
           <div class="store-icon">👑</div>
           <h3>Crown Effect</h3>
           <p class="store-price">£2.99</p>
           <p class="store-description">Royalty vibes</p>
-          <button class="btn primary btn-buy-upgrade" data-upgrade-id="crown-effect">BUY</button>
+          <button class="btn primary btn-buy-upgrade" data-upgrade-id="crown_effect">BUY</button>
           <div class="owned-badge hidden">OWNED</div>
         </div>
 
         <!-- Animated Name -->
-        <div class="store-item" data-upgrade-id="animated-name">
+        <div class="store-item" data-upgrade-id="animated_name">
           <div class="store-icon">✨</div>
           <h3>Animated Name</h3>
           <p class="store-price">£2.49</p>
           <p class="store-description">Make your name pop</p>
-          <button class="btn primary btn-buy-upgrade" data-upgrade-id="animated-name">BUY</button>
+          <button class="btn primary btn-buy-upgrade" data-upgrade-id="animated_name">BUY</button>
           <div class="owned-badge hidden">OWNED</div>
         </div>
 
         <!-- Reaction Trail -->
-        <div class="store-item" data-upgrade-id="reaction-trail">
+        <div class="store-item" data-upgrade-id="reaction_trail">
           <div class="store-icon">🌟</div>
           <h3>Reaction Trail</h3>
           <p class="store-price">£1.99</p>
           <p class="store-description">Leave your mark</p>
-          <button class="btn primary btn-buy-upgrade" data-upgrade-id="reaction-trail">BUY</button>
+          <button class="btn primary btn-buy-upgrade" data-upgrade-id="reaction_trail">BUY</button>
           <div class="owned-badge hidden">OWNED</div>
         </div>
       </div>
@@ -2531,7 +2524,7 @@
           <h3>Add 30 Minutes</h3>
           <p class="store-price">£0.99</p>
           <p class="store-description">Keep the party going</p>
-          <button class="btn primary btn-buy-extension" data-extension-id="time-30">Add Time</button>
+          <button class="btn primary btn-buy-extension" data-extension-id="add_30min">Add Time</button>
         </div>
 
         <!-- Add 5 More Phones -->
@@ -2540,7 +2533,7 @@
           <h3>Add 5 More Phones</h3>
           <p class="store-price">£1.49</p>
           <p class="store-description">Bring more friends</p>
-          <button class="btn primary btn-buy-extension" data-extension-id="phones-5">Add Phones</button>
+          <button class="btn primary btn-buy-extension" data-extension-id="add_5phones">Add Phones</button>
         </div>
       </div>
     </div>
@@ -2558,39 +2551,39 @@
 
       <div class="store-grid">
         <!-- Rising DJ -->
-        <div class="store-item" data-title-id="rising-dj">
+        <div class="store-item" data-title-id="rising_title">
           <div class="title-display">Rising DJ</div>
           <p class="store-price">£0.99</p>
           <p class="store-description">Starting your journey</p>
-          <button class="btn primary btn-buy-title" data-title-id="rising-dj">BUY</button>
-          <button class="btn btn-activate-title hidden" data-title-id="rising-dj">Activate</button>
+          <button class="btn primary btn-buy-title" data-title-id="rising_title">BUY</button>
+          <button class="btn btn-activate-title hidden" data-title-id="rising_title">Activate</button>
         </div>
 
         <!-- Club DJ -->
-        <div class="store-item" data-title-id="club-dj">
+        <div class="store-item" data-title-id="club_title">
           <div class="title-display">Club DJ</div>
           <p class="store-price">£1.49</p>
           <p class="store-description">Making moves</p>
-          <button class="btn primary btn-buy-title" data-title-id="club-dj">BUY</button>
-          <button class="btn btn-activate-title hidden" data-title-id="club-dj">Activate</button>
+          <button class="btn primary btn-buy-title" data-title-id="club_title">BUY</button>
+          <button class="btn btn-activate-title hidden" data-title-id="club_title">Activate</button>
         </div>
 
         <!-- Superstar DJ -->
-        <div class="store-item" data-title-id="superstar-dj">
+        <div class="store-item" data-title-id="superstar_title">
           <div class="title-display">Superstar DJ</div>
           <p class="store-price">£2.49</p>
           <p class="store-description">On top of the scene</p>
-          <button class="btn primary btn-buy-title" data-title-id="superstar-dj">BUY</button>
-          <button class="btn btn-activate-title hidden" data-title-id="superstar-dj">Activate</button>
+          <button class="btn primary btn-buy-title" data-title-id="superstar_title">BUY</button>
+          <button class="btn btn-activate-title hidden" data-title-id="superstar_title">Activate</button>
         </div>
 
         <!-- Legend DJ -->
-        <div class="store-item" data-title-id="legend-dj">
+        <div class="store-item" data-title-id="legend_title">
           <div class="title-display">Legend DJ</div>
           <p class="store-price">£3.49</p>
           <p class="store-description">Hall of fame status</p>
-          <button class="btn primary btn-buy-title" data-title-id="legend-dj">BUY</button>
-          <button class="btn btn-activate-title hidden" data-title-id="legend-dj">Activate</button>
+          <button class="btn primary btn-buy-title" data-title-id="legend_title">BUY</button>
+          <button class="btn btn-activate-title hidden" data-title-id="legend_title">Activate</button>
         </div>
       </div>
     </div>
@@ -2608,33 +2601,33 @@
 
       <div class="store-grid">
         <!-- Confetti Blast -->
-        <div class="store-item" data-hype-id="confetti-blast">
+        <div class="store-item" data-hype-id="confetti_blast">
           <div class="store-icon">🎊</div>
           <h3>Confetti Blast</h3>
           <p class="store-price">£0.49</p>
           <p class="store-description">Epic confetti explosion</p>
-          <button class="btn primary btn-buy-hype" data-hype-id="confetti-blast">BUY & USE</button>
-          <div class="hype-quantity hidden" data-hype-id="confetti-blast">Owned: <span>0</span></div>
+          <button class="btn primary btn-buy-hype" data-hype-id="confetti_blast">BUY & USE</button>
+          <div class="hype-quantity hidden" data-hype-id="confetti_blast">Owned: <span>0</span></div>
         </div>
 
         <!-- Laser Show -->
-        <div class="store-item" data-hype-id="laser-show">
+        <div class="store-item" data-hype-id="laser_show">
           <div class="store-icon">⚡</div>
           <h3>Laser Show</h3>
           <p class="store-price">£0.99</p>
           <p class="store-description">Synchronized laser effects</p>
-          <button class="btn primary btn-buy-hype" data-hype-id="laser-show">BUY & USE</button>
-          <div class="hype-quantity hidden" data-hype-id="laser-show">Owned: <span>0</span></div>
+          <button class="btn primary btn-buy-hype" data-hype-id="laser_show">BUY & USE</button>
+          <div class="hype-quantity hidden" data-hype-id="laser_show">Owned: <span>0</span></div>
         </div>
 
         <!-- Crowd Roar -->
-        <div class="store-item" data-hype-id="crowd-roar">
+        <div class="store-item" data-hype-id="crowd_roar">
           <div class="store-icon">📣</div>
           <h3>Crowd Roar</h3>
           <p class="store-price">£0.79</p>
           <p class="store-description">Massive crowd cheer sound</p>
-          <button class="btn primary btn-buy-hype" data-hype-id="crowd-roar">BUY & USE</button>
-          <div class="hype-quantity hidden" data-hype-id="crowd-roar">Owned: <span>0</span></div>
+          <button class="btn primary btn-buy-hype" data-hype-id="crowd_roar">BUY & USE</button>
+          <div class="hype-quantity hidden" data-hype-id="crowd_roar">Owned: <span>0</span></div>
         </div>
 
         <!-- Fireworks -->
@@ -2688,7 +2681,7 @@
     <div class="profile-content hidden" id="profileContent">
       <!-- Profile Header -->
       <div class="profile-header">
-        <h2 id="profileDjName">Guest DJ</h2>
+        <h2 id="profileDjNameHeader">Guest DJ</h2>
         <div class="profile-tier" id="profileTier">FREE</div>
       </div>
       
@@ -2845,7 +2838,7 @@
       <!-- Step 2: Payment Entry -->
       <div class="checkout-step hidden" id="checkoutPayment">
         <h2>Payment Details</h2>
-        <p class="muted">This is a demo - no real payment is processed</p>
+        <p class="muted">Your card details are processed securely via Stripe</p>
         <div class="form-group">
           <label>Card Number</label>
           <input type="text" class="input-field" placeholder="1234 5678 9012 3456" maxlength="19" />
