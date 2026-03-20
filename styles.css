@@ -8254,11 +8254,36 @@ body {
   }
 }
 
+/* YouTube search row — keep input + button in a single flex line on all screen sizes */
+.yt-search-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Override the global mobile width:100% reset for the search row elements */
+.yt-search-input,
+.yt-search-btn {
+  width: auto;
+  box-sizing: border-box;
+}
+
+.yt-search-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.yt-search-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* YouTube search input — ensure text is always clearly visible */
 #youtubeSearchInput {
-  font-size: 16px;
+  font-size: 16px; /* prevents iOS auto-zoom on focus */
   color: #ffffff;
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
 }
 #youtubeSearchInput::placeholder {
