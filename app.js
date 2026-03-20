@@ -168,6 +168,7 @@ async function fetchFeatureFlags() {
  *
  * Handles:
  *  - The guest "tap to play" overlay (#guestTapOverlay)
+ *  - The DJ screen overlay (#djScreenOverlay)
  *  - The referral share-sheet (#shareSheetModal)
  *  - Any body-level .modal elements that have had .hidden removed
  */
@@ -176,6 +177,15 @@ function _closeAllOverlays() {
   const tapOverlay = document.getElementById('guestTapOverlay');
   if (tapOverlay) {
     tapOverlay.style.display = 'none';
+  }
+
+  // Hide the DJ screen overlay — it is position:fixed and lives inside
+  // #viewParty; showView() hides #viewParty via display:none which does
+  // hide its children, but adding .hidden here is an explicit safety net
+  // in case the overlay is ever moved or rendered outside that section.
+  const djOverlay = document.getElementById('djScreenOverlay');
+  if (djOverlay && !djOverlay.classList.contains('hidden')) {
+    djOverlay.classList.add('hidden');
   }
 
   // Remove the dynamically-created referral share sheet from the DOM
