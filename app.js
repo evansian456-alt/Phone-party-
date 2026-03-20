@@ -160,6 +160,40 @@ async function fetchFeatureFlags() {
 }
 
 /**
+ * Close any stray full-screen overlays and body-level modals.
+ * Must be called on every view transition so that position:fixed overlays
+ * (appended directly to <body> rather than inside a section) cannot remain
+ * on-screen after navigation — an open overlay would intercept all touch
+ * events and freeze the page on mobile.
+ *
+ * Handles:
+ *  - The guest "tap to play" overlay (#guestTapOverlay)
+ *  - The referral share-sheet (#shareSheetModal)
+ *  - Any body-level .modal elements that have had .hidden removed
+ */
+function _closeAllOverlays() {
+  // Hide the guest tap-to-play overlay if it exists and is visible
+  const tapOverlay = document.getElementById('guestTapOverlay');
+  if (tapOverlay) {
+    tapOverlay.style.display = 'none';
+  }
+
+  // Remove the dynamically-created referral share sheet from the DOM
+  const shareSheet = document.getElementById('shareSheetModal');
+  if (shareSheet) {
+    shareSheet.remove();
+  }
+
+  // Re-add .hidden to any body-level .modal elements that are currently shown.
+  // Modals inside view sections are automatically hidden when their parent section
+  // gets display:none via showView(), but modals appended to <body> directly are
+  // not affected and must be closed explicitly.
+  document.querySelectorAll('body > .modal:not(.hidden)').forEach(modal => {
+    modal.classList.add('hidden');
+  });
+}
+
+/**
  * Navigate to a named view.
  * @param {string} viewName  - Key from VIEWS registry
  * @param {object} [opts]
@@ -213,10 +247,14 @@ function setView(viewName, opts = {}) {
   _currentViewName = viewName;
   console.log('[NAV]', from, '->', viewName, { hash: '#' + view.hash });
 
-  // When leaving the guest view, hide the tap-to-play overlay and stop audio sync.
-  // cleanupGuestAudio() hides the full-screen overlay (guestTapOverlay) which is
-  // appended directly to <body> and would otherwise intercept touch events and
-  // block one-finger page scroll on any view the user navigates to.
+  // Close any stray full-screen overlays and open modals before switching views.
+  // position:fixed overlays appended directly to <body> are not affected by
+  // showView()'s section hide/show and would remain on-screen, intercepting
+  // every touch event and freezing the page on mobile if not explicitly closed.
+  _closeAllOverlays();
+
+  // When leaving the guest view, also stop audio sync (audio cleanup is handled
+  // by _closeAllOverlays above for the tap overlay; this stops the sync loop).
   if (from === 'guest' && viewName !== 'guest') {
     if (typeof cleanupGuestAudio === 'function') {
       cleanupGuestAudio();
@@ -4224,6 +4262,23 @@ function cleanupGuestAudio() {
     // Stop drift correction
     stopDriftCorrection();
 
+    // Clear source to free memory
+    state.guestAudioElement.src = "";
+    state.guestAudioElement.load(); // Force release
+    
+    // Remove element
+    state.guestAudioElement = null;
+    state.guestAudioReady = false;
+    state.guestNeedsTap = false;
+  }
+  
+  // Hide tap overlay if visible
+  const overlay = el("guestTapOverlay");
+  if (overlay) {
+    overlay.style.display = "none";
+  }
+}
+
 // Update guest queue display
 // PHASE 7: Update host queue UI display
 function updateHostQueueUI() {
@@ -4292,23 +4347,6 @@ function updateGuestQueue(queue) {
       </div>
     </div>
   `).join('');
-}
-    
-    // Clear source to free memory
-    state.guestAudioElement.src = "";
-    state.guestAudioElement.load(); // Force release
-    
-    // Remove element
-    state.guestAudioElement = null;
-    state.guestAudioReady = false;
-    state.guestNeedsTap = false;
-  }
-  
-  // Hide tap overlay if visible
-  const overlay = el("guestTapOverlay");
-  if (overlay) {
-    overlay.style.display = "none";
-  }
 }
 
 // Display DJ auto-generated message
