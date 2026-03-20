@@ -160,6 +160,40 @@ async function fetchFeatureFlags() {
 }
 
 /**
+ * Close any stray full-screen overlays and body-level modals.
+ * Must be called on every view transition so that position:fixed overlays
+ * (appended directly to <body> rather than inside a section) cannot remain
+ * on-screen after navigation — an open overlay would intercept all touch
+ * events and freeze the page on mobile.
+ *
+ * Handles:
+ *  - The guest "tap to play" overlay (#guestTapOverlay)
+ *  - The referral share-sheet (#shareSheetModal)
+ *  - Any body-level .modal elements that have had .hidden removed
+ */
+function _closeAllOverlays() {
+  // Hide the guest tap-to-play overlay if it exists and is visible
+  const tapOverlay = document.getElementById('guestTapOverlay');
+  if (tapOverlay) {
+    tapOverlay.style.display = 'none';
+  }
+
+  // Remove the dynamically-created referral share sheet from the DOM
+  const shareSheet = document.getElementById('shareSheetModal');
+  if (shareSheet) {
+    shareSheet.remove();
+  }
+
+  // Re-add .hidden to any body-level .modal elements that are currently shown.
+  // Modals inside view sections are automatically hidden when their parent section
+  // gets display:none via showView(), but modals appended to <body> directly are
+  // not affected and must be closed explicitly.
+  document.querySelectorAll('body > .modal:not(.hidden)').forEach(modal => {
+    modal.classList.add('hidden');
+  });
+}
+
+/**
  * Navigate to a named view.
  * @param {string} viewName  - Key from VIEWS registry
  * @param {object} [opts]
@@ -212,6 +246,20 @@ function setView(viewName, opts = {}) {
   const from = _currentViewName;
   _currentViewName = viewName;
   console.log('[NAV]', from, '->', viewName, { hash: '#' + view.hash });
+
+  // Close any stray full-screen overlays and open modals before switching views.
+  // position:fixed overlays appended directly to <body> are not affected by
+  // showView()'s section hide/show and would remain on-screen, intercepting
+  // every touch event and freezing the page on mobile if not explicitly closed.
+  _closeAllOverlays();
+
+  // When leaving the guest view, also stop audio sync (audio cleanup is handled
+  // by _closeAllOverlays above for the tap overlay; this stops the sync loop).
+  if (from === 'guest' && viewName !== 'guest') {
+    if (typeof cleanupGuestAudio === 'function') {
+      cleanupGuestAudio();
+    }
+  }
 
   // Update location hash:
   // - pushState for normal navigation (new history entry)
@@ -4302,6 +4350,23 @@ function cleanupGuestAudio() {
     // Stop drift correction
     stopDriftCorrection();
 
+    // Clear source to free memory
+    state.guestAudioElement.src = "";
+    state.guestAudioElement.load(); // Force release
+    
+    // Remove element
+    state.guestAudioElement = null;
+    state.guestAudioReady = false;
+    state.guestNeedsTap = false;
+  }
+  
+  // Hide tap overlay if visible
+  const overlay = el("guestTapOverlay");
+  if (overlay) {
+    overlay.style.display = "none";
+  }
+}
+
 // Update guest queue display
 // PHASE 7: Update host queue UI display
 function updateHostQueueUI() {
@@ -4370,23 +4435,6 @@ function updateGuestQueue(queue) {
       </div>
     </div>
   `).join('');
-}
-    
-    // Clear source to free memory
-    state.guestAudioElement.src = "";
-    state.guestAudioElement.load(); // Force release
-    
-    // Remove element
-    state.guestAudioElement = null;
-    state.guestAudioReady = false;
-    state.guestNeedsTap = false;
-  }
-  
-  // Hide tap overlay if visible
-  const overlay = el("guestTapOverlay");
-  if (overlay) {
-    overlay.style.display = "none";
-  }
 }
 
 // Display DJ auto-generated message
@@ -12971,6 +13019,10 @@ function initYouTubePlayer() {
         console.log('[YouTubePlayer] Player ready');
         var ph = document.getElementById('youtubePlayerPlaceholder');
         if (ph) ph.style.display = 'none';
+        // Load any video that was queued before the player was ready
+        if (_ytPlayer.videoId) {
+          event.target.loadVideoById(_ytPlayer.videoId);
+        }
       },
       onStateChange: function(event) {
         _ytPlayer.isPlaying = (event.data === YT.PlayerState.PLAYING);
@@ -12984,11 +13036,33 @@ function initYouTubePlayer() {
       },
       onError: function(event) {
         console.error('[YouTubePlayer] Player error:', event.data);
+        // Clear the stale video state so the UI is not left in a broken condition
+        resetYouTubePlayerUI();
         var statusEl = document.getElementById('youtubePlayerStatus');
-        if (statusEl) statusEl.textContent = 'Playback error — check the video ID';
+        if (statusEl) statusEl.textContent = 'Playback error — try another video';
+        var searchStatus = document.getElementById('youtubeSearchStatus');
+        if (searchStatus) {
+          searchStatus.textContent = 'Video playback failed. Try a different video or paste a direct URL.';
+          searchStatus.classList.remove('hidden');
+        }
       }
     }
   });
+}
+
+/**
+ * Reset the host YouTube player UI to its empty/placeholder state.
+ * Called when playback errors, searches return no results, or searches fail.
+ */
+function resetYouTubePlayerUI() {
+  _ytPlayer.videoId = null;
+  _ytPlayer.isPlaying = false;
+  var controls = document.getElementById('youtubePlayerControls');
+  if (controls) controls.classList.add('hidden');
+  var nowPlayingEl = document.getElementById('youtubeNowPlaying');
+  if (nowPlayingEl) nowPlayingEl.classList.add('hidden');
+  var ph = document.getElementById('youtubePlayerPlaceholder');
+  if (ph) ph.style.display = '';
 }
 
 /**
@@ -13027,6 +13101,17 @@ function extractYouTubeVideoId(ref) {
  * @param {string} [title]  - Optional display title
  */
 function ytLoadVideo(videoId, title) {
+  // Guard: only accept valid 11-character YouTube video IDs
+  if (!videoId || !/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+    console.error('[YouTubePlayer] Rejected invalid videoId:', videoId);
+    var searchStatus = document.getElementById('youtubeSearchStatus');
+    if (searchStatus) {
+      searchStatus.textContent = 'Invalid video ID. Please paste a valid YouTube link.';
+      searchStatus.classList.remove('hidden');
+    }
+    return;
+  }
+
   _ytPlayer.videoId = videoId;
 
   console.log('[YouTubePlayer] Loading video:', videoId, title || '');
@@ -13052,12 +13137,10 @@ function ytLoadVideo(videoId, title) {
   if (_ytPlayer.player && typeof _ytPlayer.player.loadVideoById === 'function') {
     _ytPlayer.player.loadVideoById(videoId);
   } else {
-    // Player not initialised yet — init it and load after ready
+    // Player not initialised yet — init it; onReady will load _ytPlayer.videoId automatically
     if (!_ytPlayer.player) {
       initYouTubePlayer();
     }
-    // Will auto-load once player is ready via the stored videoId
-    // We store it and rely on initYouTubePlayer + onReady
   }
 
   // Broadcast video change to guests (host only)
@@ -13325,6 +13408,10 @@ function performYoutubeSearch(query) {
           statusEl.classList.remove('hidden');
         }
         console.log('[YouTubeSearch] No results or warning:', data.warning || 'no results');
+        // Clear any stale player state that is not actively playing
+        if (!_ytPlayer.isPlaying) {
+          resetYouTubePlayerUI();
+        }
         return;
       }
 
@@ -13385,6 +13472,10 @@ function performYoutubeSearch(query) {
       if (statusEl) {
         statusEl.textContent = 'Search failed. Paste a YouTube link or video ID instead.';
         statusEl.classList.remove('hidden');
+      }
+      // Clear stale player state if not actively playing
+      if (!_ytPlayer.isPlaying) {
+        resetYouTubePlayerUI();
       }
     });
 }

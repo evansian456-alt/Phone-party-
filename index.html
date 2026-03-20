@@ -928,10 +928,10 @@
 
           <!-- Search / URL input -->
           <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem;">
-            <div style="display:flex;gap:0.5rem;align-items:center;">
-              <input class="input" id="youtubeSearchInput" placeholder="Search YouTube or paste a link"
-                     style="flex:1;" data-testid="youtube-search-input" />
-              <button class="btn primary" id="btnYoutubeSearch" data-testid="btn-youtube-search">🔍 Search</button>
+            <div class="yt-search-row" style="display:flex;gap:0.5rem;align-items:center;min-width:0;">
+              <input class="input yt-search-input" id="youtubeSearchInput" placeholder="Search YouTube or paste a link"
+                     style="flex:1;min-width:0;" data-testid="youtube-search-input" />
+              <button class="btn primary yt-search-btn" id="btnYoutubeSearch" data-testid="btn-youtube-search">🔍 Search</button>
             </div>
             <div id="youtubeSearchStatus" class="tiny muted hidden" data-testid="youtube-search-status"></div>
           </div>
