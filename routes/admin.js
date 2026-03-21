@@ -538,14 +538,15 @@ module.exports = function createAdminRouter(deps) {
 
   /**
    * POST /api/admin/promo-codes
-   * Generate a new one-time-use promo code (party_pass or pro_monthly).
-   * Body: { type: 'party_pass' | 'pro_monthly' }
+   * Generate a new one-time-use promo code.
+   * Body: { type: 'party_pass' | 'pro_monthly' | 'party_pass_one_time' | 'monthly_subscription_one_time' }
    */
   router.post('/api/admin/promo-codes', rateLimit({ windowMs: 60000, max: 60 }), authMiddleware.requireAdmin, async (req, res) => {
     try {
       const { type } = req.body;
-      if (!type || !['party_pass', 'pro_monthly'].includes(type)) {
-        return res.status(400).json({ error: "type must be 'party_pass' or 'pro_monthly'" });
+      const VALID_TYPES = ['party_pass', 'pro_monthly', 'party_pass_one_time', 'monthly_subscription_one_time'];
+      if (!type || !VALID_TYPES.includes(type)) {
+        return res.status(400).json({ error: "type must be one of: " + VALID_TYPES.join(', ') });
       }
 
       const code = generatePromoCodeString();

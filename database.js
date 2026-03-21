@@ -423,6 +423,51 @@ async function activateProMonthly(userId, provider, providerSubscriptionId) {
 }
 
 /**
+ * Activate Pro Monthly subscription with a fixed expiry (for promo-based monthly subs).
+ * Grants exactly one month from the provided redemptionTime (defaults to NOW()).
+ * Sets pro_monthly_expires_at so the entitlement lapses automatically after 1 month.
+ *
+ * Month addition is clamped to the last day of the target month to handle edge cases
+ * such as January 31 → February 28/29 (instead of overflowing into March).
+ */
+async function activateProMonthlyWithExpiry(userId, provider, providerSubscriptionId, redemptionTime) {
+  try {
+    const redeemed = redemptionTime ? new Date(redemptionTime) : new Date();
+
+    // Add 1 calendar month, clamping to the last valid day if the date overflows
+    const expiresAt = new Date(redeemed);
+    const targetMonth = (expiresAt.getMonth() + 1) % 12;
+    expiresAt.setMonth(expiresAt.getMonth() + 1);
+    // If the month overflowed (e.g. Jan 31 → Mar 3) set back to last day of target month
+    if (expiresAt.getMonth() !== targetMonth) {
+      expiresAt.setDate(0); // day 0 of current month = last day of previous month
+    }
+
+    const result = await query(
+      `INSERT INTO user_upgrades
+       (user_id, pro_monthly_active, pro_monthly_started_at, pro_monthly_renewal_provider,
+        pro_monthly_provider_subscription_id, pro_monthly_expires_at, updated_at)
+       VALUES ($1, TRUE, $4, $2, $3, $5, NOW())
+       ON CONFLICT (user_id)
+       DO UPDATE SET
+         pro_monthly_active = TRUE,
+         pro_monthly_started_at = COALESCE(user_upgrades.pro_monthly_started_at, $4),
+         pro_monthly_renewal_provider = $2,
+         pro_monthly_provider_subscription_id = $3,
+         pro_monthly_expires_at = $5,
+         updated_at = NOW()
+       RETURNING *`,
+      [userId, provider, providerSubscriptionId, redeemed, expiresAt]
+    );
+
+    return result.rows[0];
+  } catch (error) {
+    console.error('[Database] Error in activateProMonthlyWithExpiry:', error.message);
+    throw error;
+  }
+}
+
+/**
  * Deactivate Pro Monthly subscription
  */
 async function deactivateProMonthly(userId) {
@@ -446,19 +491,29 @@ async function deactivateProMonthly(userId) {
 /**
  * Resolve user entitlements from upgrades
  * Returns { hasPartyPass: boolean, hasPro: boolean }
+ *
+ * When pro_monthly_expires_at is set (promo-granted monthly sub), the subscription
+ * is only active if that timestamp is still in the future.
  */
 function resolveEntitlements(upgrades) {
   if (!upgrades) {
     return { hasPartyPass: false, hasPro: false };
   }
-  
+
   const now = new Date();
-  const hasPro = upgrades.pro_monthly_active === true;
+
+  // For promo-based monthly subs, respect pro_monthly_expires_at if present
+  const proActive = upgrades.pro_monthly_active === true;
+  const proExpiresAt = upgrades.pro_monthly_expires_at
+    ? new Date(upgrades.pro_monthly_expires_at)
+    : null;
+  const hasPro = proActive && (!proExpiresAt || proExpiresAt > now);
+
   const hasPartyPass = hasPro || Boolean(
-    upgrades.party_pass_expires_at && 
+    upgrades.party_pass_expires_at &&
     new Date(upgrades.party_pass_expires_at) > now
   );
-  
+
   return { hasPartyPass, hasPro };
 }
 
@@ -483,22 +538,36 @@ function buildTierStatus(userRow, upgradesRow) {
   let isExpired = false;
 
   if (upgradesRow && upgradesRow.pro_monthly_active === true) {
-    // PRO subscription is active
-    activeTier = 'PRO';
-    startedAt = upgradesRow.pro_monthly_started_at || null;
-    // Pro expiry comes from Stripe's current_period_end on the users table
-    expiresAt = (userRow && userRow.current_period_end) || null;
+    // PRO subscription is active — check if it has a promo-based expiry
+    const promoExpiresAt = upgradesRow.pro_monthly_expires_at
+      ? new Date(upgradesRow.pro_monthly_expires_at)
+      : null;
 
-    if (expiresAt && new Date(expiresAt) <= now) {
-      tierStatus = 'expired';
-      isExpired = true;
-      timeRemainingSeconds = 0;
-    } else {
-      tierStatus = 'active';
+    if (promoExpiresAt && promoExpiresAt <= now) {
+      // Promo monthly sub has lapsed — treat as free
+      activeTier = 'FREE';
+      tierStatus = 'free';
       isExpired = false;
-      timeRemainingSeconds = expiresAt
-        ? Math.max(0, Math.floor((new Date(expiresAt) - now) / 1000))
-        : null; // null = unlimited / no expiry tracked yet
+      timeRemainingSeconds = null;
+    } else {
+      activeTier = 'PRO';
+      startedAt = upgradesRow.pro_monthly_started_at || null;
+      // Prefer promo expiry if set; otherwise fall back to Stripe current_period_end
+      expiresAt = upgradesRow.pro_monthly_expires_at
+        || (userRow && userRow.current_period_end)
+        || null;
+
+      if (expiresAt && new Date(expiresAt) <= now) {
+        tierStatus = 'expired';
+        isExpired = true;
+        timeRemainingSeconds = 0;
+      } else {
+        tierStatus = 'active';
+        isExpired = false;
+        timeRemainingSeconds = expiresAt
+          ? Math.max(0, Math.floor((new Date(expiresAt) - now) / 1000))
+          : null; // null = unlimited / no expiry tracked yet
+      }
     }
   } else if (upgradesRow && upgradesRow.party_pass_expires_at) {
     // Party Pass (time-limited)
@@ -573,6 +642,7 @@ module.exports = {
   getOrCreateUserUpgrades,
   updatePartyPassExpiry,
   activateProMonthly,
+  activateProMonthlyWithExpiry,
   deactivateProMonthly,
   resolveEntitlements,
   buildTierStatus

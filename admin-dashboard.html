@@ -321,8 +321,10 @@
       <div class="table-container" style="margin-bottom:1.5rem;">
         <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
           <select id="promoTypeSelect" style="background:rgba(255,255,255,0.08);border:1px solid rgba(157,78,221,0.3);border-radius:6px;color:#fff;padding:0.5rem 0.75rem;font-size:14px;">
-            <option value="party_pass">🎉 Party Pass (2-hour party unlock)</option>
-            <option value="pro_monthly">⭐ Pro Monthly (full subscription)</option>
+            <option value="party_pass_one_time">🎉 Party Pass — One-Time Use (2-hr account unlock)</option>
+            <option value="monthly_subscription_one_time">⭐ Monthly Subscription — One-Time Use (1 month from redemption)</option>
+            <option value="party_pass">🎊 Party Pass — Party-Wide Unlock (legacy)</option>
+            <option value="pro_monthly">🌟 Pro Monthly — Full Subscription (legacy)</option>
           </select>
           <button class="admin-refresh-btn" onclick="generatePromoCode()" id="promoGenerateBtn" style="white-space:nowrap;">
             ✨ Generate Promo Code
@@ -663,7 +665,10 @@
         const data = await resp.json();
         if (!resp.ok) throw new Error(data.error || 'HTTP ' + resp.status);
 
-        const typeLabel = type === 'pro_monthly' ? '⭐ Pro Monthly' : '🎉 Party Pass';
+        const typeLabel = type === 'pro_monthly' ? '🌟 Pro Monthly'
+          : type === 'monthly_subscription_one_time' ? '⭐ Monthly Subscription (One-Time)'
+          : type === 'party_pass_one_time' ? '🎉 Party Pass (One-Time)'
+          : '🎊 Party Pass';
         resultEl.innerHTML = `
           <div style="background:rgba(0,255,100,0.1);border:1px solid rgba(0,255,100,0.3);border-radius:8px;padding:1rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
             <span style="font-size:18px;">✅ Promo code created!</span>
@@ -715,7 +720,10 @@
 
         if (tbodyEl) {
           tbodyEl.innerHTML = codes.map(c => {
-            const typeLabel = c.type === 'pro_monthly' ? '⭐ Pro Monthly' : '🎉 Party Pass';
+            const typeLabel = c.type === 'pro_monthly' ? '🌟 Pro Monthly'
+              : c.type === 'monthly_subscription_one_time' ? '⭐ Monthly Sub (One-Time)'
+              : c.type === 'party_pass_one_time' ? '🎉 Party Pass (One-Time)'
+              : '🎊 Party Pass';
             const statusBadge = c.is_used
               ? '<span class="badge-actioned" style="background:rgba(255,50,50,0.2);color:#ff8080;border-color:rgba(255,50,50,0.4);">Used</span>'
               : '<span class="badge-actioned">Unused</span>';
