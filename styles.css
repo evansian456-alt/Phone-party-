@@ -8343,6 +8343,21 @@ body {
   color: rgba(255, 255, 255, 0.45);
 }
 
+/* YouTube search result rows — fix mobile layout so Play button never expands to full width */
+#youtubeResultsList .btn {
+  width: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 100px;
+}
+
+/* Truncate long artist names in result rows */
+#youtubeResultsList .tiny.muted {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ============================================================
    YouTube Party Demo Flow — Landing page
    ============================================================ */
