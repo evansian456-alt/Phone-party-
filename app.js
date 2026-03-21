@@ -12376,6 +12376,16 @@ document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible') {
     console.log("[Visibility] Tab became visible - recovering sync");
     
+    // Resume party status polling if we were in a party (paused on hide below)
+    if (state.code && !state.partyStatusPollingInterval && !state.offlineMode) {
+      startPartyStatusPolling();
+    }
+    
+    // Resume crowd energy decay if in a party
+    if (state.code && !state.crowdEnergyDecayInterval) {
+      initCrowdEnergyMeter();
+    }
+    
     // Send TIME_PING to resync clock
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
       sendTimePing();
@@ -12428,7 +12438,19 @@ document.addEventListener('visibilitychange', async () => {
       }
     }
   } else {
-    console.log("[Visibility] Tab hidden");
+    console.log("[Visibility] Tab hidden - pausing background work");
+    
+    // Pause party status polling to avoid wasting network when tab is hidden.
+    // It will be restarted above when the tab becomes visible again.
+    if (state.partyStatusPollingInterval) {
+      stopPartyStatusPolling();
+    }
+    
+    // Pause crowd energy decay — cosmetic only, no need to run in background.
+    if (state.crowdEnergyDecayInterval) {
+      clearInterval(state.crowdEnergyDecayInterval);
+      state.crowdEnergyDecayInterval = null;
+    }
   }
 });
 
@@ -12553,6 +12575,7 @@ console.log('[Calibration] Bluetooth latency calibration available. Call calibra
 // ============================================================================
 let debugPanelVisible = false;
 let driftCorrectionsCount = 0;
+let _debugPanelInterval = null; // Only active when panel is open
 
 // Toggle debug panel with Ctrl+Shift+D
 document.addEventListener('keydown', (e) => {
@@ -12564,6 +12587,12 @@ document.addEventListener('keydown', (e) => {
       panel.classList.toggle('hidden', !debugPanelVisible);
       if (debugPanelVisible) {
         updateDebugPanel();
+        // Start interval only while panel is open to avoid wasted 1s ticks
+        if (!_debugPanelInterval) {
+          _debugPanelInterval = setInterval(updateDebugPanel, 1000);
+        }
+      } else {
+        if (_debugPanelInterval) { clearInterval(_debugPanelInterval); _debugPanelInterval = null; }
       }
     }
   }
@@ -12578,6 +12607,8 @@ if (btnCloseDebug) {
     if (panel) {
       panel.classList.add('hidden');
     }
+    // Stop interval when panel is closed
+    if (_debugPanelInterval) { clearInterval(_debugPanelInterval); _debugPanelInterval = null; }
   };
 }
 
@@ -12611,13 +12642,6 @@ function updateDebugPanel() {
     correctionsEl.textContent = driftCorrectionsCount.toString();
   }
 }
-
-// Update debug panel periodically when visible
-setInterval(() => {
-  if (debugPanelVisible) {
-    updateDebugPanel();
-  }
-}, 1000);
 
 // ============================================================
 // Official App Sync Mode

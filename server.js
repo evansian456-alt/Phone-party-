@@ -886,6 +886,12 @@ if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
 // Cache-Control value used for all assets that must re-validate on every deploy.
 const NO_CACHE = 'no-cache, must-revalidate';
 
+// Cache-Control for JS/CSS/SVG: revalidate but allow the browser to cache
+// for up to 1 minute between checks.  The service worker uses CHANGER_VERSION
+// as a cache-busting key, so a 60-second browser cache is safe and eliminates
+// repeated round-trips for assets that haven't changed within a session.
+const ASSET_CACHE = 'public, max-age=60, stale-while-revalidate=300, must-revalidate';
+
 // Loose rate limiter for explicit static asset routes (1200 req / 15 min per IP).
 // Prevents abuse of the sendFile file-system reads on these routes.
 const staticLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 1200 });
@@ -923,8 +929,15 @@ app.get('/config.js', (req, res) => {
 // HTML, JS, and CSS files use no-cache so browsers always revalidate after a deploy.
 app.use(express.static(__dirname, {
   setHeaders(res, filePath) {
-    if (/\.(html|js|css|svg)$/.test(filePath)) {
+    if (/\.html$/.test(filePath)) {
+      // HTML: always revalidate so users get the latest shell immediately
       res.setHeader('Cache-Control', NO_CACHE);
+    } else if (/service-worker\.js$/.test(filePath)) {
+      // Service worker must never be cached — browsers manage SW updates separately
+      res.setHeader('Cache-Control', NO_CACHE);
+    } else if (/\.(js|css|svg)$/.test(filePath)) {
+      // JS/CSS/SVG: allow a short browser cache; SW handles versioned invalidation
+      res.setHeader('Cache-Control', ASSET_CACHE);
     }
   }
 }));
@@ -1084,11 +1097,13 @@ function getRegisteredRoutes() {
 // files are never shadowed by a wildcard route, even if one is added later.
 // Express sets Content-Type automatically via sendFile.
 app.get("/app.js", staticLimiter, (req, res) => {
-  res.setHeader('Cache-Control', NO_CACHE);
+  // Allow short browser cache; SW versioned cache handles invalidation on deploy
+  res.setHeader('Cache-Control', ASSET_CACHE);
   res.sendFile(path.join(__dirname, "app.js"));
 });
 
 app.get("/service-worker.js", staticLimiter, (req, res) => {
+  // Service worker must never be cached — browsers have their own SW update check
   res.setHeader('Cache-Control', NO_CACHE);
   res.sendFile(path.join(__dirname, "service-worker.js"));
 });
@@ -1098,20 +1113,18 @@ app.get("/manifest.json", staticLimiter, (req, res) => {
   res.sendFile(path.join(__dirname, "manifest.json"));
 });
 
-// Platform logo SVG assets — single parameterized route with allowlist validation
-// and no-cache headers so service-worker caches never serve a stale logo after
-// a brand-asset update.
+// Platform logo SVG assets — single parameterized route with allowlist validation.
 const ALLOWED_PLATFORM_LOGOS = new Set(['youtube', 'spotify', 'soundcloud']);
 app.get("/public/assets/platform-logos/:platform.svg", staticLimiter, (req, res) => {
   if (!ALLOWED_PLATFORM_LOGOS.has(req.params.platform)) return res.status(404).end();
-  res.setHeader('Cache-Control', NO_CACHE);
+  res.setHeader('Cache-Control', ASSET_CACHE);
   res.sendFile(path.join(__dirname, "public/assets/platform-logos", `${req.params.platform}.svg`));
 });
 
 // Streaming Party provider SVG assets — identical allowlist, served from providers/ directory
 app.get("/public/assets/providers/:platform.svg", staticLimiter, (req, res) => {
   if (!ALLOWED_PLATFORM_LOGOS.has(req.params.platform)) return res.status(404).end();
-  res.setHeader('Cache-Control', NO_CACHE);
+  res.setHeader('Cache-Control', ASSET_CACHE);
   res.sendFile(path.join(__dirname, "public/assets/providers", `${req.params.platform}.svg`));
 });
 

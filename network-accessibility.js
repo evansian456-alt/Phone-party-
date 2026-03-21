@@ -32,6 +32,22 @@ function initNetworkMonitoring() {
   window.addEventListener('online', handleOnline);
   window.addEventListener('offline', handleOffline);
   
+  // Pause ping when tab is hidden; resume when visible again.
+  // This avoids needless network traffic while the user is in another tab.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      if (NETWORK.pingInterval) {
+        clearInterval(NETWORK.pingInterval);
+        NETWORK.pingInterval = null;
+      }
+    } else {
+      // Tab became visible — restart ping if not already running
+      if (!NETWORK.pingInterval) {
+        startPingMonitoring();
+      }
+    }
+  });
+  
   // Start ping monitoring
   startPingMonitoring();
   
@@ -75,7 +91,7 @@ function startPingMonitoring() {
       updateConnectionIndicator();
       handleConnectionLost();
     }
-  }, 3000); // Ping every 3 seconds
+  }, 5000); // Ping every 5 seconds (reduced from 3s to save background network traffic)
 }
 
 /**
