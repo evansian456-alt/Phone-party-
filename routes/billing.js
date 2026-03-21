@@ -859,27 +859,33 @@ module.exports = function createBillingRouter(deps) {
 
   /**
    * GET /api/billing/status
-   * Returns the authenticated user's current billing/subscription state.
+   * Returns the authenticated user's current tier/subscription state.
+   * Includes computed fields (activeTier, tierStatus, startedAt, expiresAt,
+   * timeRemainingSeconds, isExpired) for frontend display.
    */
   router.get('/api/billing/status', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
     try {
       const userId = req.user.userId;
-      const result = await db.query(
-        `SELECT tier, subscription_status, current_period_end, stripe_customer_id, stripe_subscription_id
-         FROM users WHERE id = $1`,
-        [userId]
-      );
-      if (result.rows.length === 0) {
+
+      // Fetch user billing row and upgrades row in parallel
+      const [userResult, upgrades] = await Promise.all([
+        db.query(
+          `SELECT tier, subscription_status, current_period_end,
+                  stripe_customer_id, stripe_subscription_id
+           FROM users WHERE id = $1`,
+          [userId]
+        ),
+        db.getOrCreateUserUpgrades(userId)
+      ]);
+
+      if (userResult.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });
       }
-      const row = result.rows[0];
-      return res.json({
-        tier: row.tier || 'FREE',
-        subscription_status: row.subscription_status || null,
-        current_period_end: row.current_period_end || null,
-        stripe_customer_id: row.stripe_customer_id || null,
-        stripe_subscription_id: row.stripe_subscription_id || null
-      });
+
+      const userRow = userResult.rows[0];
+      const status = db.buildTierStatus(userRow, upgrades);
+
+      return res.json(status);
     } catch (error) {
       console.error('[BillingStatus] Error:', error.message);
       return res.status(500).json({ error: 'Failed to fetch billing status' });

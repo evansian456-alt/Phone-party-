@@ -32,11 +32,13 @@ jest.mock('./stripe-client', () => {
 const mockDbQuery = jest.fn();
 const mockGetOrCreateUserUpgrades = jest.fn();
 const mockResolveEntitlements = jest.fn();
+const mockBuildTierStatus = jest.fn();
 
 jest.mock('./database', () => ({
   query: mockDbQuery,
   getOrCreateUserUpgrades: mockGetOrCreateUserUpgrades,
   resolveEntitlements: mockResolveEntitlements,
+  buildTierStatus: mockBuildTierStatus,
   pool: { end: jest.fn() }
 }));
 
@@ -117,22 +119,20 @@ function buildBillingApp() {
     async (req, res) => {
       try {
         const userId = req.user.userId;
-        const result = await db.query(
-          `SELECT tier, subscription_status, current_period_end, stripe_customer_id, stripe_subscription_id
-           FROM users WHERE id = $1`,
-          [userId]
-        );
-        if (result.rows.length === 0) {
+        const [userResult, upgrades] = await Promise.all([
+          db.query(
+            `SELECT tier, subscription_status, current_period_end, stripe_customer_id, stripe_subscription_id
+             FROM users WHERE id = $1`,
+            [userId]
+          ),
+          db.getOrCreateUserUpgrades(userId)
+        ]);
+        if (userResult.rows.length === 0) {
           return res.status(404).json({ error: 'User not found' });
         }
-        const row = result.rows[0];
-        return res.json({
-          tier: row.tier || 'FREE',
-          subscription_status: row.subscription_status || null,
-          current_period_end: row.current_period_end || null,
-          stripe_customer_id: row.stripe_customer_id || null,
-          stripe_subscription_id: row.stripe_subscription_id || null
-        });
+        const userRow = userResult.rows[0];
+        const status = db.buildTierStatus(userRow, upgrades);
+        return res.json(status);
       } catch (error) {
         return res.status(500).json({ error: 'Failed to fetch billing status' });
       }
@@ -233,6 +233,19 @@ beforeEach(() => {
   mockDbQuery.mockResolvedValue({ rows: [{ email: 'test@example.com', stripe_customer_id: null }] });
   mockGetOrCreateUserUpgrades.mockResolvedValue({ pro_monthly_active: false, party_pass_expires_at: null });
   mockResolveEntitlements.mockReturnValue({ hasPartyPass: false, hasPro: false });
+  mockBuildTierStatus.mockReturnValue({
+    activeTier: 'FREE',
+    tierStatus: 'free',
+    startedAt: null,
+    expiresAt: null,
+    timeRemainingSeconds: null,
+    isExpired: false,
+    tier: 'FREE',
+    subscription_status: null,
+    current_period_end: null,
+    stripe_customer_id: null,
+    stripe_subscription_id: null
+  });
 });
 
 // ─── create-checkout-session ─────────────────────────────────────────────────
@@ -330,15 +343,33 @@ describe('GET /api/billing/status', () => {
     expect(res.status).toBe(401);
   });
 
-  test('returns billing status fields for authenticated user', async () => {
+  test('returns comprehensive tier status for FREE user', async () => {
     mockDbQuery.mockResolvedValueOnce({
       rows: [{
-        tier: 'PRO',
-        subscription_status: 'active',
-        current_period_end: '2026-04-01T00:00:00Z',
-        stripe_customer_id: 'cus_abc',
-        stripe_subscription_id: 'sub_abc'
+        tier: 'FREE',
+        subscription_status: null,
+        current_period_end: null,
+        stripe_customer_id: null,
+        stripe_subscription_id: null
       }]
+    });
+    mockGetOrCreateUserUpgrades.mockResolvedValueOnce({
+      pro_monthly_active: false,
+      party_pass_expires_at: null,
+      party_pass_started_at: null
+    });
+    mockBuildTierStatus.mockReturnValueOnce({
+      activeTier: 'FREE',
+      tierStatus: 'free',
+      startedAt: null,
+      expiresAt: null,
+      timeRemainingSeconds: null,
+      isExpired: false,
+      tier: 'FREE',
+      subscription_status: null,
+      current_period_end: null,
+      stripe_customer_id: null,
+      stripe_subscription_id: null
     });
 
     const res = await request(app)
@@ -346,10 +377,136 @@ describe('GET /api/billing/status', () => {
       .set('Cookie', [makeAuthCookie()]);
 
     expect(res.status).toBe(200);
-    expect(res.body.tier).toBe('PRO');
-    expect(res.body.subscription_status).toBe('active');
+    expect(res.body.activeTier).toBe('FREE');
+    expect(res.body.tierStatus).toBe('free');
+    expect(res.body.isExpired).toBe(false);
+    expect(res.body.timeRemainingSeconds).toBeNull();
+  });
+
+  test('returns billing status fields for authenticated PRO user', async () => {
+    const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        tier: 'PRO',
+        subscription_status: 'active',
+        current_period_end: futureDate,
+        stripe_customer_id: 'cus_abc',
+        stripe_subscription_id: 'sub_abc'
+      }]
+    });
+    mockGetOrCreateUserUpgrades.mockResolvedValueOnce({
+      pro_monthly_active: true,
+      pro_monthly_started_at: '2026-03-01T00:00:00Z',
+      party_pass_expires_at: null
+    });
+    mockBuildTierStatus.mockReturnValueOnce({
+      activeTier: 'PRO',
+      tierStatus: 'active',
+      startedAt: '2026-03-01T00:00:00.000Z',
+      expiresAt: futureDate,
+      timeRemainingSeconds: 30 * 24 * 3600,
+      isExpired: false,
+      tier: 'PRO',
+      subscription_status: 'active',
+      current_period_end: futureDate,
+      stripe_customer_id: 'cus_abc',
+      stripe_subscription_id: 'sub_abc'
+    });
+
+    const res = await request(app)
+      .get('/api/billing/status')
+      .set('Cookie', [makeAuthCookie()]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.activeTier).toBe('PRO');
+    expect(res.body.tierStatus).toBe('active');
+    expect(res.body.isExpired).toBe(false);
+    expect(res.body.timeRemainingSeconds).toBeGreaterThan(0);
+    expect(res.body.startedAt).toBe('2026-03-01T00:00:00.000Z');
     expect(res.body.stripe_customer_id).toBe('cus_abc');
     expect(res.body.stripe_subscription_id).toBe('sub_abc');
+  });
+
+  test('returns PARTY_PASS status with timeRemainingSeconds when pass is active', async () => {
+    const futureExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour from now
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        tier: 'PARTY_PASS',
+        subscription_status: null,
+        current_period_end: null,
+        stripe_customer_id: null,
+        stripe_subscription_id: null
+      }]
+    });
+    mockGetOrCreateUserUpgrades.mockResolvedValueOnce({
+      pro_monthly_active: false,
+      party_pass_expires_at: futureExpiry,
+      party_pass_started_at: new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    });
+    mockBuildTierStatus.mockReturnValueOnce({
+      activeTier: 'PARTY_PASS',
+      tierStatus: 'active',
+      startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      expiresAt: futureExpiry,
+      timeRemainingSeconds: 3600,
+      isExpired: false,
+      tier: 'PARTY_PASS',
+      subscription_status: null,
+      current_period_end: null,
+      stripe_customer_id: null,
+      stripe_subscription_id: null
+    });
+
+    const res = await request(app)
+      .get('/api/billing/status')
+      .set('Cookie', [makeAuthCookie()]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.activeTier).toBe('PARTY_PASS');
+    expect(res.body.tierStatus).toBe('active');
+    expect(res.body.isExpired).toBe(false);
+    expect(res.body.timeRemainingSeconds).toBeGreaterThan(0);
+    expect(res.body.expiresAt).toBe(futureExpiry);
+  });
+
+  test('returns isExpired=true when party pass has expired', async () => {
+    const pastExpiry = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1 hour ago
+    mockDbQuery.mockResolvedValueOnce({
+      rows: [{
+        tier: 'FREE',
+        subscription_status: null,
+        current_period_end: null,
+        stripe_customer_id: null,
+        stripe_subscription_id: null
+      }]
+    });
+    mockGetOrCreateUserUpgrades.mockResolvedValueOnce({
+      pro_monthly_active: false,
+      party_pass_expires_at: pastExpiry,
+      party_pass_started_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+    });
+    mockBuildTierStatus.mockReturnValueOnce({
+      activeTier: 'PARTY_PASS',
+      tierStatus: 'expired',
+      startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      expiresAt: pastExpiry,
+      timeRemainingSeconds: 0,
+      isExpired: true,
+      tier: 'FREE',
+      subscription_status: null,
+      current_period_end: null,
+      stripe_customer_id: null,
+      stripe_subscription_id: null
+    });
+
+    const res = await request(app)
+      .get('/api/billing/status')
+      .set('Cookie', [makeAuthCookie()]);
+
+    expect(res.status).toBe(200);
+    expect(res.body.isExpired).toBe(true);
+    expect(res.body.tierStatus).toBe('expired');
+    expect(res.body.timeRemainingSeconds).toBe(0);
   });
 });
 
