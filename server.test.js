@@ -630,9 +630,11 @@ describe('Server HTTP Endpoints', () => {
       expect(response.headers['content-type']).toMatch(/javascript/);
     });
 
-    it('should serve app.js with no-cache header', async () => {
+    it('should serve app.js with cacheable header', async () => {
       const response = await request(app).get('/app.js');
-      expect(response.headers['cache-control']).toMatch(/no-cache/);
+      // app.js now uses a short browser cache (max-age=60) for performance;
+      // the service worker handles versioned cache-busting on deploys.
+      expect(response.headers['cache-control']).toMatch(/max-age/);
     });
 
     it('should serve service-worker.js', async () => {
