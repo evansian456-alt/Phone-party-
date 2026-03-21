@@ -117,10 +117,10 @@ html{
      two nested scroll containers (html + body) and causes iOS/Android to require
      two-finger scroll instead of one-finger. Let the viewport handle vertical
      scrolling naturally; only body is the intentional scroll container. */
-  overflow-x:clip;
+  overflow-x:auto; /* changed from clip: allow horizontal scroll when content overflows */
   /* overscroll-behavior removed from html — only body needs it to suppress the
      pull-to-refresh / bounce effect at page ends. */
-  touch-action:pan-y; /* explicitly allow one-finger vertical scroll */
+  touch-action:auto; /* changed from pan-y: allow both vertical and horizontal touch gestures */
 }
 body{
   margin:0;
@@ -132,12 +132,12 @@ body{
   min-height:100dvh; /* dynamic viewport height for mobile browsers */
   overflow-y:auto;
   overscroll-behavior:none;
-  max-width:100vw;
+  /* max-width:100vw removed: it clipped horizontal overflow and prevented horizontal scrolling */
   padding-bottom: env(safe-area-inset-bottom); /* respect home-indicator / nav bar */
   display:flex;
   flex-direction:column;
   scroll-behavior:smooth;
-  touch-action:pan-y; /* explicitly allow one-finger vertical scroll on mobile */
+  touch-action:auto; /* changed from pan-y: allow both horizontal and vertical touch scrolling */
 }
 .top{
   display:flex; justify-content:space-between; align-items:center;
@@ -197,9 +197,9 @@ body{
      visually without the body growing or scrolling. Using auto fixes this. */
   flex:1 1 auto;
   overflow-y:visible;
-  /* clip (not hidden) prevents creating a scroll container, so overflow-y:visible is
-     preserved and the body remains the scroll container for the page */
-  overflow-x:clip;
+  /* overflow-x:visible allows wide content inside .wrap to overflow and be scrollable
+     by the body/html scroll container. Previously clip prevented horizontal scroll. */
+  overflow-x:visible;
   width:100%;
 }
 .card{
@@ -210,7 +210,7 @@ body{
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  touch-action: pan-y; /* allow one-finger vertical scroll on mobile */
+  touch-action: auto; /* changed from pan-y: allow horizontal touch scroll on cards too */
 }
 h1{margin:0 0 12px 0; font-weight:900}
 h2,h3{margin:0; font-weight:800}
@@ -363,7 +363,7 @@ h2,h3{margin:0; font-weight:800}
   background: rgba(0,0,0,0.55);
   display:flex; align-items:center; justify-content:center;
   padding:18px;
-  touch-action:pan-y; /* allow one-finger vertical scroll inside modal content */
+  touch-action:auto; /* changed from pan-y: allow horizontal touch inside modals */
 }
 .modalCard{
   width:min(520px, 100%);
@@ -534,7 +534,7 @@ h2,h3{margin:0; font-weight:800}
   max-width: 800px;
   margin: 0 auto;
   padding: 20px;
-  overflow-x: clip;
+  overflow-x: visible; /* changed from clip: allow horizontal overflow to reach the body scroll container */
   width: 100%;
   box-sizing: border-box;
 }
@@ -615,7 +615,7 @@ h2,h3{margin:0; font-weight:800}
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   position: relative;
   z-index: 2;
-  touch-action: pan-y; /* allow one-finger vertical scroll on mobile */
+  touch-action: auto; /* changed from pan-y: allow horizontal touch gestures on cards */
 }
 
 .glass-card h2 {
@@ -1410,7 +1410,7 @@ h2,h3{margin:0; font-weight:800}
   position: relative;
   max-width: 900px;
   margin: 0 auto;
-  overflow-x: clip;
+  overflow-x: visible; /* changed from clip: allow horizontal overflow to reach body scroll container */
   width: 100%;
   box-sizing: border-box;
 }
@@ -4957,7 +4957,7 @@ h2,h3{margin:0; font-weight:800}
 }
 
 /* Signup view: page (body) scrolls naturally; no inner overflow needed now that
-   .wrap uses flex:1 1 auto and .wrap > section uses overflow-x:clip */
+   .wrap uses flex:1 1 auto and .wrap > section uses overflow-x:visible */
 #viewSignup {
   overflow-y: visible;
 }
@@ -5506,7 +5506,7 @@ body.light-mode .input-field {
   z-index: 10000;
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  touch-action: pan-y; /* allow one-finger vertical scroll inside modal content */
+  touch-action: auto; /* changed from pan-y: allow horizontal touch inside modals */
 }
 
 .modal-content {
@@ -8199,14 +8199,11 @@ body {
 /* Ensure every direct-child section/card of .wrap can grow and never clips
    overflow vertically. Both selectors use the > child combinator so only
    immediate children of .wrap are targeted.
-   overflow-x:clip is used instead of overflow-x:hidden to avoid the CSS overflow
-   interaction rule: when overflow-x:hidden is set and overflow-y is unset (visible),
-   browsers compute overflow-y as auto, which creates an inner scroll container. The
-   clip keyword does NOT trigger this interaction, keeping overflow-y:visible and
-   allowing the body/window to be the scroll container for page scrolling. */
+   overflow-x:visible allows wide content inside child sections/cards to overflow
+   and be scrolled by the ancestor body scroll container. */
 .wrap > section,
 .wrap > .card {
-  overflow-x: clip;
+  overflow-x: visible; /* changed from clip: allow horizontal overflow to reach the body scroll container */
   min-width: 0;
   box-sizing: border-box;
 }
