@@ -2791,13 +2791,19 @@ function startPartyStatusPolling() {
   
   console.log(`[Polling] Starting party status polling (${state.isHost ? 'host' : 'guest'} mode)`);
   
-  // Poll every 2 seconds
+  // Poll every 2 seconds; skip the tick if the tab is hidden to avoid
+  // unnecessary network requests when the user has switched away.
   state.partyStatusPollingInterval = setInterval(async () => {
     // Skip if previous poll is still in progress
     if (state.partyStatusPollingInProgress) {
       return;
     }
-    
+
+    // Don't poll while the tab is backgrounded — saves network and battery.
+    if (document.visibilityState === 'hidden') {
+      return;
+    }
+
     state.partyStatusPollingInProgress = true;
     try {
       if (!state.code) {
@@ -7479,8 +7485,9 @@ async function handleBillingReturn() {
 }
 
 (async function init(){
-  // Fetch feature flags early — used to gate UI sections
-  await fetchFeatureFlags();
+  // Fetch feature flags in the background — safe defaults are already set in _featureFlags,
+  // so we don't need to await this before rendering. Avoids one extra sequential round-trip at boot.
+  fetchFeatureFlags().catch(() => {});
 
   // WebSocket is NOT connected on startup — it is only established when a
   // party is created or joined, to avoid connecting on the landing page.
@@ -9065,13 +9072,14 @@ async function handleBillingReturn() {
 // ========================================
 
 function initCrowdEnergyMeter() {
-  // Start decay interval
+  // Start decay interval — only meaningful when the host is actively in a party.
+  // Skip DOM writes when the tab is hidden to avoid unnecessary background work.
   if (state.crowdEnergyDecayInterval) {
     clearInterval(state.crowdEnergyDecayInterval);
   }
   
   state.crowdEnergyDecayInterval = setInterval(() => {
-    if (state.crowdEnergy > 0) {
+    if (state.crowdEnergy > 0 && document.visibilityState !== 'hidden') {
       state.crowdEnergy = Math.max(0, state.crowdEnergy - 1);
       updateCrowdEnergyDisplay();
     }
@@ -12612,35 +12620,26 @@ if (btnCloseDebug) {
   };
 }
 
+// Cached refs for the debug panel — avoids 4 getElementById calls every second.
+// Populated lazily the first time updateDebugPanel() runs.
+const _debugEls = { offset: null, drift: null, trackId: null, corrections: null };
+
 // Update debug panel with current sync info
 function updateDebugPanel() {
   if (!debugPanelVisible) return;
   
-  // Server offset
-  const offsetEl = el('debugOffset');
-  if (offsetEl) {
-    offsetEl.textContent = `${serverOffsetMs.toFixed(1)}ms`;
+  // Cache element refs once (they are static DOM nodes)
+  if (!_debugEls.offset) {
+    _debugEls.offset      = el('debugOffset');
+    _debugEls.drift       = el('debugDrift');
+    _debugEls.trackId     = el('debugTrackId');
+    _debugEls.corrections = el('debugCorrectionsCount');
   }
-  
-  // Last drift value
-  const driftEl = el('debugDrift');
-  if (driftEl) {
-    driftEl.textContent = `${(lastDriftValue * 1000).toFixed(1)}ms`;
-  }
-  
-  // Track ID
-  const trackIdEl = el('debugTrackId');
-  if (trackIdEl && state.currentTrack) {
-    trackIdEl.textContent = state.currentTrack.trackId || '-';
-  } else if (trackIdEl) {
-    trackIdEl.textContent = '-';
-  }
-  
-  // Drift corrections count
-  const correctionsEl = el('debugCorrectionsCount');
-  if (correctionsEl) {
-    correctionsEl.textContent = driftCorrectionsCount.toString();
-  }
+
+  if (_debugEls.offset)      _debugEls.offset.textContent      = `${serverOffsetMs.toFixed(1)}ms`;
+  if (_debugEls.drift)       _debugEls.drift.textContent       = `${(lastDriftValue * 1000).toFixed(1)}ms`;
+  if (_debugEls.trackId)     _debugEls.trackId.textContent     = (state.currentTrack && state.currentTrack.trackId) || '-';
+  if (_debugEls.corrections) _debugEls.corrections.textContent = driftCorrectionsCount.toString();
 }
 
 // ============================================================

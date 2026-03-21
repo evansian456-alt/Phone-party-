@@ -926,7 +926,9 @@ app.get('/config.js', (req, res) => {
 });
 
 // Serve static files from the repo root.
-// HTML, JS, and CSS files use no-cache so browsers always revalidate after a deploy.
+// - HTML, JS, CSS: no-cache (content changes on every deploy; no URL fingerprinting)
+// - SVG icons served from /icons/: long-lived cache (brand assets, stable across deploys)
+// - Everything else: Express default (ETag-based revalidation)
 app.use(express.static(__dirname, {
   setHeaders(res, filePath) {
     if (/\.html$/.test(filePath)) {
