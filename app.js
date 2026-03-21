@@ -306,7 +306,7 @@ function setView(viewName, opts = {}) {
 
     // Accessibility: focus first heading or interactive element for keyboard/screen-reader users.
     // preventScroll:true avoids the browser auto-scrolling the element into view, which would
-    // undo the window.scrollTo(0,0) reset performed by showView() and cause a visible jump.
+    // undo the window.scrollTo({top:0}) reset performed by showView() and cause a visible jump.
     setTimeout(() => {
       const focusTarget = targetEl.querySelector('h1, h2, [autofocus], button:not([disabled]), input:not([disabled])');
       if (focusTarget) {
@@ -9996,8 +9996,9 @@ function showView(viewId) {
     targetView.classList.remove('hidden');
   }
 
-  // Reset the page scroll so every new view starts at the top (instant, not smooth animated)
-  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  // Reset vertical scroll so every new view starts at the top (instant, not smooth animated).
+  // left is intentionally omitted so horizontal scroll position is not reset on view change.
+  window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 /**
