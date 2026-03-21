@@ -13408,8 +13408,9 @@ function ytGuestPause() {
 }
 
 /**
- * Show / hide the YouTube Party Player section based on user role.
- * Called from showParty(). All users (hosts and guests) can use the player.
+ * Show / hide the YouTube Party Player section based on user entitlement.
+ * Called from showParty(). Party Pass and Pro users see the embedded player;
+ * free users see an upgrade prompt instead.
  */
 function updateYoutubePartySection() {
   var section = document.getElementById('youtubePartySection');
@@ -13418,15 +13419,21 @@ function updateYoutubePartySection() {
   var playerBox = document.getElementById('youtubePartyPlayerBox');
   var upgradeBox = document.getElementById('youtubePartyUpgradeBox');
 
-  // Always show the section — YouTube Party is a core feature
+  // Always show the section so all hosts see it (player or upgrade prompt)
   section.classList.remove('hidden');
 
-  // Show player box for all users; hide upgrade prompt
-  if (playerBox) playerBox.classList.remove('hidden');
-  if (upgradeBox) upgradeBox.classList.add('hidden');
-
-  initYouTubePlayer();
-  loadYouTubeIframeAPI();
+  // Show the correct box based on entitlement
+  if (hasPartyPassEntitlement()) {
+    // Party Pass / Pro: show the embedded player
+    if (playerBox) playerBox.classList.remove('hidden');
+    if (upgradeBox) upgradeBox.classList.add('hidden');
+    initYouTubePlayer();
+    loadYouTubeIframeAPI();
+  } else {
+    // Free tier: show upgrade prompt; player stays hidden
+    if (playerBox) playerBox.classList.add('hidden');
+    if (upgradeBox) upgradeBox.classList.remove('hidden');
+  }
 }
 
 /**
@@ -13612,15 +13619,20 @@ function performYoutubeSearch(query) {
 /**
  * Show the YouTube Service selection screen (post-party-creation interstitial).
  * Called right after showParty() completes when a party is first created.
- * All users are eligible — YouTube Party is a core feature.
+ * Party Pass and Pro users see the player option; free users see an upgrade prompt.
  */
 function showYoutubeServiceView() {
   var eligibleBox = document.getElementById('ytServiceEligible');
   var upgradeBox = document.getElementById('ytServiceUpgrade');
 
-  // Always show the eligible/player box — no tier gate
-  if (eligibleBox) eligibleBox.classList.remove('hidden');
-  if (upgradeBox) upgradeBox.classList.add('hidden');
+  // Gate on entitlement — only Party Pass / Pro users get the embedded player
+  if (hasPartyPassEntitlement()) {
+    if (eligibleBox) eligibleBox.classList.remove('hidden');
+    if (upgradeBox) upgradeBox.classList.add('hidden');
+  } else {
+    if (eligibleBox) eligibleBox.classList.add('hidden');
+    if (upgradeBox) upgradeBox.classList.remove('hidden');
+  }
 
   // Wire buttons once
   var useBtn = document.getElementById('btnUseYoutubePlayer');
