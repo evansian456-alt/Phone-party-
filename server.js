@@ -886,10 +886,11 @@ if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
 // Cache-Control value used for all assets that must re-validate on every deploy.
 const NO_CACHE = 'no-cache, must-revalidate';
 
-// Long-lived cache for static brand assets (SVG icons / provider logos) that
-// never change between deploys. One day TTL is safe; service-worker provides
-// an additional offline fallback layer.
-const STATIC_ASSET_CACHE = 'public, max-age=86400, stale-while-revalidate=3600';
+// Cache-Control for JS/CSS/SVG: revalidate but allow the browser to cache
+// for up to 1 minute between checks.  The service worker uses CHANGER_VERSION
+// as a cache-busting key, so a 60-second browser cache is safe and eliminates
+// repeated round-trips for assets that haven't changed within a session.
+const ASSET_CACHE = 'public, max-age=60, stale-while-revalidate=300, must-revalidate';
 
 // Loose rate limiter for explicit static asset routes (1200 req / 15 min per IP).
 // Prevents abuse of the sendFile file-system reads on these routes.
@@ -930,14 +931,15 @@ app.get('/config.js', (req, res) => {
 // - Everything else: Express default (ETag-based revalidation)
 app.use(express.static(__dirname, {
   setHeaders(res, filePath) {
-    if (/\.(html|js|css)$/.test(filePath)) {
+    if (/\.html$/.test(filePath)) {
+      // HTML: always revalidate so users get the latest shell immediately
       res.setHeader('Cache-Control', NO_CACHE);
-    } else if (/\/icons\/.*\.svg$/.test(filePath)) {
-      // PWA icon SVGs are immutable build artifacts — safe to cache for 1 day
-      res.setHeader('Cache-Control', STATIC_ASSET_CACHE);
-    } else if (/\.svg$/.test(filePath)) {
-      // Other SVGs (not provider logos handled above): revalidate on each deploy
+    } else if (/service-worker\.js$/.test(filePath)) {
+      // Service worker must never be cached — browsers manage SW updates separately
       res.setHeader('Cache-Control', NO_CACHE);
+    } else if (/\.(js|css|svg)$/.test(filePath)) {
+      // JS/CSS/SVG: allow a short browser cache; SW handles versioned invalidation
+      res.setHeader('Cache-Control', ASSET_CACHE);
     }
   }
 }));
@@ -1097,11 +1099,13 @@ function getRegisteredRoutes() {
 // files are never shadowed by a wildcard route, even if one is added later.
 // Express sets Content-Type automatically via sendFile.
 app.get("/app.js", staticLimiter, (req, res) => {
-  res.setHeader('Cache-Control', NO_CACHE);
+  // Allow short browser cache; SW versioned cache handles invalidation on deploy
+  res.setHeader('Cache-Control', ASSET_CACHE);
   res.sendFile(path.join(__dirname, "app.js"));
 });
 
 app.get("/service-worker.js", staticLimiter, (req, res) => {
+  // Service worker must never be cached — browsers have their own SW update check
   res.setHeader('Cache-Control', NO_CACHE);
   res.sendFile(path.join(__dirname, "service-worker.js"));
 });
@@ -1111,19 +1115,18 @@ app.get("/manifest.json", staticLimiter, (req, res) => {
   res.sendFile(path.join(__dirname, "manifest.json"));
 });
 
-// Platform logo SVG assets — these are stable brand assets that do not change
-// between deploys, so a one-day browser cache is safe and avoids redundant GETs.
+// Platform logo SVG assets — single parameterized route with allowlist validation.
 const ALLOWED_PLATFORM_LOGOS = new Set(['youtube', 'spotify', 'soundcloud']);
 app.get("/public/assets/platform-logos/:platform.svg", staticLimiter, (req, res) => {
   if (!ALLOWED_PLATFORM_LOGOS.has(req.params.platform)) return res.status(404).end();
-  res.setHeader('Cache-Control', STATIC_ASSET_CACHE);
+  res.setHeader('Cache-Control', ASSET_CACHE);
   res.sendFile(path.join(__dirname, "public/assets/platform-logos", `${req.params.platform}.svg`));
 });
 
 // Streaming Party provider SVG assets — identical allowlist, served from providers/ directory
 app.get("/public/assets/providers/:platform.svg", staticLimiter, (req, res) => {
   if (!ALLOWED_PLATFORM_LOGOS.has(req.params.platform)) return res.status(404).end();
-  res.setHeader('Cache-Control', STATIC_ASSET_CACHE);
+  res.setHeader('Cache-Control', ASSET_CACHE);
   res.sendFile(path.join(__dirname, "public/assets/providers", `${req.params.platform}.svg`));
 });
 

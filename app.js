@@ -12384,6 +12384,16 @@ document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible') {
     console.log("[Visibility] Tab became visible - recovering sync");
     
+    // Resume party status polling if we were in a party (paused on hide below)
+    if (state.code && !state.partyStatusPollingInterval && !state.offlineMode) {
+      startPartyStatusPolling();
+    }
+    
+    // Resume crowd energy decay if in a party
+    if (state.code && !state.crowdEnergyDecayInterval) {
+      initCrowdEnergyMeter();
+    }
+    
     // Send TIME_PING to resync clock
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
       sendTimePing();
@@ -12436,7 +12446,19 @@ document.addEventListener('visibilitychange', async () => {
       }
     }
   } else {
-    console.log("[Visibility] Tab hidden");
+    console.log("[Visibility] Tab hidden - pausing background work");
+    
+    // Pause party status polling to avoid wasting network when tab is hidden.
+    // It will be restarted above when the tab becomes visible again.
+    if (state.partyStatusPollingInterval) {
+      stopPartyStatusPolling();
+    }
+    
+    // Pause crowd energy decay — cosmetic only, no need to run in background.
+    if (state.crowdEnergyDecayInterval) {
+      clearInterval(state.crowdEnergyDecayInterval);
+      state.crowdEnergyDecayInterval = null;
+    }
   }
 });
 
@@ -12561,6 +12583,7 @@ console.log('[Calibration] Bluetooth latency calibration available. Call calibra
 // ============================================================================
 let debugPanelVisible = false;
 let driftCorrectionsCount = 0;
+let _debugPanelInterval = null; // Only active when panel is open
 
 // Toggle debug panel with Ctrl+Shift+D
 document.addEventListener('keydown', (e) => {
@@ -12572,6 +12595,12 @@ document.addEventListener('keydown', (e) => {
       panel.classList.toggle('hidden', !debugPanelVisible);
       if (debugPanelVisible) {
         updateDebugPanel();
+        // Start interval only while panel is open to avoid wasted 1s ticks
+        if (!_debugPanelInterval) {
+          _debugPanelInterval = setInterval(updateDebugPanel, 1000);
+        }
+      } else {
+        if (_debugPanelInterval) { clearInterval(_debugPanelInterval); _debugPanelInterval = null; }
       }
     }
   }
@@ -12586,6 +12615,8 @@ if (btnCloseDebug) {
     if (panel) {
       panel.classList.add('hidden');
     }
+    // Stop interval when panel is closed
+    if (_debugPanelInterval) { clearInterval(_debugPanelInterval); _debugPanelInterval = null; }
   };
 }
 
@@ -12610,13 +12641,6 @@ function updateDebugPanel() {
   if (_debugEls.trackId)     _debugEls.trackId.textContent     = (state.currentTrack && state.currentTrack.trackId) || '-';
   if (_debugEls.corrections) _debugEls.corrections.textContent = driftCorrectionsCount.toString();
 }
-
-// Update debug panel periodically when visible; skip when tab is hidden
-setInterval(() => {
-  if (debugPanelVisible && document.visibilityState !== 'hidden') {
-    updateDebugPanel();
-  }
-}, 1000);
 
 // ============================================================
 // Official App Sync Mode
@@ -13407,9 +13431,9 @@ function ytGuestPause() {
 }
 
 /**
- * Show / hide the YouTube Party Player section based on user entitlement.
- * Called from showParty(). Party Pass and Pro users see the embedded player;
- * free users see an upgrade prompt instead.
+ * Show / hide the YouTube Party Player section based on streaming access.
+ * Called from showParty(). Requires Party Pass or Pro — checks /api/streaming/access
+ * and shows the player only for entitled users; others see the upgrade prompt.
  */
 function updateYoutubePartySection() {
   var section = document.getElementById('youtubePartySection');
@@ -13418,21 +13442,29 @@ function updateYoutubePartySection() {
   var playerBox = document.getElementById('youtubePartyPlayerBox');
   var upgradeBox = document.getElementById('youtubePartyUpgradeBox');
 
-  // Always show the section so all hosts see it (player or upgrade prompt)
-  section.classList.remove('hidden');
-
-  // Show the correct box based on entitlement
-  if (hasPartyPassEntitlement()) {
-    // Party Pass / Pro: show the embedded player
-    if (playerBox) playerBox.classList.remove('hidden');
-    if (upgradeBox) upgradeBox.classList.add('hidden');
-    initYouTubePlayer();
-    loadYouTubeIframeAPI();
-  } else {
-    // Free tier: show upgrade prompt; player stays hidden
-    if (playerBox) playerBox.classList.add('hidden');
-    if (upgradeBox) upgradeBox.classList.remove('hidden');
-  }
+  // Check streaming entitlement before revealing the player UI
+  fetch(API_BASE + '/api/streaming/access')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      section.classList.remove('hidden');
+      if (data.allowed) {
+        // Entitled user — reveal the embedded player
+        if (playerBox) playerBox.classList.remove('hidden');
+        if (upgradeBox) upgradeBox.classList.add('hidden');
+        initYouTubePlayer();
+        loadYouTubeIframeAPI();
+      } else {
+        // Not entitled or feature disabled — show upgrade/info prompt instead
+        if (playerBox) playerBox.classList.add('hidden');
+        if (upgradeBox) upgradeBox.classList.remove('hidden');
+      }
+    })
+    .catch(function() {
+      // On network error, reveal section with upgrade prompt as safe default
+      section.classList.remove('hidden');
+      if (playerBox) playerBox.classList.add('hidden');
+      if (upgradeBox) upgradeBox.classList.remove('hidden');
+    });
 }
 
 /**
@@ -13514,6 +13546,20 @@ function initYoutubePartyControls() {
 }
 
 /**
+ * Map a YouTube search HTTP error status to a clear user-facing message.
+ * Ensures 401/403/503 are never silently treated as "no results".
+ * @param {number} status - HTTP status code
+ * @param {string} [serverMessage] - Optional message from the response body
+ * @returns {string}
+ */
+function _ytSearchErrorMessage(status, serverMessage) {
+  if (status === 401) return 'Sign in to use YouTube search.';
+  if (status === 403) return 'YouTube search requires Party Pass or Pro. Upgrade to unlock.';
+  if (status === 503) return 'YouTube search is currently unavailable.';
+  return serverMessage || 'Search failed. Paste a YouTube link or video ID instead.';
+}
+
+/**
  * Search YouTube for videos via /api/streaming/search and render results.
  * @param {string} query
  */
@@ -13532,35 +13578,29 @@ function performYoutubeSearch(query) {
 
   fetch(API_BASE + '/api/streaming/search?provider=youtube&q=' + encodeURIComponent(query))
     .then(function(r) {
-      // Capture status before consuming body so we can show appropriate error messages
       var status = r.status;
-      return r.json().then(function(data) { return { status: status, data: data }; });
+      // Capture HTTP status alongside the body so error codes are not lost
+      return r.json().then(function(body) {
+        body._httpStatus = status;
+        return body;
+      }, function() {
+        // Body is not parseable JSON — return a synthetic error object
+        return { _httpStatus: status };
+      });
     })
-    .then(function(res) {
-      var status = res.status;
-      var data = res.data;
+    .then(function(data) {
       if (statusEl) statusEl.classList.add('hidden');
 
-      // Handle auth and entitlement errors explicitly so the user knows why search failed
-      if (status === 401) {
+      // Surface auth/entitlement/availability errors with accurate messages
+      // instead of silently falling through to "No results found"
+      if (data._httpStatus && data._httpStatus >= 400) {
+        var msg = _ytSearchErrorMessage(data._httpStatus, data.error);
+        console.warn('[YouTubeSearch] HTTP', data._httpStatus, ':', msg);
         if (statusEl) {
-          statusEl.textContent = 'Sign in to search YouTube.';
+          statusEl.textContent = msg;
           statusEl.classList.remove('hidden');
         }
-        return;
-      }
-      if (status === 403) {
-        if (statusEl) {
-          statusEl.textContent = 'YouTube search requires Party Pass or Pro.';
-          statusEl.classList.remove('hidden');
-        }
-        return;
-      }
-      if (status === 503) {
-        if (statusEl) {
-          statusEl.textContent = 'YouTube search is unavailable right now. Paste a YouTube link or video ID.';
-          statusEl.classList.remove('hidden');
-        }
+        if (!_ytPlayer.isPlaying) resetYouTubePlayerUI();
         return;
       }
 
@@ -13647,22 +13687,14 @@ function performYoutubeSearch(query) {
 /**
  * Show the YouTube Service selection screen (post-party-creation interstitial).
  * Called right after showParty() completes when a party is first created.
- * Party Pass and Pro users see the player option; free users see an upgrade prompt.
+ * Shows the eligible (player) box only for Party Pass / Pro users;
+ * others see the upgrade prompt.
  */
 function showYoutubeServiceView() {
   var eligibleBox = document.getElementById('ytServiceEligible');
   var upgradeBox = document.getElementById('ytServiceUpgrade');
 
-  // Gate on entitlement — only Party Pass / Pro users get the embedded player
-  if (hasPartyPassEntitlement()) {
-    if (eligibleBox) eligibleBox.classList.remove('hidden');
-    if (upgradeBox) upgradeBox.classList.add('hidden');
-  } else {
-    if (eligibleBox) eligibleBox.classList.add('hidden');
-    if (upgradeBox) upgradeBox.classList.remove('hidden');
-  }
-
-  // Wire buttons once
+  // Wire navigation buttons synchronously (before the async access check)
   var useBtn = document.getElementById('btnUseYoutubePlayer');
   var skipBtn = document.getElementById('btnSkipYoutubeService');
   var skipUpgradeBtn = document.getElementById('btnSkipYoutubeServiceUpgrade');
@@ -13697,6 +13729,26 @@ function showYoutubeServiceView() {
       setView('party');
     });
   }
+
+  // Check streaming access to decide which card to show
+  fetch(API_BASE + '/api/streaming/access')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.allowed) {
+        // Entitled — show the "Use YouTube Player" card
+        if (eligibleBox) eligibleBox.classList.remove('hidden');
+        if (upgradeBox) upgradeBox.classList.add('hidden');
+      } else {
+        // Not entitled or feature disabled — show upgrade/info prompt
+        if (eligibleBox) eligibleBox.classList.add('hidden');
+        if (upgradeBox) upgradeBox.classList.remove('hidden');
+      }
+    })
+    .catch(function() {
+      // On error, default to upgrade prompt (safe fallback)
+      if (eligibleBox) eligibleBox.classList.add('hidden');
+      if (upgradeBox) upgradeBox.classList.remove('hidden');
+    });
 }
 
 // ============================================================================

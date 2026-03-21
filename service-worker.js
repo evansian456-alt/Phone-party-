@@ -96,7 +96,53 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   
-  // Network first strategy for app assets
+  // Navigation requests (HTML pages): network-first so users always get the
+  // latest HTML. Fall back to cached index.html for offline support.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.status === 200) {
+            const clone = response.clone();
+            caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+  
+  // Static assets (JS, CSS, images, fonts, SVG): cache-first with background
+  // network refresh (stale-while-revalidate).  The CACHE_NAME is tied to
+  // CHANGER_VERSION so old caches are discarded on every deploy, preventing
+  // stale JS/CSS from being served.
+  const isStaticAsset = /\.(js|css|svg|png|jpg|jpeg|gif|webp|woff2?|ttf|ico)$/.test(url.pathname);
+  if (isStaticAsset) {
+    event.respondWith(
+      caches.open(CACHE_NAME).then(async (cache) => {
+        const cached = await cache.match(request);
+        // Kick off a background refresh regardless of cache hit
+        const networkFetch = fetch(request).then((response) => {
+          if (response.status === 200) {
+            cache.put(request, response.clone());
+          }
+          return response;
+        }).catch(() => null);
+        
+        // Serve from cache immediately if available; otherwise await network
+        if (cached) {
+          return cached;
+        }
+        const networkResponse = await networkFetch;
+        if (networkResponse) return networkResponse;
+        return new Response('Network error', { status: 503, statusText: 'Service Unavailable' });
+      })
+    );
+    return;
+  }
+  
+  // Everything else: network-first, fall back to cache
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -120,11 +166,6 @@ self.addEventListener('fetch', (event) => {
             if (cachedResponse) {
               console.log('[SW] Serving from cache:', request.url);
               return cachedResponse;
-            }
-            
-            // Return offline page for navigation requests
-            if (request.mode === 'navigate') {
-              return caches.match('/index.html');
             }
             
             return new Response('Network error', {
