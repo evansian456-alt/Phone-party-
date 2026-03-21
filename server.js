@@ -886,6 +886,11 @@ if (process.env.NODE_ENV === 'production' && process.env.SENTRY_DSN) {
 // Cache-Control value used for all assets that must re-validate on every deploy.
 const NO_CACHE = 'no-cache, must-revalidate';
 
+// Long-lived cache for static brand assets (SVG icons / provider logos) that
+// never change between deploys. One day TTL is safe; service-worker provides
+// an additional offline fallback layer.
+const STATIC_ASSET_CACHE = 'public, max-age=86400, stale-while-revalidate=3600';
+
 // Loose rate limiter for explicit static asset routes (1200 req / 15 min per IP).
 // Prevents abuse of the sendFile file-system reads on these routes.
 const staticLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 1200 });
@@ -920,10 +925,18 @@ app.get('/config.js', (req, res) => {
 });
 
 // Serve static files from the repo root.
-// HTML, JS, and CSS files use no-cache so browsers always revalidate after a deploy.
+// - HTML, JS, CSS: no-cache (content changes on every deploy; no URL fingerprinting)
+// - SVG icons served from /icons/: long-lived cache (brand assets, stable across deploys)
+// - Everything else: Express default (ETag-based revalidation)
 app.use(express.static(__dirname, {
   setHeaders(res, filePath) {
-    if (/\.(html|js|css|svg)$/.test(filePath)) {
+    if (/\.(html|js|css)$/.test(filePath)) {
+      res.setHeader('Cache-Control', NO_CACHE);
+    } else if (/\/icons\/.*\.svg$/.test(filePath)) {
+      // PWA icon SVGs are immutable build artifacts — safe to cache for 1 day
+      res.setHeader('Cache-Control', STATIC_ASSET_CACHE);
+    } else if (/\.svg$/.test(filePath)) {
+      // Other SVGs (not provider logos handled above): revalidate on each deploy
       res.setHeader('Cache-Control', NO_CACHE);
     }
   }
@@ -1098,20 +1111,19 @@ app.get("/manifest.json", staticLimiter, (req, res) => {
   res.sendFile(path.join(__dirname, "manifest.json"));
 });
 
-// Platform logo SVG assets — single parameterized route with allowlist validation
-// and no-cache headers so service-worker caches never serve a stale logo after
-// a brand-asset update.
+// Platform logo SVG assets — these are stable brand assets that do not change
+// between deploys, so a one-day browser cache is safe and avoids redundant GETs.
 const ALLOWED_PLATFORM_LOGOS = new Set(['youtube', 'spotify', 'soundcloud']);
 app.get("/public/assets/platform-logos/:platform.svg", staticLimiter, (req, res) => {
   if (!ALLOWED_PLATFORM_LOGOS.has(req.params.platform)) return res.status(404).end();
-  res.setHeader('Cache-Control', NO_CACHE);
+  res.setHeader('Cache-Control', STATIC_ASSET_CACHE);
   res.sendFile(path.join(__dirname, "public/assets/platform-logos", `${req.params.platform}.svg`));
 });
 
 // Streaming Party provider SVG assets — identical allowlist, served from providers/ directory
 app.get("/public/assets/providers/:platform.svg", staticLimiter, (req, res) => {
   if (!ALLOWED_PLATFORM_LOGOS.has(req.params.platform)) return res.status(404).end();
-  res.setHeader('Cache-Control', NO_CACHE);
+  res.setHeader('Cache-Control', STATIC_ASSET_CACHE);
   res.sendFile(path.join(__dirname, "public/assets/providers", `${req.params.platform}.svg`));
 });
 
