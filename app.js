@@ -13432,8 +13432,9 @@ function ytGuestPause() {
 }
 
 /**
- * Show / hide the YouTube Party Player section based on user role.
- * Called from showParty(). All users (hosts and guests) can use the player.
+ * Show / hide the YouTube Party Player section based on streaming access.
+ * Called from showParty(). Requires Party Pass or Pro — checks /api/streaming/access
+ * and shows the player only for entitled users; others see the upgrade prompt.
  */
 function updateYoutubePartySection() {
   var section = document.getElementById('youtubePartySection');
@@ -13442,15 +13443,29 @@ function updateYoutubePartySection() {
   var playerBox = document.getElementById('youtubePartyPlayerBox');
   var upgradeBox = document.getElementById('youtubePartyUpgradeBox');
 
-  // Always show the section — YouTube Party is a core feature
-  section.classList.remove('hidden');
-
-  // Show player box for all users; hide upgrade prompt
-  if (playerBox) playerBox.classList.remove('hidden');
-  if (upgradeBox) upgradeBox.classList.add('hidden');
-
-  initYouTubePlayer();
-  loadYouTubeIframeAPI();
+  // Check streaming entitlement before revealing the player UI
+  fetch(API_BASE + '/api/streaming/access')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      section.classList.remove('hidden');
+      if (data.allowed) {
+        // Entitled user — reveal the embedded player
+        if (playerBox) playerBox.classList.remove('hidden');
+        if (upgradeBox) upgradeBox.classList.add('hidden');
+        initYouTubePlayer();
+        loadYouTubeIframeAPI();
+      } else {
+        // Not entitled or feature disabled — show upgrade/info prompt instead
+        if (playerBox) playerBox.classList.add('hidden');
+        if (upgradeBox) upgradeBox.classList.remove('hidden');
+      }
+    })
+    .catch(function() {
+      // On network error, reveal section with upgrade prompt as safe default
+      section.classList.remove('hidden');
+      if (playerBox) playerBox.classList.add('hidden');
+      if (upgradeBox) upgradeBox.classList.remove('hidden');
+    });
 }
 
 /**
@@ -13532,6 +13547,20 @@ function initYoutubePartyControls() {
 }
 
 /**
+ * Map a YouTube search HTTP error status to a clear user-facing message.
+ * Ensures 401/403/503 are never silently treated as "no results".
+ * @param {number} status - HTTP status code
+ * @param {string} [serverMessage] - Optional message from the response body
+ * @returns {string}
+ */
+function _ytSearchErrorMessage(status, serverMessage) {
+  if (status === 401) return 'Sign in to use YouTube search.';
+  if (status === 403) return 'YouTube search requires Party Pass or Pro. Upgrade to unlock.';
+  if (status === 503) return 'YouTube search is currently unavailable.';
+  return serverMessage || 'Search failed. Paste a YouTube link or video ID instead.';
+}
+
+/**
  * Search YouTube for videos via /api/streaming/search and render results.
  * @param {string} query
  */
@@ -13549,9 +13578,32 @@ function performYoutubeSearch(query) {
   if (resultsEl) resultsEl.classList.add('hidden');
 
   fetch(API_BASE + '/api/streaming/search?provider=youtube&q=' + encodeURIComponent(query))
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+      var status = r.status;
+      // Capture HTTP status alongside the body so error codes are not lost
+      return r.json().then(function(body) {
+        body._httpStatus = status;
+        return body;
+      }, function() {
+        // Body is not parseable JSON — return a synthetic error object
+        return { _httpStatus: status };
+      });
+    })
     .then(function(data) {
       if (statusEl) statusEl.classList.add('hidden');
+
+      // Surface auth/entitlement/availability errors with accurate messages
+      // instead of silently falling through to "No results found"
+      if (data._httpStatus && data._httpStatus >= 400) {
+        var msg = _ytSearchErrorMessage(data._httpStatus, data.error);
+        console.warn('[YouTubeSearch] HTTP', data._httpStatus, ':', msg);
+        if (statusEl) {
+          statusEl.textContent = msg;
+          statusEl.classList.remove('hidden');
+        }
+        if (!_ytPlayer.isPlaying) resetYouTubePlayerUI();
+        return;
+      }
 
       if (data.warning || !data.results || data.results.length === 0) {
         if (statusEl) {
@@ -13636,17 +13688,14 @@ function performYoutubeSearch(query) {
 /**
  * Show the YouTube Service selection screen (post-party-creation interstitial).
  * Called right after showParty() completes when a party is first created.
- * All users are eligible — YouTube Party is a core feature.
+ * Shows the eligible (player) box only for Party Pass / Pro users;
+ * others see the upgrade prompt.
  */
 function showYoutubeServiceView() {
   var eligibleBox = document.getElementById('ytServiceEligible');
   var upgradeBox = document.getElementById('ytServiceUpgrade');
 
-  // Always show the eligible/player box — no tier gate
-  if (eligibleBox) eligibleBox.classList.remove('hidden');
-  if (upgradeBox) upgradeBox.classList.add('hidden');
-
-  // Wire buttons once
+  // Wire navigation buttons synchronously (before the async access check)
   var useBtn = document.getElementById('btnUseYoutubePlayer');
   var skipBtn = document.getElementById('btnSkipYoutubeService');
   var skipUpgradeBtn = document.getElementById('btnSkipYoutubeServiceUpgrade');
@@ -13681,6 +13730,26 @@ function showYoutubeServiceView() {
       setView('party');
     });
   }
+
+  // Check streaming access to decide which card to show
+  fetch(API_BASE + '/api/streaming/access')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.allowed) {
+        // Entitled — show the "Use YouTube Player" card
+        if (eligibleBox) eligibleBox.classList.remove('hidden');
+        if (upgradeBox) upgradeBox.classList.add('hidden');
+      } else {
+        // Not entitled or feature disabled — show upgrade/info prompt
+        if (eligibleBox) eligibleBox.classList.add('hidden');
+        if (upgradeBox) upgradeBox.classList.remove('hidden');
+      }
+    })
+    .catch(function() {
+      // On error, default to upgrade prompt (safe fallback)
+      if (eligibleBox) eligibleBox.classList.add('hidden');
+      if (upgradeBox) upgradeBox.classList.remove('hidden');
+    });
 }
 
 // ============================================================================
