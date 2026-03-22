@@ -551,6 +551,15 @@ module.exports = function createBillingRouter(deps) {
   // PAYMENT ENDPOINTS
   // ============================================================================
 
+  // In-process store for pending payment intents.
+  // Keys are intentId strings; values include userId, productId, amount, currency,
+  // platform, paymentMethod, createdAt, and used flag.
+  // In a multi-instance deployment these should be persisted in Redis or the DB.
+  // For now, a module-level Map provides correct behaviour in a single process and
+  // survives across requests within that process.
+  const _pendingIntents = new Map();
+  const INTENT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
   /**
    * POST /api/payment/initiate
    * Initiate a purchase (returns payment intent)
@@ -579,8 +588,9 @@ module.exports = function createBillingRouter(deps) {
 
       // Create payment intent with cryptographically secure ID
       const crypto = require('crypto');
+      const intentId = `intent_${Date.now()}_${crypto.randomUUID()}`;
       const paymentIntent = {
-        intentId: `intent_${Date.now()}_${crypto.randomUUID()}`,
+        intentId,
         userId,
         productId,
         amount: Math.floor(product.price * 100), // GBP - Convert price to pence, use floor to avoid rounding up
@@ -590,7 +600,16 @@ module.exports = function createBillingRouter(deps) {
         createdAt: Date.now()
       };
 
-      console.log(`[Payment] Created payment intent ${paymentIntent.intentId} for ${productId}`);
+      // Persist intent server-side so that /api/payment/confirm can validate it.
+      _pendingIntents.set(intentId, { ...paymentIntent, used: false });
+
+      // Purge stale intents to prevent unbounded Map growth.
+      const cutoff = Date.now() - INTENT_TTL_MS;
+      for (const [id, intent] of _pendingIntents) {
+        if (intent.createdAt < cutoff) _pendingIntents.delete(id);
+      }
+
+      console.log(`[Payment] Created payment intent ${intentId} for ${productId}`);
 
       res.json({
         success: true,
@@ -618,6 +637,28 @@ module.exports = function createBillingRouter(deps) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
 
+      // Validate that the intent was created by this server for this user.
+      const storedIntent = _pendingIntents.get(intentId);
+      if (!storedIntent) {
+        return res.status(400).json({ error: 'Payment intent not found or expired.' });
+      }
+      if (String(storedIntent.userId) !== String(userId)) {
+        return res.status(403).json({ error: 'Payment intent does not belong to this user.' });
+      }
+      if (storedIntent.productId !== productId) {
+        return res.status(400).json({ error: 'Product mismatch on payment intent.' });
+      }
+      if (storedIntent.used) {
+        return res.status(409).json({ error: 'Payment intent has already been used.' });
+      }
+      if (Date.now() - storedIntent.createdAt > INTENT_TTL_MS) {
+        _pendingIntents.delete(intentId);
+        return res.status(400).json({ error: 'Payment intent has expired. Please start a new purchase.' });
+      }
+
+      // Mark the intent as used immediately to prevent replay attacks.
+      storedIntent.used = true;
+
       // Get product details
       const product = storeCatalog.getItemById(productId);
       if (!product) {
@@ -631,11 +672,14 @@ module.exports = function createBillingRouter(deps) {
         paymentMethod,
         platform,
         paymentToken,
-        amount: Math.round(product.price * 100), // GBP - Convert price to pence (smallest currency unit)
-        currency: product.currency || 'GBP'
+        amount: storedIntent.amount, // Use server-side amount, not client-supplied
+        currency: storedIntent.currency
       });
 
       if (!paymentResult.success) {
+        // Un-mark the intent so the client can retry with the same intent if needed,
+        // but only allow retry within the TTL window.
+        storedIntent.used = false;
         return res.status(402).json({
           error: 'Payment failed',
           details: paymentResult.error
@@ -646,13 +690,17 @@ module.exports = function createBillingRouter(deps) {
 
       await client.query('BEGIN');
 
+      // Derive the correct purchase kind for the product.
+      // Party Pass is a time-limited access product, not a recurring subscription.
+      const purchaseKind = productId === 'party_pass' ? 'party_pass' : 'subscription';
+
       // Record purchase in database
       await client.query(
         `INSERT INTO purchases (user_id, purchase_kind, item_type, item_key, price_gbp, provider, provider_ref)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
           userId,
-          'subscription',
+          purchaseKind,
           product.type,
           product.id,
           product.price, // GBP - Price stored in pounds (e.g., 3.99 for Party Pass, 9.99 for Pro Monthly)
@@ -676,6 +724,9 @@ module.exports = function createBillingRouter(deps) {
       const entitlements = db.resolveEntitlements(upgrades);
 
       await client.query('COMMIT');
+
+      // Remove the intent from the store now that it has been finalised.
+      _pendingIntents.delete(intentId);
 
       res.json({
         success: true,

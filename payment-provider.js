@@ -128,71 +128,38 @@ async function processPayment(paymentRequest) {
  * Process Stripe payment (Web platform)
  */
 async function processStripePayment(paymentRequest) {
-  const { paymentToken, amount, currency } = paymentRequest;
-  
-  // TODO: Integrate with Stripe API
-  // For now, return simulated success
-  console.log('[Payment] Processing Stripe payment (stub)');
-  
   if (process.env.STRIPE_SECRET_KEY) {
     // Real Stripe integration would go here
     // const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
     // const paymentIntent = await stripe.paymentIntents.create({ ... });
-    throw new Error('Stripe integration not yet implemented');
+    throw new Error('Direct Stripe PaymentIntents integration not yet implemented. Use the Stripe Checkout flow (/api/billing/create-checkout-session).');
   }
-  
-  // Simulated response with secure random IDs
-  return {
-    transactionId: `stripe_${Date.now()}_${crypto.randomUUID()}`,
-    providerTransactionId: `pi_${crypto.randomUUID()}`,
-    status: 'succeeded'
-  };
+
+  throw new Error('Stripe payments are not configured. STRIPE_SECRET_KEY is required.');
 }
 
 /**
  * Process Apple IAP payment (iOS platform)
  */
 async function processAppleIAPPayment(paymentRequest) {
-  const { paymentToken } = paymentRequest;
-  
-  // TODO: Integrate with Apple App Store Server API
-  console.log('[Payment] Processing Apple IAP payment (stub)');
-  
   if (process.env.APPLE_IAP_SHARED_SECRET) {
     // Real Apple IAP integration would go here
-    // Verify receipt with Apple's servers
-    throw new Error('Apple IAP integration not yet implemented');
+    throw new Error('Apple IAP integration not yet implemented.');
   }
-  
-  // Simulated response with secure random IDs
-  return {
-    transactionId: `apple_${Date.now()}_${crypto.randomUUID()}`,
-    providerTransactionId: paymentToken || crypto.randomUUID(),
-    status: 'verified'
-  };
+
+  throw new Error('Apple IAP payments are not configured. APPLE_IAP_SHARED_SECRET is required.');
 }
 
 /**
  * Process Google Play payment (Android platform)
  */
 async function processGooglePlayPayment(paymentRequest) {
-  const { paymentToken } = paymentRequest;
-  
-  // TODO: Integrate with Google Play Billing API
-  console.log('[Payment] Processing Google Play payment (stub)');
-  
   if (process.env.GOOGLE_PLAY_SERVICE_ACCOUNT) {
     // Real Google Play integration would go here
-    // Verify purchase with Google Play API
-    throw new Error('Google Play integration not yet implemented');
+    throw new Error('Google Play Billing integration not yet implemented.');
   }
-  
-  // Simulated response with secure random IDs
-  return {
-    transactionId: `google_${Date.now()}_${crypto.randomUUID()}`,
-    providerTransactionId: paymentToken || crypto.randomUUID(),
-    status: 'verified'
-  };
+
+  throw new Error('Google Play payments are not configured. GOOGLE_PLAY_SERVICE_ACCOUNT is required.');
 }
 
 /**

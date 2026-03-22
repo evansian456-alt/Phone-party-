@@ -10432,45 +10432,96 @@ async function handleLogout() {
 /**
  * Handle password reset request
  */
-function handlePasswordResetRequest() {
-  const email = document.getElementById('resetEmail').value;
+async function handlePasswordResetRequest() {
+  const emailEl = document.getElementById('resetEmail');
   const errorEl = document.getElementById('resetRequestError');
   const successEl = document.getElementById('resetRequestSuccess');
-  
-  const result = requestPasswordReset(email);
-  
-  if (result.success) {
-    successEl.textContent = result.message + (result.debugCode ? ` Code: ${result.debugCode}` : '');
-    successEl.classList.remove('hidden');
-    errorEl.classList.add('hidden');
-    
-    // Show reset form
-    document.getElementById('formPasswordResetRequest').classList.add('hidden');
-    document.getElementById('formPasswordReset').classList.remove('hidden');
-  } else {
-    errorEl.textContent = result.error;
-    errorEl.classList.remove('hidden');
-    successEl.classList.add('hidden');
+  const submitBtn = document.getElementById('btnRequestReset');
+
+  const email = emailEl ? emailEl.value.trim() : '';
+  if (!email) {
+    if (errorEl) {
+      errorEl.textContent = 'Please enter your email address.';
+      errorEl.classList.remove('hidden');
+    }
+    if (successEl) successEl.classList.add('hidden');
+    return;
+  }
+
+  // Disable button to prevent duplicate submissions
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const result = await requestPasswordReset(email);
+
+    if (result.success) {
+      const debugSuffix = result.debugCode ? ` (Dev code: ${result.debugCode})` : '';
+      if (successEl) {
+        successEl.textContent = (result.message || 'Check your email for a reset code.') + debugSuffix;
+        successEl.classList.remove('hidden');
+      }
+      if (errorEl) errorEl.classList.add('hidden');
+
+      // Show reset code + new password form
+      const requestForm = document.getElementById('formPasswordResetRequest');
+      const resetForm = document.getElementById('formPasswordReset');
+      if (requestForm) requestForm.classList.add('hidden');
+      if (resetForm) resetForm.classList.remove('hidden');
+    } else {
+      if (errorEl) {
+        errorEl.textContent = result.error || 'Failed to send reset email.';
+        errorEl.classList.remove('hidden');
+      }
+      if (successEl) successEl.classList.add('hidden');
+    }
+  } catch (err) {
+    console.error('[UI] handlePasswordResetRequest error:', err);
+    if (errorEl) {
+      errorEl.textContent = 'Something went wrong. Please try again.';
+      errorEl.classList.remove('hidden');
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
 /**
  * Handle password reset
  */
-function handlePasswordReset() {
-  const email = document.getElementById('resetEmail').value;
-  const code = document.getElementById('resetCode').value;
-  const newPassword = document.getElementById('resetNewPassword').value;
+async function handlePasswordReset() {
+  const emailEl = document.getElementById('resetEmail');
+  const codeEl = document.getElementById('resetCode');
+  const newPasswordEl = document.getElementById('resetNewPassword');
   const errorEl = document.getElementById('resetError');
-  
-  const result = resetPassword(email, code, newPassword);
-  
-  if (result.success) {
-    showView('viewLogin');
-    showToast('✅ Password reset successfully! Please log in.');
-  } else {
-    errorEl.textContent = result.error;
-    errorEl.classList.remove('hidden');
+  const submitBtn = document.getElementById('btnResetPassword');
+
+  const email = emailEl ? emailEl.value.trim() : '';
+  const code = codeEl ? codeEl.value.trim() : '';
+  const newPassword = newPasswordEl ? newPasswordEl.value : '';
+
+  // Disable button to prevent duplicate submissions
+  if (submitBtn) submitBtn.disabled = true;
+
+  try {
+    const result = await resetPassword(email, code, newPassword);
+
+    if (result.success) {
+      showView('viewLogin');
+      showToast('✅ Password reset successfully! Please log in.');
+    } else {
+      if (errorEl) {
+        errorEl.textContent = result.error || 'Password reset failed.';
+        errorEl.classList.remove('hidden');
+      }
+    }
+  } catch (err) {
+    console.error('[UI] handlePasswordReset error:', err);
+    if (errorEl) {
+      errorEl.textContent = 'Something went wrong. Please try again.';
+      errorEl.classList.remove('hidden');
+    }
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -10809,32 +10860,22 @@ function purchaseHypeEffect(hypeId) {
 
 /**
  * Purchase Pro subscription
+ * @deprecated Local-only monetization — use the Stripe Checkout flow instead.
+ * This function no longer mutates local state; upgrades must be confirmed by the backend.
  */
 function purchaseProSubscription() {
-  monetizationState.proSubscriptionActive = true;
-  // Set subscription end date to 30 days from now
-  const endDate = new Date();
-  endDate.setDate(endDate.getDate() + 30);
-  monetizationState.proSubscriptionEndDate = endDate.toISOString();
-  
-  saveMonetizationState();
-  updateUserTier();
-  return { success: true };
+  console.warn('[Monetization] purchaseProSubscription is disabled. Use the Stripe Checkout button to upgrade.');
+  return { success: false, error: 'Use Stripe Checkout to upgrade to Pro.' };
 }
 
 /**
  * Purchase Party Pass (temporary, for current party)
+ * @deprecated Local-only monetization — use the Stripe Checkout flow instead.
+ * This function no longer mutates local state; upgrades must be confirmed by the backend.
  */
 function purchasePartyPass() {
-  monetizationState.partyPassActiveForCurrentParty = true;
-  // Set Party Pass end time to 2 hours from now
-  const endTime = Date.now() + (2 * 60 * 60 * 1000);
-  monetizationState.partyPassEndTimeForCurrentParty = endTime;
-  state.partyPassActive = true;
-  state.partyPassEndTime = endTime;
-  
-  updateUserTier();
-  return { success: true };
+  console.warn('[Monetization] purchasePartyPass is disabled. Use the Stripe Checkout button to purchase a Party Pass.');
+  return { success: false, error: 'Use Stripe Checkout to purchase a Party Pass.' };
 }
 
 /**
@@ -11895,16 +11936,26 @@ async function loadMyProfile() {
     const title = document.getElementById('profileTitle');
     if (title) title.textContent = data.profile.activeTitle || 'None';
     
-    // Update entitlements
+    // Update entitlements / feature access
     const entitlementsList = document.getElementById('profileEntitlements');
     if (entitlementsList) {
-      if (data.entitlements && data.entitlements.length > 0) {
-        entitlementsList.innerHTML = data.entitlements.map(item => `
-          <div class="entitlement-item">${escapeHtml(item.item_type)}: ${escapeHtml(item.item_key)}</div>
-        `).join('');
-      } else {
-        entitlementsList.innerHTML = '<p class="muted">No items owned yet</p>';
-      }
+      // data.entitlements is an object { hasPartyPass, hasPro } – access flags
+      // data.ownedItems is the array of owned cosmetic / add-on items
+      const ownedItems = Array.isArray(data.ownedItems) ? data.ownedItems : [];
+      const entitlements = data.entitlements || {};
+
+      const accessLines = [];
+      if (entitlements.hasPro) accessLines.push('<div class="entitlement-item">✅ Pro Monthly</div>');
+      if (entitlements.hasPartyPass && !entitlements.hasPro) accessLines.push('<div class="entitlement-item">✅ Party Pass</div>');
+
+      const itemLines = ownedItems.map(item =>
+        `<div class="entitlement-item">${escapeHtml(item.type || item.item_type || '')}: ${escapeHtml(item.key || item.item_key || '')}</div>`
+      );
+
+      const allLines = [...accessLines, ...itemLines];
+      entitlementsList.innerHTML = allLines.length > 0
+        ? allLines.join('')
+        : '<p class="muted">No items owned yet</p>';
     }
   } catch (error) {
     console.error('[Profile] Error loading profile:', error);

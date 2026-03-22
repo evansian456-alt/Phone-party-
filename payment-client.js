@@ -48,6 +48,7 @@ async function purchaseUpgrade(productId, paymentMethod = PAYMENT_METHOD.CARD) {
     // Step 1: Initiate payment intent
     const initiateResponse = await fetch(API_BASE + '/api/payment/initiate', {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -82,6 +83,7 @@ async function purchaseUpgrade(productId, paymentMethod = PAYMENT_METHOD.CARD) {
     // Step 3: Confirm payment with server
     const confirmResponse = await fetch(API_BASE + '/api/payment/confirm', {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -133,57 +135,29 @@ async function showPaymentUI(paymentMethod, platform, paymentIntent) {
 
 /**
  * Show Apple Pay UI (iOS)
+ * Apple Pay integration is not yet implemented.
  */
 async function showApplePayUI(paymentIntent) {
-  // TODO: Integrate with Apple Pay API
-  console.log('[Payment] Apple Pay UI (stub)');
-  
-  // For now, simulate payment
-  if (window.ApplePaySession && ApplePaySession.canMakePayments()) {
-    // Real Apple Pay integration would go here
-    throw new Error('Apple Pay integration not yet implemented');
-  }
-  
-  // Simulated token for testing
-  return `apple_test_${Date.now()}`;
+  console.log('[Payment] Apple Pay not yet implemented');
+  throw new Error('Apple Pay is not yet available. Please use another payment method.');
 }
 
 /**
  * Show Google Pay UI (Android)
+ * Google Pay integration is not yet implemented.
  */
 async function showGooglePayUI(paymentIntent) {
-  // TODO: Integrate with Google Pay API
-  console.log('[Payment] Google Pay UI (stub)');
-  
-  // For now, simulate payment
-  if (window.google && window.google.payments) {
-    // Real Google Pay integration would go here
-    throw new Error('Google Pay integration not yet implemented');
-  }
-  
-  // Simulated token for testing
-  return `google_test_${Date.now()}`;
+  console.log('[Payment] Google Pay not yet implemented');
+  throw new Error('Google Pay is not yet available. Please use another payment method.');
 }
 
 /**
  * Show card payment UI (Web)
+ * Direct card payment is not yet implemented — purchases are handled via Stripe Checkout.
  */
 async function showCardPaymentUI(paymentIntent) {
-  // TODO: Integrate with Stripe or other card payment provider
-  console.log('[Payment] Card payment UI (stub)');
-  
-  // For testing, show a simple confirm dialog
-  const confirmed = confirm(
-    `Purchase ${paymentIntent.productId} for ${paymentIntent.currency} ${(paymentIntent.amount / 100).toFixed(2)}?\n\n` +
-    `This is a test mode payment. In production, this would show a secure card payment form.`
-  );
-  
-  if (!confirmed) {
-    throw new Error('Payment cancelled by user');
-  }
-  
-  // Simulated token for testing
-  return `card_test_${Date.now()}`;
+  console.log('[Payment] Direct card payment not yet implemented');
+  throw new Error('Direct card payment is not yet available. Please use the Checkout button to upgrade.');
 }
 
 /**
@@ -192,7 +166,9 @@ async function showCardPaymentUI(paymentIntent) {
  */
 async function fetchUserEntitlements() {
   try {
-    const response = await fetch(API_BASE + '/api/user/entitlements');
+    const response = await fetch(API_BASE + '/api/user/entitlements', {
+      credentials: 'include'
+    });
     
     if (!response.ok) {
       throw new Error('Failed to fetch entitlements');

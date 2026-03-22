@@ -365,19 +365,88 @@ async function updatePartyStats(partyInfo) {
 }
 
 /**
- * Request password reset (not implemented yet - kept for compatibility)
+ * Request a password reset for the given email address.
+ * Calls POST /api/auth/request-reset on the backend.
  */
 async function requestPasswordReset(email) {
-  console.warn('[Auth] requestPasswordReset not yet implemented');
-  return { success: false, error: 'Not implemented' };
+  if (!isValidEmail(email)) {
+    return { success: false, error: 'Please enter a valid email address.' };
+  }
+
+  try {
+    const response = await fetch(API_BASE + '/api/auth/request-reset', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+
+    let data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = {};
+    }
+
+    if (!response.ok) {
+      return { success: false, error: data.error || 'Failed to send reset email.' };
+    }
+
+    return {
+      success: true,
+      message: data.message || 'If an account with that email exists, a reset code has been sent.',
+      // In development mode the server may return the code directly for testing.
+      debugCode: data.debugCode || null
+    };
+  } catch (error) {
+    console.error('[Auth] requestPasswordReset error:', error);
+    return { success: false, error: 'Network error. Please check your connection and try again.' };
+  }
 }
 
 /**
- * Reset password with code (not implemented yet - kept for compatibility)
+ * Complete password reset using the code that was sent to the user's email.
+ * Calls POST /api/auth/reset-password on the backend.
  */
 async function resetPassword(email, resetCode, newPassword) {
-  console.warn('[Auth] resetPassword not yet implemented');
-  return { success: false, error: 'Not implemented' };
+  if (!isValidEmail(email)) {
+    return { success: false, error: 'Please enter a valid email address.' };
+  }
+
+  if (!resetCode || String(resetCode).trim().length === 0) {
+    return { success: false, error: 'Please enter the reset code.' };
+  }
+
+  if (!isValidPassword(newPassword)) {
+    return { success: false, error: 'Password must be at least 6 characters.' };
+  }
+
+  try {
+    const response = await fetch(API_BASE + '/api/auth/reset-password', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code: String(resetCode).trim(), newPassword })
+    });
+
+    let data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = {};
+    }
+
+    if (!response.ok) {
+      return { success: false, error: data.error || 'Password reset failed.' };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[Auth] resetPassword error:', error);
+    return { success: false, error: 'Network error. Please check your connection and try again.' };
+  }
 }
 
 /**
