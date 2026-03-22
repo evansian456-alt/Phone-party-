@@ -575,6 +575,10 @@ module.exports = function createAuthRouter(deps) {
    * Always returns a success-like message to avoid leaking whether an account exists.
    */
   router.post("/auth/request-reset", authLimiter, async (req, res) => {
+    const crypto = require('crypto');
+    // Generate a cryptographically secure 6-digit code.
+    const generateResetCode = () => String(crypto.randomInt(100000, 1000000));
+
     try {
       const { email } = req.body || {};
       if (typeof email !== 'string' || !authMiddleware.isValidEmail(email)) {
@@ -587,7 +591,7 @@ module.exports = function createAuthRouter(deps) {
       if (deps.canUseLocalAuthFallback()) {
         const user = deps.localFallbackUsersByEmail.get(normalizedEmail);
         if (user) {
-          const code = String(Math.floor(100000 + Math.random() * 900000));
+          const code = generateResetCode();
           user.resetCode = code;
           user.resetCodeExpiry = Date.now() + RESET_CODE_TTL_MS;
           // In local/dev mode, surface the code directly so the flow can be tested.
@@ -611,7 +615,7 @@ module.exports = function createAuthRouter(deps) {
 
       if (userResult.rows.length > 0) {
         const userId = userResult.rows[0].id;
-        const code = String(Math.floor(100000 + Math.random() * 900000));
+        const code = generateResetCode();
         const expiresAt = new Date(Date.now() + RESET_CODE_TTL_MS);
 
         await db.query(

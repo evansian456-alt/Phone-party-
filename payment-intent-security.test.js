@@ -276,8 +276,10 @@ describe('POST /api/payment/confirm — intent security', () => {
       .post('/api/payment/confirm')
       .set('Cookie', makeAuthCookie(userId))
       .send(payload);
+    // After successful confirmation the intent is deleted from the Map,
+    // so the second attempt should consistently get "not found or expired".
     expect(second.status).toBe(400);
-    expect(second.body.error).toMatch(/not found or expired|already been used/i);
+    expect(second.body.error).toMatch(/not found or expired/i);
   });
 
   it('successful party_pass confirm returns entitlements', async () => {

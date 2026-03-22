@@ -677,9 +677,8 @@ module.exports = function createBillingRouter(deps) {
       });
 
       if (!paymentResult.success) {
-        // Un-mark the intent so the client can retry with the same intent if needed,
-        // but only allow retry within the TTL window.
-        storedIntent.used = false;
+        // Leave the intent marked as used to prevent replay attacks.
+        // The client must initiate a new intent if they wish to retry.
         return res.status(402).json({
           error: 'Payment failed',
           details: paymentResult.error
