@@ -931,14 +931,30 @@ module.exports = function createPartyRouter(deps) {
 
         // Apply the benefit based on promo type
         if (dbPromo.type === 'pro_monthly' && userId) {
-          // Activate pro monthly subscription for the authenticated user
+          // Activate pro monthly subscription for the authenticated user (no expiry — provider-managed)
           await db.activateProMonthly(userId, 'promo', promo);
           console.log(`[Promo] DB promo ${promo} (pro_monthly) applied for user ${userId}`);
           return res.json({ ok: true, type: 'pro_monthly', message: "Pro Monthly activated!" });
         }
 
+        if (dbPromo.type === 'monthly_subscription_one_time' && userId) {
+          // Grant exactly 1 month of Pro from the moment of redemption
+          await db.activateProMonthlyWithExpiry(userId, 'promo_one_time', promo, new Date());
+          console.log(`[Promo] DB promo ${promo} (monthly_subscription_one_time) granted 1 month for user ${userId}`);
+          return res.json({ ok: true, type: 'monthly_subscription_one_time', message: "1-Month Pro Subscription activated!" });
+        }
+
+        if (dbPromo.type === 'party_pass_one_time' && userId) {
+          // Grant a Party Pass entitlement to the user's account (2 hours from redemption)
+          const partyPassExpiry = new Date();
+          partyPassExpiry.setHours(partyPassExpiry.getHours() + 2);
+          await db.updatePartyPassExpiry(userId, partyPassExpiry);
+          console.log(`[Promo] DB promo ${promo} (party_pass_one_time) granted party pass to user ${userId}`);
+          return res.json({ ok: true, type: 'party_pass_one_time', message: "Party Pass activated!" });
+        }
+
         // Default: party_pass — unlock party-wide Pro (same as legacy flow)
-        // (also used for pro_monthly codes when user is not logged in)
+        // (also used for pro_monthly / one-time codes when user is not logged in)
         const partyData = await _getPartyDataForPromo(code, useRedis, getPartyFromRedis, getPartyFromFallback);
         if (!partyData) {
           return res.status(404).json({ error: ErrorMessages.partyNotFound() });
