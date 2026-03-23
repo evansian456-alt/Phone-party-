@@ -3599,6 +3599,18 @@ async function handleMessage(ws, msg) {
     case "HOST_YOUTUBE_PAUSE":
       handleHostYouTubePause(ws, sanitizedMsg);
       break;
+    case "HOST_SOUNDCLOUD_TRACK":
+      handleHostSoundCloudTrack(ws, sanitizedMsg);
+      break;
+    case "HOST_SOUNDCLOUD_PLAY":
+      handleHostSoundCloudPlay(ws, sanitizedMsg);
+      break;
+    case "HOST_SOUNDCLOUD_PAUSE":
+      handleHostSoundCloudPause(ws, sanitizedMsg);
+      break;
+    case "HOST_SOUNDCLOUD_SEEK":
+      handleHostSoundCloudSeek(ws, sanitizedMsg);
+      break;
     default: {
       // Cap the echoed type to prevent log/response bloat
       const safeType = String(sanitizedMsg.t).substring(0, 50);
@@ -5303,6 +5315,192 @@ function handleHostYouTubePause(ws, msg) {
 
 // ============================================================================
 // END YOUTUBE PARTY PLAYER
+// ============================================================================
+
+// ============================================================================
+// SOUNDCLOUD PARTY PLAYER
+// Mirrors the YouTube Party Player architecture: host sends HOST_SOUNDCLOUD_*
+// messages; server stores soundcloudSync on the party object and broadcasts
+// SOUNDCLOUD_* events to all guests.  Seek precision is best-effort because
+// the SC Widget API exposes only millisecond-level seek (no frame accuracy),
+// and cross-browser autoplay restrictions may require a tap before play starts.
+// ============================================================================
+
+/**
+ * Validate and normalize a SoundCloud track URL / API URL string.
+ * Accepts canonical soundcloud.com URLs and api.soundcloud.com/tracks/ID forms.
+ * Returns the (possibly normalised) URL on success, or null on failure.
+ */
+function normalizeSoundCloudTrackUrl(raw) {
+  const s = (raw || '').trim();
+  if (!s) return null;
+  try {
+    const u = new URL(s);
+    const host = u.hostname.toLowerCase();
+    // api.soundcloud.com/tracks/12345
+    if (host === 'api.soundcloud.com' && /^\/tracks\/\d+/.test(u.pathname)) return s;
+    // soundcloud.com/<user>/<track>
+    if (host === 'soundcloud.com' || host === 'www.soundcloud.com' || host === 'm.soundcloud.com') {
+      return 'https://soundcloud.com' + u.pathname; // strip query/hash for embed
+    }
+  } catch (_) { /* not a URL */ }
+  // Bare numeric track ID → api URL
+  if (/^\d+$/.test(s)) return `https://api.soundcloud.com/tracks/${s}`;
+  return null;
+}
+
+/**
+ * Handle HOST_SOUNDCLOUD_TRACK — host loaded a SoundCloud track.
+ * Validates host authority, then broadcasts SOUNDCLOUD_TRACK to all members.
+ */
+function handleHostSoundCloudTrack(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'soundcloud track');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('soundcloud track', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+
+  const trackUrl = normalizeSoundCloudTrackUrl(msg.trackUrl);
+  if (!trackUrl) {
+    safeSend(ws, JSON.stringify({
+      t: 'ERROR',
+      errorType: 'INVALID_PAYLOAD',
+      message: 'A valid SoundCloud track URL or track ID is required.'
+    }));
+    return;
+  }
+
+  const title = msg.title ? String(msg.title).substring(0, 200) : null;
+  const artist = msg.artist ? String(msg.artist).substring(0, 200) : null;
+  const artwork = msg.artwork ? String(msg.artwork).substring(0, 500) : null;
+
+  // Store SoundCloud sync state on party (in-memory only, mirrors youtubeSync)
+  party.soundcloudSync = {
+    trackUrl,
+    title,
+    artist,
+    artwork,
+    isPlaying: false,
+    currentTime: 0,    // seconds
+    updatedAtMs: Date.now()
+  };
+
+  broadcastToParty(client.party, {
+    t: 'SOUNDCLOUD_TRACK',
+    trackUrl,
+    title,
+    artist,
+    artwork
+  });
+
+  console.log(`[SoundCloudParty] HOST_SOUNDCLOUD_TRACK trackUrl=${trackUrl} party=${client.party}`);
+}
+
+/**
+ * Handle HOST_SOUNDCLOUD_PLAY — host pressed play.
+ * Broadcasts SOUNDCLOUD_PLAY with current position (seconds) to all members.
+ */
+function handleHostSoundCloudPlay(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'soundcloud play');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('soundcloud play', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+  const currentTime = typeof msg.currentTime === 'number' ? msg.currentTime : 0;
+  const trackUrl = (msg.trackUrl || (party.soundcloudSync && party.soundcloudSync.trackUrl) || '').trim();
+
+  if (party.soundcloudSync) {
+    party.soundcloudSync.isPlaying = true;
+    party.soundcloudSync.currentTime = currentTime;
+    party.soundcloudSync.updatedAtMs = Date.now();
+  }
+
+  broadcastToParty(client.party, {
+    t: 'SOUNDCLOUD_PLAY',
+    trackUrl,
+    currentTime
+  });
+
+  console.log(`[SoundCloudParty] HOST_SOUNDCLOUD_PLAY currentTime=${currentTime} party=${client.party}`);
+}
+
+/**
+ * Handle HOST_SOUNDCLOUD_PAUSE — host pressed pause.
+ * Broadcasts SOUNDCLOUD_PAUSE with current position to all members.
+ */
+function handleHostSoundCloudPause(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'soundcloud pause');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('soundcloud pause', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+  const currentTime = typeof msg.currentTime === 'number' ? msg.currentTime : 0;
+  const trackUrl = (msg.trackUrl || (party.soundcloudSync && party.soundcloudSync.trackUrl) || '').trim();
+
+  if (party.soundcloudSync) {
+    party.soundcloudSync.isPlaying = false;
+    party.soundcloudSync.currentTime = currentTime;
+    party.soundcloudSync.updatedAtMs = Date.now();
+  }
+
+  broadcastToParty(client.party, {
+    t: 'SOUNDCLOUD_PAUSE',
+    trackUrl,
+    currentTime
+  });
+
+  console.log(`[SoundCloudParty] HOST_SOUNDCLOUD_PAUSE currentTime=${currentTime} party=${client.party}`);
+}
+
+/**
+ * Handle HOST_SOUNDCLOUD_SEEK — host seeked to a new position.
+ * Broadcasts SOUNDCLOUD_SEEK so guests can jump to the same position.
+ * Note: SC Widget seekTo() is in milliseconds; we store/broadcast in seconds
+ * for consistency with the YouTube flow and convert on the client.
+ */
+function handleHostSoundCloudSeek(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'soundcloud seek');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('soundcloud seek', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+  const currentTime = typeof msg.currentTime === 'number' ? msg.currentTime : 0;
+
+  if (party.soundcloudSync) {
+    party.soundcloudSync.currentTime = currentTime;
+    party.soundcloudSync.updatedAtMs = Date.now();
+  }
+
+  broadcastToParty(client.party, {
+    t: 'SOUNDCLOUD_SEEK',
+    currentTime
+  });
+
+  console.log(`[SoundCloudParty] HOST_SOUNDCLOUD_SEEK currentTime=${currentTime} party=${client.party}`);
+}
+
+// ============================================================================
+// END SOUNDCLOUD PARTY PLAYER
 // ============================================================================
 
 function handleHostNextTrackQueued(ws, msg) {

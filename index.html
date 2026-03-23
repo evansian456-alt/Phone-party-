@@ -830,11 +830,11 @@
                 <strong>SoundCloud</strong>
               </div>
               <button class="btn primary" id="btnUseProviderSoundCloud" data-provider="soundcloud" data-testid="btn-use-provider-soundcloud"
-                      onclick="openSyncModal('soundcloud')">
+                      onclick="openSoundCloudPartySection()">
                 Use Provider
               </button>
             </div>
-            <p class="tiny muted" style="margin:0;">Direct streams behave similar to uploads. Widget playback may require manual resync.</p>
+            <p class="tiny muted" style="margin:0;">Paste a SoundCloud link — guests listen in-app in sync with the host.</p>
           </div>
         </div>
 
@@ -985,6 +985,63 @@
           <button class="btn primary" onclick="setView('upgradeHub')" data-testid="btn-youtube-party-upgrade">
             ⬆️ Upgrade to Unlock
           </button>
+        </div>
+      </div>
+
+      <!-- SoundCloud Party Player Section (Host) -->
+      <div id="soundcloudPartySection" class="hidden" style="margin-top:1rem;" data-testid="soundcloud-party-section">
+        <div class="line"></div>
+
+        <div id="soundcloudPartyPlayerBox" class="box" data-testid="soundcloud-party-player-box">
+          <div class="row space" style="margin-bottom:0.75rem;">
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <img src="/public/assets/providers/soundcloud.svg" alt="SoundCloud" style="height:20px;width:auto;" loading="lazy" />
+              <h3 style="margin:0;">☁ SoundCloud Party Player</h3>
+            </div>
+            <button class="btn" id="btnCloseSoundCloudPlayer" data-testid="btn-close-soundcloud-player">✕ Close</button>
+          </div>
+
+          <!-- URL input -->
+          <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem;">
+            <div style="display:flex;gap:0.5rem;align-items:center;min-width:0;">
+              <input class="input" id="soundcloudTrackUrl" placeholder="Paste a SoundCloud track URL"
+                     style="flex:1;min-width:0;" data-testid="soundcloud-track-url-input" />
+              <button class="btn primary" id="btnSoundCloudLoad" data-testid="btn-soundcloud-load">Load</button>
+            </div>
+            <div id="soundcloudLoadStatus" class="tiny muted hidden" data-testid="soundcloud-load-status"></div>
+          </div>
+
+          <!-- SC Widget iframe (host preview) — src set dynamically -->
+          <div id="soundcloudPlayerContainer"
+               style="width:100%;border-radius:8px;overflow:hidden;margin-bottom:0.75rem;"
+               data-testid="soundcloud-player-container">
+            <div id="soundcloudPlayerPlaceholder"
+                 style="display:flex;align-items:center;justify-content:center;height:80px;color:rgba(255,255,255,0.3);font-size:0.9rem;">
+              Paste a SoundCloud URL above to load a track
+            </div>
+            <iframe id="soundcloudPlayer"
+                    style="display:none;width:100%;height:166px;border:none;"
+                    scrolling="no" frameborder="no" allow="autoplay"
+                    data-testid="soundcloud-player-iframe"></iframe>
+          </div>
+
+          <!-- Player controls -->
+          <div id="soundcloudPlayerControls" class="hidden" style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;" data-testid="soundcloud-player-controls">
+            <button class="btn primary" id="btnSoundCloudPlay" data-testid="btn-soundcloud-play">▶ Play</button>
+            <button class="btn" id="btnSoundCloudPause" data-testid="btn-soundcloud-pause">⏸ Pause</button>
+            <span class="tiny muted" id="soundcloudPlayerStatus" data-testid="soundcloud-player-status">Ready</span>
+          </div>
+
+          <!-- Now playing info -->
+          <div id="soundcloudNowPlaying" class="hidden" style="margin-bottom:0.5rem;" data-testid="soundcloud-now-playing">
+            <div class="tiny muted">Now playing:</div>
+            <div id="soundcloudNowPlayingTitle" style="font-size:0.9rem;font-weight:600;"></div>
+            <div id="soundcloudNowPlayingArtist" class="tiny muted"></div>
+          </div>
+
+          <p class="tiny muted" style="font-size:0.65rem;opacity:0.7;margin-top:0.25rem;">
+            All party members listen in sync. Host controls playback.
+          </p>
         </div>
       </div>
 
@@ -1455,6 +1512,41 @@
         </div>
         <p class="tiny muted" style="font-size:0.65rem;opacity:0.7;margin-top:0.35rem;">
           Host controls playback — your video stays in sync.
+        </p>
+      </div>
+
+      <!-- SoundCloud Party Player (Guest) — shown when host starts a SoundCloud Party -->
+      <div class="glass-card hidden" id="guestSoundCloudSection" data-testid="guest-soundcloud-section">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
+          <img src="/public/assets/providers/soundcloud.svg" alt="SoundCloud" style="height:20px;width:auto;" loading="lazy" />
+          <h3 style="margin:0;font-size:1rem;">☁ SoundCloud Party</h3>
+          <span class="badge" id="guestSoundCloudSyncBadge"
+                style="background:rgba(255,140,0,0.2);color:#fa5;font-size:0.65rem;margin-left:auto;">● Synced</span>
+        </div>
+        <div id="guestSoundCloudNowPlaying" style="margin-bottom:0.5rem;" data-testid="guest-soundcloud-now-playing">
+          <div class="tiny muted">Now playing (host-controlled):</div>
+          <div id="guestSoundCloudNowPlayingTitle" style="font-size:0.9rem;font-weight:600;color:#fff;"></div>
+          <div id="guestSoundCloudNowPlayingArtist" class="tiny muted" style="font-size:0.75rem;"></div>
+        </div>
+        <!-- SC Widget iframe — src set dynamically by JS -->
+        <div id="guestSoundCloudPlayerContainer"
+             style="width:100%;border-radius:8px;overflow:hidden;margin-bottom:0.5rem;"
+             data-testid="guest-soundcloud-player-container">
+          <div id="guestSoundCloudPlayerPlaceholder"
+               style="display:flex;align-items:center;justify-content:center;height:80px;color:rgba(255,255,255,0.3);font-size:0.85rem;">
+            Waiting for host to start a track…
+          </div>
+          <iframe id="guestSoundCloudPlayer"
+                  style="display:none;width:100%;height:166px;border:none;"
+                  scrolling="no" frameborder="no" allow="autoplay"
+                  data-testid="guest-soundcloud-player"></iframe>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;" data-testid="guest-soundcloud-status-row">
+          <span class="tiny muted" id="guestSoundCloudPlayerStatus" data-testid="guest-soundcloud-player-status">Syncing…</span>
+        </div>
+        <p class="tiny muted" style="font-size:0.65rem;opacity:0.7;margin-top:0.35rem;">
+          Host controls playback — your audio stays in sync.
+          <!-- SoundCloud Widget API may require a tap to start audio on mobile due to browser autoplay policy -->
         </p>
       </div>
 
