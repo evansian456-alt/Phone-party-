@@ -7859,6 +7859,16 @@ async function handleBillingReturn() {
       // The YouTube service screen is accessible later via host controls; do not
       // auto-redirect here as that would hide the party code from the host.
       showParty();
+
+      // Briefly highlight the party code box so the host immediately notices it.
+      const partyCodeEl = el("partyCode");
+      if (partyCodeEl) {
+        const boxEl = partyCodeEl.closest('.box');
+        if (boxEl) {
+          boxEl.classList.add("party-code-box-new");
+          boxEl.addEventListener("animationend", () => boxEl.classList.remove("party-code-box-new"), { once: true });
+        }
+      }
       
       // Show success toast
       toast(`Party created: ${partyCode}`);

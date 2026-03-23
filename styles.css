@@ -1627,6 +1627,16 @@ h2,h3{margin:0; font-weight:800}
   margin: 8px 0;
 }
 
+/* One-shot highlight played on the party-code box right after a new party is created */
+@keyframes party-code-box-highlight {
+  0%   { box-shadow: 0 0 0 0 rgba(90,169,255,0); }
+  30%  { box-shadow: 0 0 0 5px rgba(90,169,255,0.45); }
+  100% { box-shadow: 0 0 0 0 rgba(90,169,255,0); }
+}
+.party-code-box-new {
+  animation: party-code-box-highlight 1.2s ease-out both;
+}
+
 #viewParty .badge {
   background: rgba(90, 169, 255, 0.15);
   border-color: rgba(90, 169, 255, 0.3);
