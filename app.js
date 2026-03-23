@@ -3402,7 +3402,7 @@ async function checkForMidTrackJoin(code) {
         var targetMs = Math.max(0, (ss.positionMs || 0) + elapsedMs);
         setTimeout(function() {
           spGuestPlay(targetMs);
-        }, 1500);
+        }, SPOTIFY_PLAYER_INITIALIZATION_DELAY_MS);
       }
     }
     
@@ -14031,6 +14031,34 @@ var SPOTIFY_REDIRECT_URI = window.location.origin + '/spotify-callback';
 var SPOTIFY_SCOPES = 'streaming user-read-email user-read-private user-modify-playback-state';
 
 /**
+ * Milliseconds subtracted from the Spotify token expiry window as a safety
+ * buffer so we don't try to use a token that is about to expire.
+ */
+var SPOTIFY_TOKEN_EXPIRY_BUFFER_MS = 60 * 1000; // 60 seconds
+
+/**
+ * Approximate WebSocket round-trip latency (ms) added to the host's playback
+ * position when syncing guest playback. Compensates for message travel time so
+ * the guest's position roughly matches the host at the moment of broadcast.
+ * Typical LAN/WiFi latency is 50–150 ms; 300 ms is a conservative default.
+ */
+var SPOTIFY_SYNC_LATENCY_OFFSET_MS = 300;
+
+/**
+ * Milliseconds to wait after loading a Spotify track on a guest device before
+ * issuing a pause. This delay allows the Spotify SDK to buffer the track and
+ * prevents the player from immediately auto-playing before the host sends a
+ * SPOTIFY_PLAY message.
+ */
+var SPOTIFY_GUEST_LOAD_PAUSE_DELAY_MS = 800;
+
+/**
+ * Milliseconds to wait before attempting late-join playback sync. Gives the
+ * Spotify SDK time to initialise and connect before sending seek/play commands.
+ */
+var SPOTIFY_PLAYER_INITIALIZATION_DELAY_MS = 1500;
+
+/**
  * State for the Spotify host player.
  */
 var _spPlayer = {
@@ -14097,7 +14125,7 @@ function getSpotifyAccessToken() {
  */
 function storeSpotifyToken(accessToken, expiresInSeconds) {
   if (!accessToken) return;
-  var expiresAt = Date.now() + (expiresInSeconds - 60) * 1000; // 60s early expiry buffer
+  var expiresAt = Date.now() + (expiresInSeconds * 1000) - SPOTIFY_TOKEN_EXPIRY_BUFFER_MS;
   _spTokenStore.accessToken = accessToken;
   _spTokenStore.expiresAt = expiresAt;
   try {
@@ -14605,7 +14633,7 @@ function _spGuestLoadTrackOnDevice(uri, deviceId, token) {
       // Immediately pause — wait for host SPOTIFY_PLAY
       setTimeout(function() {
         if (_spGuestPlayer.player) _spGuestPlayer.player.pause().catch(function() {});
-      }, 800);
+      }, SPOTIFY_GUEST_LOAD_PAUSE_DELAY_MS);
     }
   }).catch(function(e) {
     console.error('[Spotify] Guest Play API error:', e);
@@ -14664,8 +14692,7 @@ function spGuestLoadTrack(uri, title, artist, albumArt) {
  * @param {number} positionMs - Host's current position in milliseconds
  */
 function spGuestPlay(positionMs) {
-  var LATENCY_OFFSET_MS = 300; // ~300ms WebSocket round-trip compensation
-  var targetMs = Math.max(0, (positionMs || 0) + LATENCY_OFFSET_MS);
+  var targetMs = Math.max(0, (positionMs || 0) + SPOTIFY_SYNC_LATENCY_OFFSET_MS);
 
   var token = getSpotifyAccessToken();
   if (!token || !_spGuestPlayer.deviceId) return;

@@ -1168,7 +1168,7 @@ app.get("/", (req, res) => {
 
 // Spotify OAuth callback route — serve the SPA so the client-side JS can handle
 // the authorization code returned by Spotify (?code=... &state=...).
-app.get("/spotify-callback", (req, res) => {
+app.get("/spotify-callback", staticLimiter, (req, res) => {
   res.setHeader('Cache-Control', NO_CACHE);
   res.sendFile(path.join(__dirname, "index.html"));
 });
