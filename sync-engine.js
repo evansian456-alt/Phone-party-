@@ -1,14 +1,17 @@
 /**
  * SyncSpeaker Ultimate AmpSync+ Engine
- * 
- * High-precision multi-device audio/video synchronization system
- * Features:
- * - Monotonic master clock (process.hrtime.bigint)
+ *
+ * High-precision multi-device audio/video synchronization system.
+ *
+ * Architecture:
+ * - One authoritative server timeline (host is control authority, server is timing authority)
  * - NTP-style rolling-window clock sync with outlier rejection + EMA
- * - PLL-style drift correction (deadband + horizon + smoothing + caps)
- * - Safe hard-seek resync with cooldown protection
- * - Per-device audio-latency compensation (test mode)
- * - Rich per-client metrics for observability
+ * - Drift correction ladder: ignore → rate → micro-seek → hard-resync
+ * - Safe hard-seek resync with cooldown + DEGRADED state protection
+ * - Per-device audio-latency compensation (always on, slow learner)
+ * - Generation + sequence tracking prevents stale/duplicate event application
+ * - Rich per-client metrics and telemetry hooks
+ * - Server FSM enforces valid state transitions
  */
 
 // ============================================================
@@ -19,22 +22,33 @@ const {
   CLOCK_SYNC_INTERVAL_MS,
   CLOCK_SYNC_MIN_INTERVAL_MS,
   CLOCK_SYNC_MAX_INTERVAL_MS,
+  CLOCK_SYNC_FAST_INTERVAL_MS,
+  CLOCK_SYNC_FAST_BURST_COUNT,
   CLOCK_SYNC_SAMPLES,
   CLOCK_SYNC_OUTLIER_TRIM,
+  CLOCK_SYNC_MAX_RTT_MS,
   CLOCK_SYNC_EMA_ALPHA,
+  CLOCK_CONF_EXCELLENT_RTT,
+  CLOCK_CONF_EXCELLENT_SD,
+  CLOCK_CONF_GOOD_RTT,
+  CLOCK_CONF_GOOD_SD,
+  CLOCK_CONF_FAIR_RTT,
+  CLOCK_CONF_FAIR_SD,
   PLAYBACK_FEEDBACK_INTERVAL_MS,
   DRIFT_CORRECTION_INTERVAL_MS,
   ROLLING_BUFFER_MS,
   PLAYBACK_RATE_MIN,
   PLAYBACK_RATE_MAX,
   DRIFT_IGNORE_MS,
-  DRIFT_SOFT_MS,
+  DRIFT_MICRO_SEEK_MS,
   DRIFT_HARD_RESYNC_MS,
   PLL_HORIZON_SEC,
   MAX_RATE_DELTA_STABLE,
   MAX_RATE_DELTA_UNSTABLE,
   PLAYBACK_RATE_SMOOTH_ALPHA,
+  DRIFT_HYSTERESIS_MS,
   HARD_RESYNC_COOLDOWN_MS,
+  MAX_CONSECUTIVE_HARD_RESYNCS,
   DRIFT_THRESHOLD_MS,
   DESYNC_THRESHOLD_MS,
   PREDICTION_FACTOR,
@@ -44,6 +58,10 @@ const {
   AUDIO_LATENCY_COMP_ENABLED,
   AUDIO_LATENCY_COMP_MAX_MS,
   AUDIO_LATENCY_COMP_ALPHA,
+  AUDIO_LATENCY_COMP_MIN_SAMPLES,
+  SyncEventType,
+  ServerSyncState,
+  ClientSyncState,
 } = require('./sync-config');
 
 // ============================================================
@@ -140,6 +158,10 @@ class SyncClient {
     this.peerId = null;             // Legacy P2P peer ID
     /** Rolling window of {rtt, offset} samples */
     this.clockSamples = [];
+    /** 0–1 confidence in the current clock estimate */
+    this.syncConfidence = 0;
+    /** Counter used for fast-burst cadence on join/reconnect */
+    this.fastBurstSamples = 0;
 
     // ── Network stability ─────────────────────────────────────
     this.networkStability = 1.0;    // 0-1 (higher = more stable)
@@ -158,10 +180,31 @@ class SyncClient {
     // ── Hard-resync state ─────────────────────────────────────
     this.lastHardResyncTime = 0;    // Server time of last seek-resync
     this.hardResyncCount = 0;       // Total hard resyncs performed
+    /** Consecutive hard-resyncs – too many → DEGRADED */
+    this.consecutiveHardResyncs = 0;
 
-    // ── Audio latency compensation (phase 6) ─────────────────
+    // ── Generation / sequence (duplicate/stale protection) ───
+    /** Current party/track generation.  Events with older generations are dropped. */
+    this.generation = 0;
+    /** Last applied event sequence number */
+    this.lastSeq = -1;
+    /** Set of processed event IDs (dedup window) */
+    this._processedEventIds = new Set();
+
+    // ── Client FSM state ──────────────────────────────────────
+    this.syncState = ClientSyncState.DISCONNECTED;
+
+    // ── Audio latency compensation ────────────────────────────
     this.audioLatencyCompMs = 0;    // Learned output-latency compensation
     this._biasSamples = [];         // Recent drift bias samples
+    /** Optional manual override set by host/user (ms) */
+    this.outputLatencyOverrideMs = 0;
+
+    // ── Telemetry ─────────────────────────────────────────────
+    /** Milliseconds from join to first clock lock */
+    this.joinToLockMs = null;
+    this.microSeekCount = 0;        // Micro-seek corrections applied
+    this.rateCorrectionCount = 0;   // playbackRate corrections applied
 
     // ── Metrics ───────────────────────────────────────────────
     this.correctionCount = 0;       // Total drift corrections issued
@@ -177,15 +220,25 @@ class SyncClient {
   /**
    * Record a new clock-sync sample and update the EMA clock offset.
    * Uses a rolling window of CLOCK_SYNC_SAMPLES, discards the top
-   * CLOCK_SYNC_OUTLIER_TRIM fraction by RTT, then applies EMA smoothing.
+   * CLOCK_SYNC_OUTLIER_TRIM fraction by RTT and hard-rejects samples
+   * with RTT > CLOCK_SYNC_MAX_RTT_MS, then applies EMA smoothing.
+   *
+   * Returns true if the sample was accepted, false if rejected.
    *
    * @param {number} sentTime      - client nowMs when ping was sent
    * @param {number} serverNowMs   - server nowMs when pong was sent
    * @param {number} receivedTime  - server nowMs (or client nowMs) when pong was received
+   * @returns {boolean} whether the sample was accepted
    */
   updateClockSync(sentTime, serverNowMs, receivedTime) {
     const rtt = receivedTime - sentTime;
     const rttMs = Math.max(0, rtt);
+
+    // Hard-reject high-RTT outliers
+    if (rttMs > CLOCK_SYNC_MAX_RTT_MS) {
+      return false;
+    }
+
     this.latency = rttMs / 2;
 
     // Legacy latency history (network stability)
@@ -214,6 +267,8 @@ class SyncClient {
 
     this.lastPingTime = Date.now();
     this._updateClockQuality();
+    this._updateSyncConfidence();
+    return true;
   }
 
   /** Compute and store network stability score from latency variance. */
@@ -237,15 +292,40 @@ class SyncClient {
     const offsets = this.clockSamples.map(s => s.offset);
     const sd = stddev(offsets);
 
-    if (p95rtt < 60 && sd < 10) {
+    if (p95rtt < CLOCK_CONF_EXCELLENT_RTT && sd < CLOCK_CONF_EXCELLENT_SD) {
       this.clockQuality = 'excellent';
-    } else if (p95rtt < 120 && sd < 25) {
+    } else if (p95rtt < CLOCK_CONF_GOOD_RTT && sd < CLOCK_CONF_GOOD_SD) {
       this.clockQuality = 'good';
-    } else if (p95rtt < 250 && sd < 60) {
+    } else if (p95rtt < CLOCK_CONF_FAIR_RTT && sd < CLOCK_CONF_FAIR_SD) {
       this.clockQuality = 'fair';
     } else {
       this.clockQuality = 'poor';
     }
+  }
+
+  /**
+   * Compute a 0–1 sync confidence score based on:
+   *  - Number of accepted samples (more = better)
+   *  - Offset standard deviation (lower = better)
+   *  - Network stability
+   *
+   * 1.0 = excellent lock, 0.0 = no confidence.
+   */
+  _updateSyncConfidence() {
+    const n = this.clockSamples.length;
+    if (n < 3) {
+      this.syncConfidence = 0;
+      return;
+    }
+    const offsets = this.clockSamples.map(s => s.offset);
+    const sd = stddev(offsets);
+    // Sample coverage score (0–1), reaches 1 at CLOCK_SYNC_SAMPLES
+    const sampleScore = Math.min(1, n / CLOCK_SYNC_SAMPLES);
+    // Jitter score: decays as stddev grows; 20ms stddev → 0.5
+    const jitterScore = Math.max(0, 1 - sd / 40);
+    this.syncConfidence = Math.round(
+      100 * sampleScore * 0.4 + jitterScore * 0.4 + this.networkStability * 0.2
+    ) / 100;
   }
 
   /**
@@ -259,7 +339,7 @@ class SyncClient {
   }
 
   // ──────────────────────────────────────────────────────────
-  // Phase 3: PLL-style drift correction
+  // Phase 3: PLL-style drift correction ladder
   // ──────────────────────────────────────────────────────────
 
   /**
@@ -290,11 +370,13 @@ class SyncClient {
   }
 
   /**
-   * PLL-style drift-correction computation.
-   * Returns { mode, rateDelta, seekToSec }:
-   *  - mode='none' : within dead-band
-   *  - mode='rate' : gentle rate correction
-   *  - mode='seek' : hard seek (caller checks cooldown)
+   * Drift correction ladder (PLL-style).
+   *
+   * Priority (smallest → largest drift):
+   *   1. 'none'      |drift| < DRIFT_IGNORE_MS                    → ignore
+   *   2. 'rate'      DRIFT_IGNORE_MS ≤ |drift| < DRIFT_MICRO_SEEK_MS → playbackRate nudge
+   *   3. 'micro_seek' DRIFT_MICRO_SEEK_MS ≤ |drift| < DRIFT_HARD_RESYNC_MS → faded seek
+   *   4. 'seek'      |drift| ≥ DRIFT_HARD_RESYNC_MS               → hard seek (caller checks cooldown)
    *
    * @param {number} nowMs          - current server time (ms)
    * @param {number} expectedPosSec - ideal playback position at nowMs (s)
@@ -304,15 +386,22 @@ class SyncClient {
     const drift = this.lastDrift;
     const absDrift = Math.abs(drift);
 
+    // 1. Dead-band – ignore tiny drift
     if (absDrift < DRIFT_IGNORE_MS) {
       return { mode: 'none', rateDelta: 0, seekToSec: null };
     }
 
+    // 4. Hard seek threshold
     if (absDrift >= DRIFT_HARD_RESYNC_MS) {
       return { mode: 'seek', rateDelta: 0, seekToSec: expectedPosSec };
     }
 
-    // Soft rate correction
+    // 3. Micro-seek (psychoacoustically masked) for moderate drift
+    if (absDrift >= DRIFT_MICRO_SEEK_MS) {
+      return { mode: 'micro_seek', rateDelta: 0, seekToSec: expectedPosSec };
+    }
+
+    // 2. Soft rate correction for small drift
     const isStable = this.networkStability >= 0.7;
     const maxDelta = isStable ? MAX_RATE_DELTA_STABLE : MAX_RATE_DELTA_UNSTABLE;
 
@@ -362,19 +451,20 @@ class SyncClient {
   }
 
   // ──────────────────────────────────────────────────────────
-  // Phase 6: Audio latency compensation (optional, test-mode)
+  // Per-device audio latency compensation (always on, slow learner)
   // ──────────────────────────────────────────────────────────
 
   /**
    * Slowly learn the device's audio output latency bias.
-   * Only active when AUDIO_LATENCY_COMP_ENABLED is true.
+   * Enabled in production (AUDIO_LATENCY_COMP_ENABLED = true).
+   * Uses a slow EMA to avoid instability; hard-capped at ±AUDIO_LATENCY_COMP_MAX_MS.
    * @param {number} driftMs
    */
   updateLatencyComp(driftMs) {
     if (!AUDIO_LATENCY_COMP_ENABLED) return;
     this._biasSamples.push(driftMs);
     if (this._biasSamples.length > 30) this._biasSamples.shift();
-    if (this._biasSamples.length >= 10) {
+    if (this._biasSamples.length >= AUDIO_LATENCY_COMP_MIN_SAMPLES) {
       const bias = mean(this._biasSamples);
       this.audioLatencyCompMs += AUDIO_LATENCY_COMP_ALPHA * bias;
       this.audioLatencyCompMs = Math.max(
@@ -382,6 +472,59 @@ class SyncClient {
         Math.min(AUDIO_LATENCY_COMP_MAX_MS, this.audioLatencyCompMs)
       );
     }
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Idempotency / generation helpers
+  // ──────────────────────────────────────────────────────────
+
+  /**
+   * Check whether an incoming event should be applied.
+   * Returns false (and logs) if:
+   *  - event generation < client generation (stale track/seek generation)
+   *  - eventId was already processed (duplicate)
+   *  - seq ≤ lastSeq for same generation (out-of-order replay)
+   *
+   * @param {{ eventId?: string, generation?: number, seq?: number }} event
+   * @returns {boolean}
+   */
+  shouldApplyEvent(event) {
+    const { eventId, generation, seq } = event;
+
+    // Stale generation
+    if (typeof generation === 'number' && generation < this.generation) {
+      return false;
+    }
+
+    // New generation resets sequence tracking
+    if (typeof generation === 'number' && generation > this.generation) {
+      this.generation = generation;
+      this.lastSeq = -1;
+      this._processedEventIds.clear();
+    }
+
+    // Duplicate event ID
+    if (eventId && this._processedEventIds.has(eventId)) {
+      return false;
+    }
+
+    // Out-of-order sequence
+    if (typeof seq === 'number' && seq <= this.lastSeq) {
+      return false;
+    }
+
+    // Accept – record it
+    if (eventId) {
+      this._processedEventIds.add(eventId);
+      // Keep the dedup window bounded
+      if (this._processedEventIds.size > 500) {
+        const oldest = this._processedEventIds.values().next().value;
+        this._processedEventIds.delete(oldest);
+      }
+    }
+    if (typeof seq === 'number') this.lastSeq = seq;
+
+    return true;
   }
 
   // ──────────────────────────────────────────────────────────
@@ -395,7 +538,9 @@ class SyncClient {
     const drifts = this.driftHistory.map(d => d.drift);
     return {
       clientId: this.clientId,
+      syncState: this.syncState,
       clockQuality: this.clockQuality,
+      syncConfidence: this.syncConfidence,
       clockOffsetMs: this.clockOffset,
       clockOffsetStddev: stddev(offsets),
       rttMedianMs: median(rtts),
@@ -406,10 +551,16 @@ class SyncClient {
       driftP95Ms: percentile(drifts.map(Math.abs), 95),
       playbackRate: this.playbackRate,
       correctionCount: this.correctionCount,
+      rateCorrectionCount: this.rateCorrectionCount,
+      microSeekCount: this.microSeekCount,
       rateChangesPerMin: this.rateChanges.length,
       hardResyncCount: this.hardResyncCount,
+      consecutiveHardResyncs: this.consecutiveHardResyncs,
       audioLatencyCompMs: this.audioLatencyCompMs,
+      outputLatencyOverrideMs: this.outputLatencyOverrideMs,
+      generation: this.generation,
       joinTime: this.joinTime,
+      joinToLockMs: this.joinToLockMs,
     };
   }
 }
@@ -450,23 +601,87 @@ class TrackInfo {
 
 /**
  * High-precision multi-device audio synchronization engine.
- * Manages clock synchronization, PLL drift correction, and playback coordination.
+ *
+ * Implements the single authoritative server timeline model:
+ * - Host is control authority (plays/pauses/seeks)
+ * - Server is timing authority (all events are timestamped with server clock)
+ * - Clients sync to the server timeline via NTP-style clock sync
+ *
+ * Server FSM enforces valid state transitions so that illegal state
+ * combinations are logged and rejected rather than silently applied.
  *
  * @class SyncEngine
- * @property {Map<string, SyncClient>} clients - Map of client IDs to SyncClient instances
- * @property {TrackInfo|null} currentTrack - Currently playing track metadata
- * @property {Map} p2pNetwork - Legacy P2P network placeholder
- * @property {Function} masterClock - Monotonic master clock function (returns ms)
  */
 class SyncEngine {
-  /**
-   * Create a new sync engine instance
-   */
   constructor() {
     this.clients = new Map();
     this.currentTrack = null;
     this.p2pNetwork = new Map();     // legacy placeholder
     this.masterClock = buildMonotonicClock();
+
+    // ── Server FSM ───────────────────────────────────────────
+    /** Current server sync state */
+    this.syncState = ServerSyncState.IDLE;
+
+    // ── Party / timeline generation tracking ─────────────────
+    /** Generation bumped on every seek or track change to invalidate stale events */
+    this.generation = 0;
+    /** Monotonically increasing sequence number for events in this session */
+    this._seq = 0;
+
+    // ── Telemetry hooks ───────────────────────────────────────
+    /** Optional emit callback: (eventName, data) => void */
+    this.onTelemetry = null;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Server FSM helpers
+  // ──────────────────────────────────────────────────────────
+
+  /**
+   * Attempt a server state transition.  Logs and ignores illegal transitions.
+   * @param {string} newState - target ServerSyncState
+   * @returns {boolean} whether the transition was accepted
+   */
+  _transition(newState) {
+    const allowed = {
+      [ServerSyncState.IDLE]:                 [ServerSyncState.PREPARING],
+      [ServerSyncState.PREPARING]:            [ServerSyncState.WAITING_FOR_READINESS, ServerSyncState.IDLE],
+      [ServerSyncState.WAITING_FOR_READINESS]:[ServerSyncState.SCHEDULED, ServerSyncState.IDLE],
+      [ServerSyncState.SCHEDULED]:            [ServerSyncState.PLAYING, ServerSyncState.IDLE],
+      [ServerSyncState.PLAYING]:              [ServerSyncState.CORRECTING, ServerSyncState.RESYNCING, ServerSyncState.DEGRADED, ServerSyncState.IDLE],
+      [ServerSyncState.CORRECTING]:           [ServerSyncState.PLAYING, ServerSyncState.RESYNCING, ServerSyncState.IDLE],
+      [ServerSyncState.DEGRADED]:             [ServerSyncState.RESYNCING, ServerSyncState.IDLE],
+      [ServerSyncState.RESYNCING]:            [ServerSyncState.PLAYING, ServerSyncState.IDLE],
+    };
+    const ok = allowed[this.syncState];
+    if (!ok || !ok.includes(newState)) {
+      console.warn(`[SyncEngine] Illegal FSM transition ${this.syncState} → ${newState}`);
+      return false;
+    }
+    this.syncState = newState;
+    this._emitTelemetry('fsm_transition', { from: this.syncState, to: newState });
+    return true;
+  }
+
+  /** Next sequence number for an event. */
+  _nextSeq() { return ++this._seq; }
+
+  /** Build shared event metadata fields. */
+  _eventMeta(trackId = null) {
+    return {
+      generation: this.generation,
+      seq: this._nextSeq(),
+      serverTs: this.masterClock(),
+      trackId: trackId || (this.currentTrack ? this.currentTrack.trackId : null),
+    };
+  }
+
+  /** Emit a telemetry event if a hook is registered. */
+  _emitTelemetry(name, data) {
+    if (typeof this.onTelemetry === 'function') {
+      try { this.onTelemetry(name, data); } catch (_) { /* never throw from telemetry */ }
+    }
   }
 
   // ──────────────────────────────────────────────────────────
@@ -481,6 +696,8 @@ class SyncEngine {
    */
   addClient(ws, clientId) {
     const client = new SyncClient(ws, clientId);
+    // Propagate current generation so the client doesn't reject live events
+    client.generation = this.generation;
     this.clients.set(clientId, client);
     return client;
   }
@@ -503,6 +720,119 @@ class SyncEngine {
   }
 
   // ──────────────────────────────────────────────────────────
+  // Authoritative timeline events
+  // ──────────────────────────────────────────────────────────
+
+  /**
+   * Build a PREPARE_PLAY event.  Clients should begin pre-buffering immediately.
+   * Does NOT start playback; a PLAY_AT event follows once all clients are READY.
+   *
+   * @param {object} opts
+   * @param {string} opts.trackId
+   * @param {string} opts.trackUrl
+   * @param {number} opts.durationMs
+   * @param {number} [opts.startPositionSec=0]
+   * @returns {object} PREPARE_PLAY event
+   */
+  buildPreparePlay({ trackId, trackUrl, durationMs, startPositionSec = 0, ...rest }) {
+    this._transition(ServerSyncState.PREPARING);
+    return {
+      t: SyncEventType.PREPARE_PLAY,
+      ...this._eventMeta(trackId),
+      trackId,
+      trackUrl,
+      durationMs,
+      startPositionSec,
+      ...rest,
+    };
+  }
+
+  /**
+   * Build a PLAY_AT event with a future scheduled server timestamp.
+   * Clients compute their local play time using their clock offset.
+   *
+   * @param {string} trackId
+   * @param {number} startAtServerMs - absolute server time to begin playing
+   * @param {number} [startPositionSec=0]
+   * @returns {object} PLAY_AT event
+   */
+  buildPlayAt(trackId, startAtServerMs, startPositionSec = 0) {
+    this._transition(ServerSyncState.SCHEDULED);
+    return {
+      t: SyncEventType.PLAY_AT,
+      ...this._eventMeta(trackId),
+      trackId,
+      startAtServerMs,
+      startPositionSec,
+    };
+  }
+
+  /**
+   * Build a PAUSE_AT event.
+   * @param {string} trackId
+   * @param {number} pauseAtServerMs - absolute server time to pause
+   * @param {number} pausePositionSec - track position at pause point
+   * @returns {object} PAUSE_AT event
+   */
+  buildPauseAt(trackId, pauseAtServerMs, pausePositionSec) {
+    return {
+      t: SyncEventType.PAUSE_AT,
+      ...this._eventMeta(trackId),
+      trackId,
+      pauseAtServerMs,
+      pausePositionSec,
+    };
+  }
+
+  /**
+   * Build a SEEK_TO event.  Bumps generation to invalidate in-flight events.
+   * @param {string} trackId
+   * @param {number} seekToSec - new anchor position
+   * @param {number} startAtServerMs - when to start playing from the new position
+   * @returns {object} SEEK_TO event
+   */
+  buildSeekTo(trackId, seekToSec, startAtServerMs) {
+    this.generation++;
+    // Propagate new generation to all clients
+    this.clients.forEach(c => { c.generation = this.generation; c.lastSeq = -1; });
+    return {
+      t: SyncEventType.SEEK_TO,
+      ...this._eventMeta(trackId),
+      trackId,
+      seekToSec,
+      startAtServerMs,
+    };
+  }
+
+  /**
+   * Build a RESYNC_SNAPSHOT – full authoritative state for reconnecting or late-joining clients.
+   *
+   * @param {string} clientId - target client
+   * @returns {object|null} RESYNC_SNAPSHOT event, or null if no active track
+   */
+  buildResyncSnapshot(clientId) {
+    if (!this.currentTrack) return null;
+    const client = this.getClient(clientId);
+    const nowMs = this.masterClock();
+    const elapsedMs = nowMs - this.currentTrack.startTimestamp;
+    const currentPositionSec = (elapsedMs / 1000) + (this.currentTrack.startPositionSec || 0);
+
+    return {
+      t: SyncEventType.RESYNC_SNAPSHOT,
+      ...this._eventMeta(this.currentTrack.trackId),
+      serverNowMs: nowMs,
+      trackId: this.currentTrack.trackId,
+      trackStatus: this.currentTrack.status,
+      currentPositionSec,
+      startTimestamp: this.currentTrack.startTimestamp,
+      startPositionSec: this.currentTrack.startPositionSec,
+      clockOffset: client ? client.clockOffset : 0,
+      audioLatencyCompMs: client ? client.audioLatencyCompMs : 0,
+      serverSyncState: this.syncState,
+    };
+  }
+
+  // ──────────────────────────────────────────────────────────
   // Clock synchronization
   // ──────────────────────────────────────────────────────────
 
@@ -517,7 +847,7 @@ class SyncEngine {
     if (!client) return null;
     const serverNowMs = this.masterClock();
     return {
-      t: 'TIME_PONG',
+      t: SyncEventType.TIME_PONG,
       clientSentTime: clientNowMs,
       serverNowMs,
       clientId,
@@ -567,7 +897,7 @@ class SyncEngine {
     client.updateDrift(drift);
     client.updateLatencyComp(drift);
 
-    // PLL correction decision
+    // PLL correction ladder
     const pll = client.computePLLCorrection(nowMs, expectedPositionSec);
 
     if (pll.mode === 'none') {
@@ -576,20 +906,22 @@ class SyncEngine {
         const gentleDelta = (client.smoothedRate - 1.0) * (1 - PLAYBACK_RATE_SMOOTH_ALPHA) - (client.smoothedRate - 1.0);
         client.applyPLLRate(gentleDelta + (client.smoothedRate - 1.0));
       }
+      client.consecutiveHardResyncs = 0; // reset on stable playback
       return null;
     }
 
     if (pll.mode === 'seek') {
-      // Phase 4: Hard resync with cooldown
+      // Hard resync with cooldown + consecutive-resync DEGRADED guard
       const sinceLastResync = nowMs - client.lastHardResyncTime;
       if (sinceLastResync < HARD_RESYNC_COOLDOWN_MS) {
-        // Cooldown active: use rate correction as fallback
+        // Cooldown active: fall back to rate correction
         const absDrift = Math.abs(drift);
-        const fallbackDelta = absDrift < DRIFT_SOFT_MS ? 0 :
+        const fallbackDelta = absDrift < DRIFT_MICRO_SEEK_MS ? 0 :
           Math.max(-MAX_RATE_DELTA_UNSTABLE, Math.min(MAX_RATE_DELTA_UNSTABLE, -(drift / 1000 / PLL_HORIZON_SEC)));
         client.applyPLLRate(fallbackDelta);
+        client.rateCorrectionCount++;
         return {
-          t: 'DRIFT_CORRECTION',
+          t: SyncEventType.DRIFT_CORRECTION,
           adjustment: client.playbackRate - 1.0,
           drift,
           playbackRate: client.playbackRate,
@@ -602,11 +934,18 @@ class SyncEngine {
       // Perform hard seek
       client.lastHardResyncTime = nowMs;
       client.hardResyncCount++;
+      client.consecutiveHardResyncs++;
       client.correctionCount++;
       client.smoothedRate = 1.0;
       client.playbackRate = 1.0;
+      // Enter DEGRADED if too many consecutive hard resyncs
+      if (client.consecutiveHardResyncs >= MAX_CONSECUTIVE_HARD_RESYNCS) {
+        client.syncState = ClientSyncState.RESYNCING;
+        this._emitTelemetry('client_degraded', { clientId, hardResyncCount: client.hardResyncCount });
+      }
+      this._emitTelemetry('hard_resync', { clientId, drift, seekToSec: pll.seekToSec });
       return {
-        t: 'DRIFT_CORRECTION',
+        t: SyncEventType.DRIFT_CORRECTION,
         adjustment: 0,
         drift,
         playbackRate: 1.0,
@@ -617,12 +956,32 @@ class SyncEngine {
       };
     }
 
+    if (pll.mode === 'micro_seek') {
+      // Micro-seek: faded/masked seek for moderate drift
+      client.microSeekCount++;
+      client.correctionCount++;
+      client.consecutiveHardResyncs = 0;
+      this._emitTelemetry('micro_seek', { clientId, drift, seekToSec: pll.seekToSec });
+      return {
+        t: SyncEventType.DRIFT_CORRECTION,
+        adjustment: 0,
+        drift,
+        playbackRate: 1.0,
+        predictedDrift: client.predictedDrift,
+        mode: 'micro_seek',
+        rateDelta: 0,
+        seekToSec: pll.seekToSec,
+      };
+    }
+
     // mode === 'rate'
     client.applyPLLRate(pll.rateDelta);
+    client.rateCorrectionCount++;
+    client.consecutiveHardResyncs = 0;
     const legacyAdjustment = client.calculateDriftCorrection();
 
     return {
-      t: 'DRIFT_CORRECTION',
+      t: SyncEventType.DRIFT_CORRECTION,
       adjustment: legacyAdjustment,
       drift,
       playbackRate: client.playbackRate,
@@ -634,12 +993,15 @@ class SyncEngine {
   }
 
   // ──────────────────────────────────────────────────────────
-  // Track broadcasting
+  // Track broadcasting (legacy + new authoritative path)
   // ──────────────────────────────────────────────────────────
 
   /**
    * Broadcast track with precise timestamp.
-   * Per-client playAtClient values incorporate learned audioLatencyCompMs.
+   * Per-client playAtClient values incorporate learned audioLatencyCompMs
+   * and any manual outputLatencyOverrideMs the client has configured.
+   *
+   * Also bumps generation and server FSM state for the new track.
    *
    * @param {string} trackId - Track identifier
    * @param {number} duration - Track duration in seconds
@@ -651,8 +1013,13 @@ class SyncEngine {
     const masterTimestamp = this.masterClock();
     const playAt = masterTimestamp + startDelay;
 
+    // Bump generation for a new track so stale events from previous track are ignored
+    this.generation++;
+    this.clients.forEach(c => { c.generation = this.generation; c.lastSeq = -1; });
+
     this.currentTrack = new TrackInfo(trackId, duration, playAt);
     Object.assign(this.currentTrack, additionalData);
+    this.currentTrack.startPositionSec = additionalData.startPositionSec || 0;
 
     const broadcast = {
       t: 'PLAY_TRACK',
@@ -660,17 +1027,18 @@ class SyncEngine {
       playAt,
       duration,
       startDelay,
+      generation: this.generation,
       ...additionalData,
     };
 
-    // Add per-client clock offset for accurate scheduling
+    // Add per-client clock offset + latency compensation for accurate scheduling
     const clientBroadcasts = new Map();
     this.clients.forEach((client, clientId) => {
+      const totalComp = client.audioLatencyCompMs + client.outputLatencyOverrideMs;
       clientBroadcasts.set(clientId, {
         ...broadcast,
         clockOffset: client.clockOffset,
-        // Phase 6: incorporate learned latency compensation
-        playAtClient: playAt - client.clockOffset - client.audioLatencyCompMs,
+        playAtClient: playAt - client.clockOffset - totalComp,
       });
     });
 
@@ -704,7 +1072,7 @@ class SyncEngine {
 
   /**
    * Get enhanced per-client metrics for /api/sync/metrics endpoint.
-   * Includes party-wide drift aggregates.
+   * Includes party-wide drift aggregates, telemetry counters, and FSM state.
    *
    * @param {string|null} partyId - Optional party identifier for labeling
    * @returns {object} Enhanced metrics snapshot
@@ -712,21 +1080,32 @@ class SyncEngine {
   getEnhancedStats(partyId = null) {
     const clientMetrics = [];
     const allDriftAbs = [];
+    let totalRateCorrections = 0;
+    let totalMicroSeeks = 0;
+    let totalHardResyncs = 0;
 
     this.clients.forEach((client) => {
       const m = client.getMetrics();
       clientMetrics.push(m);
       if (typeof m.lastDriftMs === 'number') allDriftAbs.push(Math.abs(m.lastDriftMs));
+      totalRateCorrections += m.rateCorrectionCount || 0;
+      totalMicroSeeks      += m.microSeekCount || 0;
+      totalHardResyncs     += m.hardResyncCount || 0;
     });
 
     return {
       partyId,
       serverTimeMs: this.masterClock(),
+      serverSyncState: this.syncState,
+      generation: this.generation,
       totalClients: this.clients.size,
       party: {
         driftP50Ms: percentile(allDriftAbs, 50),
         driftP95Ms: percentile(allDriftAbs, 95),
         maxDriftMs: allDriftAbs.length ? Math.max(...allDriftAbs) : 0,
+        totalRateCorrections,
+        totalMicroSeeks,
+        totalHardResyncs,
       },
       clients: clientMetrics,
     };
