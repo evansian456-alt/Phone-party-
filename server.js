@@ -1948,7 +1948,7 @@ function isPartyPassActive(partyData, now = Date.now()) {
  * @param {string} userId - User ID to check
  * @returns {Promise<Object>} { hasPartyPass, hasPro, source }
  */
-async function checkUserEntitlements(userId) {
+async function _checkUserEntitlementsImpl(userId) {
   try {
     // Anonymous users have no entitlements
     if (!userId || userId.startsWith('anonymous-')) {
@@ -1970,6 +1970,13 @@ async function checkUserEntitlements(userId) {
     // On error, return no entitlements (fail-safe)
     return { hasPartyPass: false, hasPro: false, source: 'error' };
   }
+}
+
+// Test-injectable override — set via _setCheckUserEntitlements() in tests only
+let _checkUserEntitlementsOverride = null;
+async function checkUserEntitlements(userId) {
+  if (_checkUserEntitlementsOverride) return _checkUserEntitlementsOverride(userId);
+  return _checkUserEntitlementsImpl(userId);
 }
 
 /**
@@ -6169,6 +6176,7 @@ module.exports = {
   savePartyState,
   // Testing helpers
   _setStorageProvider: (provider) => { storageProvider = provider; },
+  _setCheckUserEntitlements: (fn) => { _checkUserEntitlementsOverride = fn; },
   TRACK_MAX_BYTES,
   // Memory-stability testing hooks
   syncTickIntervals,

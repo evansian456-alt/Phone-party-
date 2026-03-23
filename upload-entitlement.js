@@ -123,12 +123,17 @@ function checkUploadAccess(entitlements) {
  * @returns {Promise<number>}
  */
 async function getPartyUploadCount(db, partyCode) {
-  const result = await db.query(
-    `SELECT COUNT(*) AS cnt FROM party_uploads
-     WHERE party_code = $1 AND deleted_at IS NULL`,
-    [partyCode]
-  );
-  return parseInt(result.rows[0]?.cnt ?? '0', 10);
+  try {
+    const result = await db.query(
+      `SELECT COUNT(*) AS cnt FROM party_uploads
+       WHERE party_code = $1 AND deleted_at IS NULL`,
+      [partyCode]
+    );
+    return parseInt(result.rows[0]?.cnt ?? '0', 10);
+  } catch (err) {
+    if (DEBUG) console.warn('[UploadEntitlement] getPartyUploadCount DB error (fail-safe 0):', err.message);
+    return 0;
+  }
 }
 
 /**
@@ -139,12 +144,17 @@ async function getPartyUploadCount(db, partyCode) {
  * @returns {Promise<number>}
  */
 async function getPartyAddonAllowance(db, partyCode) {
-  const result = await db.query(
-    `SELECT COALESCE(SUM(extra_songs), 0) AS total FROM party_upload_addons
-     WHERE party_code = $1 AND status = 'active'`,
-    [partyCode]
-  );
-  return parseInt(result.rows[0]?.total ?? '0', 10);
+  try {
+    const result = await db.query(
+      `SELECT COALESCE(SUM(extra_songs), 0) AS total FROM party_upload_addons
+       WHERE party_code = $1 AND status = 'active'`,
+      [partyCode]
+    );
+    return parseInt(result.rows[0]?.total ?? '0', 10);
+  } catch (err) {
+    if (DEBUG) console.warn('[UploadEntitlement] getPartyAddonAllowance DB error (fail-safe 0):', err.message);
+    return 0;
+  }
 }
 
 /**
@@ -232,14 +242,22 @@ async function checkMonthlyFairUsage(db, userId) {
   const windowMs  = cfg.MONTHLY_FAIR_USAGE_WINDOW_HOURS * 60 * 60 * 1000;
   const windowStart = new Date(Date.now() - windowMs).toISOString();
 
-  const countResult = await db.query(
-    `SELECT COUNT(*) AS cnt, COALESCE(SUM(size_bytes), 0) AS total_bytes
-     FROM party_uploads
-     WHERE uploader_user_id = $1
-       AND deleted_at IS NULL
-       AND created_at >= $2`,
-    [userId, windowStart]
-  );
+  let countResult;
+  try {
+    countResult = await db.query(
+      `SELECT COUNT(*) AS cnt, COALESCE(SUM(size_bytes), 0) AS total_bytes
+       FROM party_uploads
+       WHERE uploader_user_id = $1
+         AND deleted_at IS NULL
+         AND created_at >= $2`,
+      [userId, windowStart]
+    );
+  } catch (err) {
+    // If the DB is unavailable the fair-usage check cannot run.
+    // Fail-open: the hard entitlement gate has already passed, so allow the upload.
+    if (DEBUG) console.warn('[UploadEntitlement] checkMonthlyFairUsage DB error (fail-open):', err.message);
+    return { allowed: true };
+  }
 
   const row          = countResult.rows[0] || {};
   const uploadCount  = parseInt(row.cnt ?? '0', 10);

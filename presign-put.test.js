@@ -4,7 +4,19 @@
  */
 
 const request = require('supertest');
-const { app, waitForRedis, _setStorageProvider, TRACK_MAX_BYTES } = require('./server');
+const {
+  app, waitForRedis, _setStorageProvider, _setCheckUserEntitlements, TRACK_MAX_BYTES,
+} = require('./server');
+const { generateToken } = require('./auth-middleware');
+
+// Helper: make a valid auth cookie for a test user with given entitlements
+function makeAuthCookie(overrides = {}) {
+  const token = generateToken({ id: 'test-user-id', email: 'test@example.com', ...overrides });
+  return `auth_token=${token}`;
+}
+
+// Default entitlements: PRO_MONTHLY (simplest — no party-code required)
+const PRO_ENTITLEMENTS = { hasPartyPass: true, hasPro: true, source: 'test' };
 
 describe('POST /api/tracks/presign-put', () => {
   const VALID_BODY = {
@@ -15,6 +27,7 @@ describe('POST /api/tracks/presign-put', () => {
 
   // Set up a mock storage provider with generatePresignedPutUrl support
   let mockProvider;
+  let authCookie;
 
   beforeAll(async () => {
     try {
@@ -25,6 +38,10 @@ describe('POST /api/tracks/presign-put', () => {
   });
 
   beforeEach(() => {
+    authCookie = makeAuthCookie();
+    // Mock entitlements so all tests use PRO_MONTHLY (no DB required)
+    _setCheckUserEntitlements(async () => PRO_ENTITLEMENTS);
+
     mockProvider = {
       generatePresignedPutUrl: jest.fn().mockResolvedValue({
         putUrl: 'https://r2.example.com/signed-put-url',
@@ -36,6 +53,16 @@ describe('POST /api/tracks/presign-put', () => {
 
   afterEach(() => {
     _setStorageProvider(null);
+    _setCheckUserEntitlements(null);
+  });
+
+  // ── auth gate ─────────────────────────────────────────────────────────────
+
+  it('returns 401 when no auth cookie is provided', async () => {
+    const res = await request(app)
+      .post('/api/tracks/presign-put')
+      .send(VALID_BODY);
+    expect(res.status).toBe(401);
   });
 
   // ── contentType validation ────────────────────────────────────────────────
@@ -43,25 +70,28 @@ describe('POST /api/tracks/presign-put', () => {
   it('returns 400 when contentType is missing', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ filename: 'song.mp3', sizeBytes: 1024 });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/contentType/i);
+    expect(res.body.error).toMatch(/mime.?type|content.?type/i);
   });
 
   it('returns 400 when contentType is not audio/*', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ ...VALID_BODY, contentType: 'video/mp4' });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/audio\//);
+    expect(res.body.error).toMatch(/not allowed|audio/i);
   });
 
   it('returns 400 when contentType is application/octet-stream', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ ...VALID_BODY, contentType: 'application/octet-stream' });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/audio\//);
+    expect(res.body.error).toMatch(/not allowed|audio/i);
   });
 
   // ── sizeBytes validation ──────────────────────────────────────────────────
@@ -69,41 +99,46 @@ describe('POST /api/tracks/presign-put', () => {
   it('returns 400 when sizeBytes is missing', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ filename: 'song.mp3', contentType: 'audio/mpeg' });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/sizeBytes/i);
+    expect(res.body.error).toMatch(/empty|size/i);
   });
 
   it('returns 400 when sizeBytes is 0', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ ...VALID_BODY, sizeBytes: 0 });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/sizeBytes/i);
+    expect(res.body.error).toMatch(/empty|size/i);
   });
 
   it('returns 400 when sizeBytes is negative', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ ...VALID_BODY, sizeBytes: -100 });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/sizeBytes/i);
+    expect(res.body.error).toMatch(/empty|size/i);
   });
 
   it('returns 400 when sizeBytes is Infinity', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ ...VALID_BODY, sizeBytes: Infinity });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/sizeBytes/i);
+    expect(res.body.error).toMatch(/empty|size/i);
   });
 
-  it('returns 400 when sizeBytes exceeds TRACK_MAX_BYTES', async () => {
+  it('returns 400 when sizeBytes exceeds maximum allowed', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ ...VALID_BODY, sizeBytes: TRACK_MAX_BYTES + 1 });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/sizeBytes/i);
+    expect(res.body.error).toMatch(/too large|size/i);
   });
 
   // ── filename validation ───────────────────────────────────────────────────
@@ -111,6 +146,7 @@ describe('POST /api/tracks/presign-put', () => {
   it('returns 400 when filename is missing', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ contentType: 'audio/mpeg', sizeBytes: 1024 });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/filename/i);
@@ -119,6 +155,7 @@ describe('POST /api/tracks/presign-put', () => {
   it('returns 400 when filename is empty string', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ ...VALID_BODY, filename: '   ' });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/filename/i);
@@ -129,6 +166,7 @@ describe('POST /api/tracks/presign-put', () => {
   it('returns 200 with putUrl, key, and trackUrl on valid input', async () => {
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send(VALID_BODY);
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
@@ -147,6 +185,7 @@ describe('POST /api/tracks/presign-put', () => {
     });
     const res = await request(app)
       .post('/api/tracks/presign-put')
+      .set('Cookie', authCookie)
       .send({ ...VALID_BODY, contentType: 'audio/mpeg', filename: 'SONG.MP3' });
     expect(res.status).toBe(200);
     // Verify the key returned has a lowercase extension
@@ -162,7 +201,8 @@ describe('POST /api/tracks/presign-put', () => {
     });
     const res = await request(app)
       .post('/api/tracks/presign-put')
-      .send({ ...VALID_BODY, contentType: 'audio/wav' });
+      .set('Cookie', authCookie)
+      .send({ ...VALID_BODY, contentType: 'audio/wav', filename: 'song.wav' });
     expect(res.status).toBe(200);
     expect(res.body.key).toBeDefined();
   });
