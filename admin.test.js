@@ -298,8 +298,9 @@ describe('Admin System', () => {
       // POST /api/admin/promo-codes stub
       app.post('/api/admin/promo-codes', authMW.requireAdmin, async (req, res) => {
         const { type } = req.body;
-        if (!type || !['party_pass', 'pro_monthly'].includes(type)) {
-          return res.status(400).json({ error: "type must be 'party_pass' or 'pro_monthly'" });
+        const VALID_TYPES = ['party_pass', 'pro_monthly', 'party_pass_one_time', 'monthly_subscription_one_time'];
+        if (!type || !VALID_TYPES.includes(type)) {
+          return res.status(400).json({ error: "type must be one of: " + VALID_TYPES.join(', ') });
         }
         // Simulate DB insert
         db.query.mockResolvedValueOnce({ rows: [] });
@@ -345,7 +346,7 @@ describe('Admin System', () => {
         .set('Cookie', `auth_token=${token}`)
         .send({ type: 'invalid_type' });
       expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/party_pass.*pro_monthly/i);
+      expect(res.body.error).toMatch(/party_pass/i);
     });
 
     it('POST /api/admin/promo-codes returns 201 with code for admin (party_pass)', async () => {
@@ -368,6 +369,28 @@ describe('Admin System', () => {
         .send({ type: 'pro_monthly' });
       expect(res.status).toBe(201);
       expect(res.body.type).toBe('pro_monthly');
+    });
+
+    it('POST /api/admin/promo-codes returns 201 for party_pass_one_time', async () => {
+      const token = authMW.generateToken({ userId: 'u1', email: 'admin@example.com', isAdmin: true });
+      const res = await request(app)
+        .post('/api/admin/promo-codes')
+        .set('Cookie', `auth_token=${token}`)
+        .send({ type: 'party_pass_one_time' });
+      expect(res.status).toBe(201);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.type).toBe('party_pass_one_time');
+    });
+
+    it('POST /api/admin/promo-codes returns 201 for monthly_subscription_one_time', async () => {
+      const token = authMW.generateToken({ userId: 'u1', email: 'admin@example.com', isAdmin: true });
+      const res = await request(app)
+        .post('/api/admin/promo-codes')
+        .set('Cookie', `auth_token=${token}`)
+        .send({ type: 'monthly_subscription_one_time' });
+      expect(res.status).toBe(201);
+      expect(res.body.ok).toBe(true);
+      expect(res.body.type).toBe('monthly_subscription_one_time');
     });
 
     it('GET /api/admin/promo-codes returns 401 when unauthenticated', async () => {

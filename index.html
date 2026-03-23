@@ -1800,18 +1800,6 @@
       </div>
     </section>
   
-<!-- Promo Code -->
-<button class="btn secondary" id="promoBtn">Have a promo code?</button>
-
-<div class="modal hidden" id="promoModal">
-  <div class="modalCard">
-    <h3>Enter promo code</h3>
-    <input id="promoInput" placeholder="Promo code" />
-    <button class="btn primary" id="promoApply">Unlock this party</button>
-    <p class="hint">Promo codes unlock Pro for one party only.</p>
-    <button class="btn link" id="promoClose">Cancel</button>
-  </div>
-</div>
 
   <div class="modal hidden" id="modalPaywall">
     <div class="modalCard">
@@ -2825,6 +2813,21 @@
         <div id="adminFlaggedMessages" style="font-size:13px;margin-top:8px"></div>
       </div>
     </div>
+
+      <!-- Promo Code Generator -->
+      <div class="profile-section" id="adminPromoSection">
+        <h3>🎟️ Promo Code Generator</h3>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+          <select id="adminPromoTypeSelect" style="background:rgba(255,255,255,0.08);border:1px solid rgba(157,78,221,0.3);border-radius:6px;color:#fff;padding:6px 10px;font-size:13px;flex:1;min-width:220px;">
+            <option value="party_pass_one_time">🎉 Party Pass — One-Time Use</option>
+            <option value="monthly_subscription_one_time">⭐ Monthly Subscription — One-Time Use</option>
+            <option value="party_pass">🎊 Party Pass — Party-Wide (legacy)</option>
+            <option value="pro_monthly">🌟 Pro Monthly — Full Sub (legacy)</option>
+          </select>
+          <button class="btn" id="btnAdminGeneratePromo" style="padding:6px 14px;font-size:13px;white-space:nowrap;">✨ Generate Code</button>
+        </div>
+        <div id="adminPromoResult" style="font-size:13px;margin-top:4px;"></div>
+      </div>
     <button class="btn" id="btnBackFromAdmin">Back</button>
   </section>
   <div class="modal hidden" id="modalCheckout" data-testid="checkout-modal">

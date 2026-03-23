@@ -11018,90 +11018,10 @@ if (document.readyState === "loading") {
 }
 
 
-// ---- Promo Code Logic (Server-Authoritative) ----
-const promoBtn = document.getElementById("promoBtn");
-const promoModal = document.getElementById("promoModal");
-const promoApply = document.getElementById("promoApply");
-const promoInput = document.getElementById("promoInput");
-const promoClose = document.getElementById("promoClose");
-
-if (promoBtn) {
-  promoBtn.onclick = () => promoModal.classList.remove("hidden");
-  promoClose.onclick = () => promoModal.classList.add("hidden");
-
-  promoApply.onclick = async () => {
-    const code = promoInput.value.trim().toUpperCase();
-    if (!code) {
-      toast("Please enter a promo code");
-      return;
-    }
-    
-    // Check if we have a party code
-    if (!state.code) {
-      toast("You must be in a party to use a promo code");
-      return;
-    }
-    
-    // Check if party already has promo applied (prevent multiple promo codes)
-    if (state.partyPro || state.partyPassActive) {
-      toast("⚠️ This party has already used a promo code");
-      promoModal.classList.add("hidden");
-      promoInput.value = "";
-      return;
-    }
-    
-    // Try WebSocket first (if connected), fallback to HTTP
-    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-      // Send to server via WebSocket for validation
-      send({ t: "APPLY_PROMO", code });
-      promoModal.classList.add("hidden");
-      promoInput.value = ""; // Clear input
-    } else {
-      // Use HTTP endpoint when WebSocket not available
-      try {
-        const response = await fetch(API_BASE + "/api/apply-promo", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            partyCode: state.code,
-            promoCode: code
-          })
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-          toast(data.error || "Failed to apply promo code");
-        } else {
-          // Success - update state and UI with clear messaging
-          state.partyPro = true;
-          state.partyPassActive = true;
-          setPlanPill();
-          updateTierDisplay();
-          toast("🎉 This Phone Party is now Pro!");
-          
-          // Update party status banner
-          const partyPassTitle = document.getElementById('partyPassTitle');
-          if (partyPassTitle) {
-            partyPassTitle.textContent = 'Party is now Pro';
-          }
-          
-          // Hide upgrade prompts
-          const partyPassUpgrade = document.getElementById('partyPassUpgrade');
-          if (partyPassUpgrade) {
-            partyPassUpgrade.classList.add('hidden');
-          }
-        }
-      } catch (error) {
-        console.error("[Promo] HTTP error:", error);
-        toast("Failed to apply promo code");
-      }
-      
-      promoModal.classList.add("hidden");
-      promoInput.value = ""; // Clear input
-    }
-  };
-}
+// ---- Promo Code Logic removed from global UI ----
+// The "Have a promo code?" button has been replaced by the admin promo code
+// generator inside the Admin Dashboard section (#viewAdminDashboard).
+// Admins generate codes via the admin dashboard; users redeem them in party context.
 
 // ============================================================================
 // MONETIZATION UI INITIALIZATION
@@ -12131,6 +12051,12 @@ function initAdminDashboard() {
   if (btnLoadFlagged) {
     btnLoadFlagged.onclick = loadAdminFlaggedMessages;
   }
+
+  // Wire up the in-dashboard promo code generator
+  const btnGeneratePromo = document.getElementById('btnAdminGeneratePromo');
+  if (btnGeneratePromo) {
+    btnGeneratePromo.onclick = generateAdminPromoCode;
+  }
 }
 
 async function loadAdminModerationReports() {
@@ -12204,6 +12130,68 @@ async function loadAdminFlaggedMessages() {
     el.addEventListener('click', _adminModFlagClickHandler);
   } catch (err) {
     el.textContent = 'Error loading flagged messages.';
+  }
+}
+
+/**
+ * Generate a promo code from the in-app Admin Dashboard promo generator.
+ * Called when admin clicks "✨ Generate Code" inside #viewAdminDashboard.
+ */
+async function generateAdminPromoCode() {
+  const select = document.getElementById('adminPromoTypeSelect');
+  const resultEl = document.getElementById('adminPromoResult');
+  const btn = document.getElementById('btnAdminGeneratePromo');
+  if (!select || !resultEl || !btn) return;
+
+  const type = select.value;
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating...';
+  resultEl.textContent = '';
+
+  try {
+    const resp = await fetch(API_BASE + '/api/admin/promo-codes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ type })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'HTTP ' + resp.status);
+
+    const typeLabels = {
+      party_pass_one_time: '🎉 Party Pass (One-Time)',
+      monthly_subscription_one_time: '⭐ Monthly Sub (One-Time)',
+      party_pass: '🎊 Party Pass (Party-Wide)',
+      pro_monthly: '🌟 Pro Monthly'
+    };
+    const label = typeLabels[data.type] || data.type;
+
+    // Build result using DOM methods to avoid XSS from interpolated code values
+    const codeSpan = document.createElement('span');
+    codeSpan.style.cssText = 'color:#00ff88;font-weight:700;font-family:monospace;';
+    codeSpan.textContent = data.code;
+
+    const labelSpan = document.createElement('span');
+    labelSpan.style.cssText = 'color:var(--muted);font-size:12px;margin-left:6px;';
+    labelSpan.textContent = label;
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn';
+    copyBtn.style.cssText = 'padding:2px 8px;font-size:12px;margin-left:6px;';
+    copyBtn.textContent = '📋';
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(data.code).then(() => toast('Copied!'));
+    });
+
+    resultEl.textContent = '';
+    resultEl.appendChild(codeSpan);
+    resultEl.appendChild(labelSpan);
+    resultEl.appendChild(copyBtn);
+  } catch (e) {
+    resultEl.innerHTML = `<span style="color:#ff6666;">❌ ${escapeHtml(e.message)}</span>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ Generate Code';
   }
 }
 

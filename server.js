@@ -4479,11 +4479,29 @@ function handleApplyPromo(ws, msg) {
           return;
         }
 
-        // Apply pro_monthly to the authenticated user
+        // Apply pro_monthly to the authenticated user (no expiry — provider-managed)
         if (dbPromo.type === 'pro_monthly' && userId) {
           await db.activateProMonthly(userId, 'promo', promoCode);
           console.log(`[Promo] WS DB promo ${promoCode} (pro_monthly) applied for user ${userId}`);
           safeSend(ws, JSON.stringify({ t: "PROMO_APPLIED", type: 'pro_monthly', message: "Pro Monthly activated!" }));
+          return;
+        }
+
+        // monthly_subscription_one_time — grant exactly 1 month from redemption
+        if (dbPromo.type === 'monthly_subscription_one_time' && userId) {
+          await db.activateProMonthlyWithExpiry(userId, 'promo_one_time', promoCode, new Date());
+          console.log(`[Promo] WS DB promo ${promoCode} (monthly_subscription_one_time) granted 1 month for user ${userId}`);
+          safeSend(ws, JSON.stringify({ t: "PROMO_APPLIED", type: 'monthly_subscription_one_time', message: "1-Month Pro Subscription activated!" }));
+          return;
+        }
+
+        // party_pass_one_time — grant a timed Party Pass to the user's account (2 hours)
+        if (dbPromo.type === 'party_pass_one_time' && userId) {
+          const partyPassExpiry = new Date();
+          partyPassExpiry.setHours(partyPassExpiry.getHours() + 2);
+          await db.updatePartyPassExpiry(userId, partyPassExpiry);
+          console.log(`[Promo] WS DB promo ${promoCode} (party_pass_one_time) granted party pass to user ${userId}`);
+          safeSend(ws, JSON.stringify({ t: "PROMO_APPLIED", type: 'party_pass_one_time', message: "Party Pass activated!" }));
           return;
         }
 
