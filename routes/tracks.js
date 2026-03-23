@@ -29,7 +29,7 @@ module.exports = function createTracksRouter(deps) {
   // Used by the frontend to render the correct upload CTA / locked state.
   router.get("/uploads/status", authMiddleware.requireAuth, async (req, res) => {
     try {
-      const userId    = req.user?.id || req.user?.userId;
+      const userId    = req.user?.userId;
       const partyCode = (req.query.partyCode || '').toUpperCase().trim();
 
       const entitlements = await checkUserEntitlements(userId);
@@ -136,7 +136,7 @@ module.exports = function createTracksRouter(deps) {
     
     try {
       const { filename, contentType, sizeBytes, partyCode: rawPartyCode } = req.body;
-      const userId    = req.user?.id || req.user?.userId;
+      const userId    = req.user?.userId;
       const partyCode = rawPartyCode ? rawPartyCode.toUpperCase().trim() : null;
 
       // ── Entitlement gate ─────────────────────────────────────────────────
@@ -264,7 +264,7 @@ module.exports = function createTracksRouter(deps) {
         return res.status(400).json({ error: 'No audio file provided' });
       }
 
-      const userId    = req.user?.id || req.user?.userId;
+      const userId    = req.user?.userId;
       const partyCode = req.body.partyCode ? req.body.partyCode.toUpperCase().trim() : null;
 
       // ── Entitlement gate ─────────────────────────────────────────────────

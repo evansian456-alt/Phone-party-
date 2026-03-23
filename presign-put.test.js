@@ -11,7 +11,7 @@ const { generateToken } = require('./auth-middleware');
 
 // Helper: make a valid auth cookie for a test user with given entitlements
 function makeAuthCookie(overrides = {}) {
-  const token = generateToken({ id: 'test-user-id', email: 'test@example.com', ...overrides });
+  const token = generateToken({ userId: 'test-user-id', email: 'test@example.com', ...overrides });
   return `auth_token=${token}`;
 }
 
