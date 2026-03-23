@@ -7855,11 +7855,10 @@ async function handleBillingReturn() {
         }]
       };
       
-      // Show party view
+      // Show party view — keep the host here so the join code is immediately visible.
+      // The YouTube service screen is accessible later via host controls; do not
+      // auto-redirect here as that would hide the party code from the host.
       showParty();
-      
-      // Show YouTube service selection screen for hosts (post-create interstitial)
-      setView('youtubeService');
       
       // Show success toast
       toast(`Party created: ${partyCode}`);
