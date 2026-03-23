@@ -1,11 +1,21 @@
 /**
  * TierPolicy - Single source of truth for tier limits.
  *
+ * Upload limits are sourced from upload-config.js so they remain configurable
+ * via environment variables without touching this file.
+ *
  * FREE:        maxDevices=2, maxSessionMinutes=30, no uploads, no Official App Sync
- * PARTY_PASS:  maxDevices=6, maxSessionMinutes=60, 10 uploads/session, Official App Sync
+ * PARTY_PASS:  maxDevices=6, maxSessionMinutes=60, configurable uploads/party, Official App Sync
  * PRO /
- * PRO_MONTHLY: maxDevices=6, unlimited time, 100 uploads/month, Official App Sync
+ * PRO_MONTHLY: maxDevices=6, unlimited time, unlimited uploads (fair-usage), Official App Sync
  */
+
+const {
+  PARTY_PASS_UPLOAD_LIMIT,
+  PARTY_PASS_MAX_FILE_MB,
+  MONTHLY_MAX_FILE_MB,
+  MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW,
+} = require('./upload-config');
 
 const TIER_POLICY = {
   FREE: {
@@ -18,8 +28,8 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: 60,
     uploadsAllowed: true,
-    maxUploadsPerSession: 10,
-    maxUploadMB: 15,
+    maxUploadsPerParty: PARTY_PASS_UPLOAD_LIMIT,
+    maxUploadMB: PARTY_PASS_MAX_FILE_MB,
     officialAppSync: true
   },
   // PRO_MONTHLY is the legacy alias used throughout the codebase
@@ -27,9 +37,9 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: null, // unlimited
     uploadsAllowed: true,
-    maxUploadsPerMonth: 100,
-    maxUploadMB: 15,
-    maxUploadsPerSession: 50, // safety cap per session
+    maxUploadsPerMonth: null, // unlimited (fair-usage applied server-side)
+    fairUsageUploadsPerWindow: MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW,
+    maxUploadMB: MONTHLY_MAX_FILE_MB,
     officialAppSync: true
   },
   // PRO is a shorthand alias
@@ -37,9 +47,9 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: null, // unlimited
     uploadsAllowed: true,
-    maxUploadsPerMonth: 100,
-    maxUploadMB: 15,
-    maxUploadsPerSession: 50,
+    maxUploadsPerMonth: null,
+    fairUsageUploadsPerWindow: MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW,
+    maxUploadMB: MONTHLY_MAX_FILE_MB,
     officialAppSync: true
   }
 };

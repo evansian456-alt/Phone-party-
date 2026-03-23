@@ -3,6 +3,9 @@ const express = require('express');
 const fs = require('fs');
 const WebSocket = require('ws');
 
+const uploadEntitlement = require('../upload-entitlement');
+const uploadConfig      = require('../upload-config');
+
 module.exports = function createTracksRouter(deps) {
   const {
     db, redis, authMiddleware, upload, uploadLimiter, apiLimiter,
@@ -11,7 +14,8 @@ module.exports = function createTracksRouter(deps) {
     safeJsonParse, normalizePartyCode, loadPartyState, savePartyState,
     TRACK_MAX_BYTES, fallbackPartyStorage,
     getPartyFromRedis, setPartyInRedis, PARTY_KEY_PREFIX,
-    SYNC_TEST_MODE, customAlphabet
+    SYNC_TEST_MODE, customAlphabet,
+    checkUserEntitlements,
   } = deps;
 
   const router = express.Router();
@@ -20,47 +24,180 @@ module.exports = function createTracksRouter(deps) {
   const redisReady = deps.redisReady;
   const redisConnectionError = deps.redisConnectionError;
 
-  router.post("/tracks/presign-put", async (req, res) => {
+  // ── GET /api/uploads/status?partyCode=XXX ─────────────────────────────────
+  // Returns the caller's upload entitlement state for a party.
+  // Used by the frontend to render the correct upload CTA / locked state.
+  router.get("/uploads/status", authMiddleware.requireAuth, async (req, res) => {
+    try {
+      const userId    = req.user?.id || req.user?.userId;
+      const partyCode = (req.query.partyCode || '').toUpperCase().trim();
+
+      const entitlements = await checkUserEntitlements(userId);
+      const access       = uploadEntitlement.checkUploadAccess(entitlements);
+
+      if (!access.allowed) {
+        return res.json({
+          allowed: false,
+          tier: 'FREE',
+          message: access.upgradeMessage,
+          uiState: 'locked',
+        });
+      }
+
+      if (access.tier === 'PRO_MONTHLY') {
+        return res.json({
+          allowed: true,
+          tier: 'PRO_MONTHLY',
+          uiState: 'premium',
+          maxFileMB: uploadConfig.MONTHLY_MAX_FILE_MB,
+          message: 'Unlimited uploads',
+        });
+      }
+
+      // PARTY_PASS — return count remaining
+      if (!partyCode) {
+        return res.json({
+          allowed: true,
+          tier: 'PARTY_PASS',
+          uiState: 'limited',
+          maxFileMB: uploadConfig.PARTY_PASS_MAX_FILE_MB,
+          message: `Upload up to ${uploadConfig.PARTY_PASS_UPLOAD_LIMIT} songs for this party`,
+        });
+      }
+
+      const limitCheck = await uploadEntitlement.checkPartyPassUploadLimit(db, partyCode);
+      return res.json({
+        allowed:    limitCheck.allowed,
+        tier:       'PARTY_PASS',
+        used:       limitCheck.used,
+        limit:      limitCheck.limit,
+        remaining:  limitCheck.remaining,
+        addons:     limitCheck.addons,
+        maxFileMB:  uploadConfig.PARTY_PASS_MAX_FILE_MB,
+        uiState:    limitCheck.allowed ? 'limited' : 'limit_reached',
+        message:    limitCheck.allowed
+          ? `${limitCheck.remaining} of ${limitCheck.limit} uploads remaining for this party`
+          : `You've used all ${limitCheck.limit} uploads for this party`,
+        upsell:     limitCheck.upsell || null,
+      });
+    } catch (err) {
+      console.error('[HTTP] GET /api/uploads/status error:', err);
+      res.status(500).json({ error: 'Failed to get upload status' });
+    }
+  });
+
+  // ── POST /api/uploads/grant-addon ─────────────────────────────────────────
+  // Grant an extra-song add-on for a party (called after billing confirms purchase).
+  router.post("/uploads/grant-addon", authMiddleware.requireAdmin, async (req, res) => {
+    try {
+      const { partyCode, userId, extraSongs, purchaseRef } = req.body;
+      if (!partyCode || !userId || !extraSongs) {
+        return res.status(400).json({ error: 'partyCode, userId, and extraSongs are required' });
+      }
+      const bundleSizes = uploadConfig.EXTRA_SONG_BUNDLE_SIZES;
+      if (!bundleSizes.includes(Number(extraSongs))) {
+        return res.status(400).json({
+          error: `extraSongs must be one of: ${bundleSizes.join(', ')}`,
+        });
+      }
+      const row = await uploadEntitlement.grantUploadAddon(db, {
+        partyCode: partyCode.toUpperCase().trim(),
+        userId,
+        extraSongs: Number(extraSongs),
+        purchaseRef: purchaseRef || null,
+      });
+      console.log(`[HTTP] Upload add-on granted: party=${partyCode} user=${userId} extra=${extraSongs}`);
+      res.json({ ok: true, addon: row });
+    } catch (err) {
+      console.error('[HTTP] POST /api/uploads/grant-addon error:', err);
+      res.status(500).json({ error: 'Failed to grant upload add-on' });
+    }
+  });
+
+  // ── GET /admin/uploads/stats ──────────────────────────────────────────────
+  // Admin-only: upload counts and storage by user and party.
+  router.get("/admin/uploads/stats", authMiddleware.requireAdmin, async (req, res) => {
+    try {
+      const [byUser, byParty, suspicious] = await Promise.all([
+        uploadEntitlement.getUploadStatsByUser(db),
+        uploadEntitlement.getUploadStatsByParty(db),
+        uploadEntitlement.getSuspiciousUploaders(db),
+      ]);
+      res.json({ byUser, byParty, suspicious });
+    } catch (err) {
+      console.error('[HTTP] GET /admin/uploads/stats error:', err);
+      res.status(500).json({ error: 'Failed to get upload stats' });
+    }
+  });
+
+  router.post("/tracks/presign-put", authMiddleware.requireAuth, uploadLimiter, async (req, res) => {
     const timestamp = new Date().toISOString();
     console.log(`[HTTP] POST /api/tracks/presign-put at ${timestamp}`);
     
     try {
-      const { filename, contentType, sizeBytes } = req.body;
-      
-      if (!filename || typeof filename !== 'string' || filename.trim() === '') {
-        return res.status(400).json({ error: 'filename is required and must be a non-empty string' });
+      const { filename, contentType, sizeBytes, partyCode: rawPartyCode } = req.body;
+      const userId    = req.user?.id || req.user?.userId;
+      const partyCode = rawPartyCode ? rawPartyCode.toUpperCase().trim() : null;
+
+      // ── Entitlement gate ─────────────────────────────────────────────────
+      const entitlements = await checkUserEntitlements(userId);
+      const access       = uploadEntitlement.checkUploadAccess(entitlements);
+
+      if (!access.allowed) {
+        return res.status(403).json({
+          error: 'Uploads require a Party Pass or Monthly subscription.',
+          code:  'UPLOAD_NOT_ENTITLED',
+          upgradeMessage: access.upgradeMessage,
+        });
       }
-      
-      if (!contentType || typeof contentType !== 'string') {
-        return res.status(400).json({ error: 'contentType is required and must be a string' });
+
+      const tier = access.tier; // 'PARTY_PASS' | 'PRO_MONTHLY'
+
+      // ── File validation (extension + MIME + size) ────────────────────────
+      const fileValidation = uploadEntitlement.validateUploadFile({
+        filename,
+        mimeType: contentType,
+        sizeBytes,
+        tier,
+      });
+      if (!fileValidation.valid) {
+        return res.status(400).json({ error: fileValidation.error });
       }
-      
-      if (!contentType.startsWith('audio/')) {
-        return res.status(400).json({ error: 'contentType must start with "audio/"' });
+
+      // ── Party Pass upload-count gate ─────────────────────────────────────
+      if (tier === 'PARTY_PASS') {
+        if (!partyCode) {
+          return res.status(400).json({ error: 'partyCode is required for Party Pass uploads.' });
+        }
+        const limitCheck = await uploadEntitlement.checkPartyPassUploadLimit(db, partyCode);
+        if (!limitCheck.allowed) {
+          return res.status(403).json({
+            error: `Upload limit reached for this party (${limitCheck.limit} songs).`,
+            code:  'PARTY_UPLOAD_LIMIT_REACHED',
+            used:  limitCheck.used,
+            limit: limitCheck.limit,
+            upsell: limitCheck.upsell,
+          });
+        }
       }
-      
-      if (sizeBytes === undefined || sizeBytes === null) {
-        return res.status(400).json({ error: 'sizeBytes is required' });
+
+      // ── Monthly fair-usage gate ──────────────────────────────────────────
+      if (tier === 'PRO_MONTHLY') {
+        const fairUsage = await uploadEntitlement.checkMonthlyFairUsage(db, userId);
+        if (!fairUsage.allowed) {
+          console.warn(`[HTTP] Monthly fair-usage hit: userId=${userId}`);
+          return res.status(429).json({
+            error: fairUsage.reason,
+            code:  'MONTHLY_FAIR_USAGE_EXCEEDED',
+          });
+        }
       }
-      
-      if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes)) {
-        return res.status(400).json({ error: 'sizeBytes must be a finite number' });
-      }
-      
-      if (sizeBytes <= 0) {
-        return res.status(400).json({ error: 'sizeBytes must be greater than 0' });
-      }
-      
-      if (sizeBytes > TRACK_MAX_BYTES) {
-        return res.status(400).json({ error: `sizeBytes exceeds maximum allowed size of ${TRACK_MAX_BYTES} bytes` });
-      }
-      
-      // Validate storage provider is ready and supports presigned URLs
+
+      // ── Storage provider checks ──────────────────────────────────────────
       if (!deps.storageProvider) {
         return res.status(503).json({ error: 'Storage provider not ready' });
       }
       
-      // Check if storage provider supports presigned URLs (S3 only)
       if (typeof deps.storageProvider.generatePresignedPutUrl !== 'function') {
         return res.status(400).json({ 
           error: 'Presigned uploads not supported',
@@ -68,20 +205,36 @@ module.exports = function createTracksRouter(deps) {
         });
       }
       
-      // Generate unique track ID
+      // ── Generate presigned URL ───────────────────────────────────────────
       const { customAlphabet } = require('nanoid');
       const trackId = customAlphabet('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ', 12)();
       
-      // Generate presigned PUT URL
       const { putUrl, key } = await deps.storageProvider.generatePresignedPutUrl(trackId, {
         contentType,
         originalName: filename
       });
       
-      // Generate playback URL using PHASE 1 helper
       const trackUrl = getPlaybackUrl(trackId, key);
       
       console.log(`[HTTP] Presigned PUT URL generated for trackId: ${trackId}, key: ${key}`);
+
+      // ── Record the pending upload (to count against limits) ──────────────
+      try {
+        const entitlementType = tier === 'PRO_MONTHLY' ? 'PRO_MONTHLY' : 'PARTY_PASS';
+        await uploadEntitlement.recordUpload(db, {
+          partyCode:         partyCode || 'PRESIGN',
+          uploaderUserId:    userId,
+          trackId,
+          storageKey:        key,
+          originalFilename:  filename,
+          sizeBytes,
+          mimeType:          contentType,
+          entitlementType,
+        });
+      } catch (recordErr) {
+        // Non-fatal: log but don't block the upload
+        console.error('[HTTP] Warning: failed to record upload metadata:', recordErr.message);
+      }
       
       res.json({
         ok: true,
@@ -100,7 +253,7 @@ module.exports = function createTracksRouter(deps) {
   });
 
   // POST /upload-track - Upload audio file from host (DEPRECATED: Use presign-put for production)
-  router.post("/upload-track", uploadLimiter, upload.single('audio'), async (req, res) => {
+  router.post("/upload-track", authMiddleware.requireAuth, uploadLimiter, upload.single('audio'), async (req, res) => {
     const timestamp = new Date().toISOString();
     console.log(`[HTTP] POST /api/upload-track at ${timestamp}`);
     
@@ -111,10 +264,80 @@ module.exports = function createTracksRouter(deps) {
         return res.status(400).json({ error: 'No audio file provided' });
       }
 
+      const userId    = req.user?.id || req.user?.userId;
+      const partyCode = req.body.partyCode ? req.body.partyCode.toUpperCase().trim() : null;
+
+      // ── Entitlement gate ─────────────────────────────────────────────────
+      const entitlements = await checkUserEntitlements(userId);
+      const access       = uploadEntitlement.checkUploadAccess(entitlements);
+      if (!access.allowed) {
+        if (req.file.path) {
+          try { fs.unlinkSync(req.file.path); } catch (_) {}
+        }
+        return res.status(403).json({
+          error: 'Uploads require a Party Pass or Monthly subscription.',
+          code:  'UPLOAD_NOT_ENTITLED',
+          upgradeMessage: access.upgradeMessage,
+        });
+      }
+
+      const tier = access.tier;
+
+      // ── File validation ──────────────────────────────────────────────────
+      const fileValidation = uploadEntitlement.validateUploadFile({
+        filename:  req.file.originalname,
+        mimeType:  req.file.mimetype,
+        sizeBytes: req.file.size,
+        tier,
+      });
+      if (!fileValidation.valid) {
+        if (req.file.path) {
+          try { fs.unlinkSync(req.file.path); } catch (_) {}
+        }
+        return res.status(400).json({ error: fileValidation.error });
+      }
+
+      // ── Party Pass upload-count gate ─────────────────────────────────────
+      if (tier === 'PARTY_PASS') {
+        if (!partyCode) {
+          if (req.file.path) {
+            try { fs.unlinkSync(req.file.path); } catch (_) {}
+          }
+          return res.status(400).json({ error: 'partyCode is required for Party Pass uploads.' });
+        }
+        const limitCheck = await uploadEntitlement.checkPartyPassUploadLimit(db, partyCode);
+        if (!limitCheck.allowed) {
+          if (req.file.path) {
+            try { fs.unlinkSync(req.file.path); } catch (_) {}
+          }
+          return res.status(403).json({
+            error: `Upload limit reached for this party (${limitCheck.limit} songs).`,
+            code:  'PARTY_UPLOAD_LIMIT_REACHED',
+            used:  limitCheck.used,
+            limit: limitCheck.limit,
+            upsell: limitCheck.upsell,
+          });
+        }
+      }
+
+      // ── Monthly fair-usage gate ──────────────────────────────────────────
+      if (tier === 'PRO_MONTHLY') {
+        const fairUsage = await uploadEntitlement.checkMonthlyFairUsage(db, userId);
+        if (!fairUsage.allowed) {
+          if (req.file.path) {
+            try { fs.unlinkSync(req.file.path); } catch (_) {}
+          }
+          console.warn(`[HTTP] Monthly fair-usage hit: userId=${userId}`);
+          return res.status(429).json({
+            error: fairUsage.reason,
+            code:  'MONTHLY_FAIR_USAGE_EXCEEDED',
+          });
+        }
+      }
+
       // Check storage provider is ready
       if (!deps.storageProvider) {
         console.error('[HTTP] Storage provider not initialized');
-        // Clean up temp file if present
         if (req.file.path) {
           try {
             fs.unlinkSync(req.file.path);
@@ -164,6 +387,23 @@ module.exports = function createTracksRouter(deps) {
       
       console.log(`[HTTP] Track uploaded: ${trackId}, file: ${originalName}, size: ${sizeBytes} bytes, storage: ${uploadResult.key}`);
       console.log(`[HTTP] Track will be accessible at: ${trackUrl}`);
+
+      // ── Record upload metadata ───────────────────────────────────────────
+      try {
+        const entitlementType = tier === 'PRO_MONTHLY' ? 'PRO_MONTHLY' : 'PARTY_PASS';
+        await uploadEntitlement.recordUpload(db, {
+          partyCode:         partyCode || 'DIRECT',
+          uploaderUserId:    userId,
+          trackId,
+          storageKey:        uploadResult.key,
+          originalFilename:  originalName,
+          sizeBytes,
+          mimeType:          contentType,
+          entitlementType,
+        });
+      } catch (recordErr) {
+        console.error('[HTTP] Warning: failed to record upload metadata:', recordErr.message);
+      }
       
       // For now, we can't easily get duration without audio processing library
       // We'll set it to null and let the client determine it
