@@ -14150,7 +14150,8 @@ function initSoundCloudGuestPlayer() {
     if (statusEl) statusEl.textContent = 'Loaded — waiting for host…';
 
     // Auto-pause: wait for SC_PLAY sync command from host before playing
-    // (mirrors ytGuestLoadVideo's setTimeout pause approach)
+    // 800ms gives the iframe time to buffer after load before we pause it
+    // (mirrors ytGuestLoadVideo's setTimeout pause approach which uses 1000ms)
     setTimeout(function() {
       if (_scGuestPlayer.widget && typeof _scGuestPlayer.widget.pause === 'function') {
         _scGuestPlayer.widget.pause();
@@ -14230,7 +14231,8 @@ function scLoadTrack(trackUrl) {
       if (placeholder) placeholder.style.display = 'none';
     }
     if (!window.SC || !window.SC.Widget) {
-      // Script not yet loaded — it will call initSoundCloudPlayer() when ready
+      // Script not yet loaded — loadSoundCloudWidgetAPI() guards against duplicate injection
+      // using _scPlayer.apiLoaded; it will call initSoundCloudPlayer() when the script finishes
       _scPlayer.initPending = true;
       loadSoundCloudWidgetAPI();
     } else {
@@ -14314,6 +14316,8 @@ function scGuestLoadTrack(trackUrl) {
       if (placeholder) placeholder.style.display = 'none';
     }
     if (!window.SC || !window.SC.Widget) {
+      // loadSoundCloudWidgetAPI() guards against duplicate injection via _scPlayer.apiLoaded;
+      // it will call initSoundCloudGuestPlayer() when the script finishes loading
       _scGuestPlayer.initPending = true;
       loadSoundCloudWidgetAPI();
     } else {
@@ -14420,6 +14424,7 @@ function initSoundCloudPartyControls() {
       }
       var input = document.getElementById('soundcloudUrlInput');
       if (input) {
+        // 400ms delay lets the smooth-scroll animation finish before focusing the input
         setTimeout(function() { input.focus(); }, 400);
       }
     });
@@ -14560,6 +14565,7 @@ function openSyncModal(provider) {
         }
         var input = document.getElementById('soundcloudUrlInput');
         if (input) {
+          // 400ms delay lets the smooth-scroll animation finish before focusing the input
           setTimeout(function() { input.focus(); }, 400);
         }
       } else {
