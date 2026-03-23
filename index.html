@@ -18,6 +18,8 @@
   <meta name="apple-mobile-web-app-title" content="Phone Party" />
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.svg" />
   <link rel="icon" type="image/svg+xml" href="/icons/icon-192x192.svg" />
+  <!-- Spotify integration: set SPOTIFY_CLIENT_ID env var; server should inject the real value here -->
+  <meta name="spotify-client-id" content="" />
   
   <!-- Open Graph / Social Sharing -->
   <meta property="og:type" content="website" />
@@ -988,6 +990,83 @@
         </div>
       </div>
 
+      <!-- Spotify Party Player Section (Party Pass + Pro Only) -->
+      <div id="spotifyPartySection" class="hidden" style="margin-top:1rem;" data-testid="spotify-party-section">
+        <div class="line"></div>
+
+        <div id="spotifyPartyPlayerBox" class="box" data-testid="spotify-party-player-box">
+          <div class="row space" style="margin-bottom:0.75rem;">
+            <div style="display:flex;align-items:center;gap:0.5rem;">
+              <img src="/public/assets/providers/spotify.svg" alt="Spotify" style="height:22px;width:auto;" loading="lazy" />
+              <h3 style="margin:0;">💚 Spotify Party Player</h3>
+            </div>
+            <button class="btn" id="btnCloseSpotifyPlayer" data-testid="btn-close-spotify-player">✕ Close</button>
+          </div>
+
+          <p class="tiny muted" style="margin-bottom:0.75rem;">
+            <strong>Spotify (requires Premium)</strong> — Host controls playback; guests with Premium sync in the browser.
+          </p>
+
+          <!-- Auth message / login button -->
+          <div id="spotifyAuthMessage" style="margin-bottom:0.75rem;">
+            <p class="tiny muted" style="margin-bottom:0.4rem;">
+              Sign in to Spotify to enable in-app playback and sync.
+            </p>
+            <button class="btn primary" id="btnSpotifyLogin" data-testid="btn-spotify-login">
+              💚 Connect Spotify
+            </button>
+          </div>
+          <button class="btn" id="btnSpotifyLogout" style="display:none;margin-bottom:0.75rem;" data-testid="btn-spotify-logout">
+            Disconnect Spotify
+          </button>
+
+          <!-- Player controls (shown after login) -->
+          <div id="spotifyPlayerControls" style="display:none;">
+            <!-- Track input -->
+            <div style="display:flex;flex-direction:column;gap:0.5rem;margin-bottom:0.75rem;">
+              <div style="display:flex;gap:0.5rem;align-items:center;min-width:0;">
+                <input class="input" id="spotifyTrackInput"
+                       placeholder="Paste Spotify track URL or URI"
+                       style="flex:1;min-width:0;"
+                       data-testid="spotify-track-input" />
+                <button class="btn primary" id="btnSpotifyLoadTrack" data-testid="btn-spotify-load-track">🎵 Load</button>
+              </div>
+            </div>
+
+            <!-- Now playing -->
+            <div id="spotifyNowPlaying" style="display:none;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.75rem;" data-testid="spotify-now-playing">
+              <img id="spotifyNowPlayingArt" src="" alt="Album art"
+                   style="display:none;width:56px;height:56px;border-radius:6px;object-fit:cover;flex-shrink:0;" />
+              <div style="min-width:0;">
+                <div class="tiny muted">Now playing:</div>
+                <div id="spotifyNowPlayingTitle" style="font-size:0.9rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+                <div id="spotifyNowPlayingArtist" class="tiny muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+              </div>
+            </div>
+
+            <!-- Play / Pause controls -->
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;" data-testid="spotify-player-controls">
+              <button class="btn primary" id="btnSpotifyPlay" data-testid="btn-spotify-play">▶ Play</button>
+              <button class="btn" id="btnSpotifyPause" data-testid="btn-spotify-pause">⏸ Pause</button>
+              <span class="tiny muted" id="spotifyPlayerStatus" data-testid="spotify-player-status">Connecting…</span>
+            </div>
+          </div>
+
+          <!-- Open in Spotify fallback -->
+          <button class="btn" id="btnOpenSpotifyFallback"
+                  style="display:none;align-items:center;gap:0.5rem;justify-content:center;margin-top:0.5rem;"
+                  data-testid="btn-open-spotify-fallback">
+            <img src="/public/assets/providers/spotify.svg" alt="Spotify" style="height:18px;width:auto;" />
+            Open in Spotify app
+          </button>
+
+          <p class="tiny muted" style="font-size:0.65rem;opacity:0.7;margin-top:0.5rem;">
+            Playback requires Spotify Premium. Sync may not be frame-accurate.
+            Phone Party is not affiliated with Spotify.
+          </p>
+        </div>
+      </div>
+
       <div class="line"></div>
 
       <div class="row space">
@@ -1455,6 +1534,50 @@
         </div>
         <p class="tiny muted" style="font-size:0.65rem;opacity:0.7;margin-top:0.35rem;">
           Host controls playback — your video stays in sync.
+        </p>
+      </div>
+
+      <!-- Spotify Party Player (Guest) — shown when host starts a Spotify Party -->
+      <div class="glass-card hidden" id="guestSpotifySection" data-testid="guest-spotify-section">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
+          <img src="/public/assets/providers/spotify.svg" alt="Spotify" style="height:20px;width:auto;" loading="lazy" />
+          <h3 style="margin:0;font-size:1rem;">💚 Spotify Party</h3>
+          <span class="badge" style="background:rgba(0,200,80,0.2);color:#0f6;font-size:0.65rem;margin-left:auto;">● Synced</span>
+        </div>
+
+        <!-- Auth notice (shown when not logged in) -->
+        <div id="guestSpotifyAuthNotice" style="margin-bottom:0.6rem;">
+          <p class="tiny muted" style="margin-bottom:0.4rem;">
+            Spotify requires Premium and login to sync playback in-app.
+          </p>
+          <button class="btn primary" id="btnGuestSpotifyLogin" data-testid="btn-guest-spotify-login">
+            💚 Connect Spotify
+          </button>
+          <!-- Fallback: open in Spotify app -->
+          <p class="tiny muted" style="margin-top:0.4rem;">
+            Don't have Premium? <a id="guestSpotifyFallbackLink" href="#" target="_blank" rel="noopener noreferrer"
+              style="color:var(--accent,#1db954);">Open in Spotify app</a> instead.
+          </p>
+        </div>
+
+        <!-- Player area (shown when logged in with Premium) -->
+        <div id="guestSpotifyPlayerArea" style="display:none;">
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;" data-testid="guest-spotify-now-playing">
+            <img id="guestSpotifyNowPlayingArt" src="" alt="Album art"
+                 style="display:none;width:48px;height:48px;border-radius:6px;object-fit:cover;flex-shrink:0;" />
+            <div style="min-width:0;">
+              <div class="tiny muted">Now playing (host-controlled):</div>
+              <div id="guestSpotifyNowPlayingTitle" style="font-size:0.9rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+              <div id="guestSpotifyNowPlayingArtist" class="tiny muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.5rem;" data-testid="guest-spotify-status-row">
+            <span class="tiny muted" id="guestSpotifyPlayerStatus" data-testid="guest-spotify-player-status">Syncing…</span>
+          </div>
+        </div>
+
+        <p class="tiny muted" style="font-size:0.65rem;opacity:0.7;margin-top:0.35rem;">
+          Host controls playback. Spotify Premium required. Sync may not be frame-accurate.
         </p>
       </div>
 

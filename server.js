@@ -1166,6 +1166,21 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+// Spotify OAuth callback route — serve the SPA so the client-side JS can handle
+// the authorization code returned by Spotify (?code=... &state=...).
+app.get("/spotify-callback", (req, res) => {
+  res.setHeader('Cache-Control', NO_CACHE);
+  res.sendFile(path.join(__dirname, "index.html"));
+});
+
+// API endpoint: return Spotify integration configuration.
+// Only the client ID is exposed (non-secret); the client ID alone cannot be
+// misused to access Spotify data without a matching redirect URI.
+app.get("/api/spotify/config", (req, res) => {
+  const clientId = (process.env.SPOTIFY_CLIENT_ID || '').trim();
+  res.json({ clientId });
+});
+
 // ─── Invite Landing Page ───────────────────────────────────────────────────────
 app.get('/invite/:code', async (req, res) => {
   const code    = (req.params.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -3599,6 +3614,15 @@ async function handleMessage(ws, msg) {
     case "HOST_YOUTUBE_PAUSE":
       handleHostYouTubePause(ws, sanitizedMsg);
       break;
+    case "HOST_SPOTIFY_TRACK":
+      handleHostSpotifyTrack(ws, sanitizedMsg);
+      break;
+    case "HOST_SPOTIFY_PLAY":
+      handleHostSpotifyPlay(ws, sanitizedMsg);
+      break;
+    case "HOST_SPOTIFY_PAUSE":
+      handleHostSpotifyPause(ws, sanitizedMsg);
+      break;
     default: {
       // Cap the echoed type to prevent log/response bloat
       const safeType = String(sanitizedMsg.t).substring(0, 50);
@@ -5303,6 +5327,142 @@ function handleHostYouTubePause(ws, msg) {
 
 // ============================================================================
 // END YOUTUBE PARTY PLAYER
+// ============================================================================
+
+// ============================================================================
+// SPOTIFY PARTY PLAYER
+// ============================================================================
+
+/**
+ * Validate a Spotify track URI (spotify:track:<id>).
+ * @param {string} uri
+ * @returns {boolean}
+ */
+function isValidSpotifyUri(uri) {
+  return typeof uri === 'string' && /^spotify:track:[a-zA-Z0-9]{22}$/.test(uri.trim());
+}
+
+/**
+ * Handle HOST_SPOTIFY_TRACK — host loaded a Spotify track.
+ * Broadcasts SPOTIFY_TRACK to all guests.
+ */
+function handleHostSpotifyTrack(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'spotify track');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('spotify track', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+
+  const uri = (msg.uri || '').trim();
+  if (!isValidSpotifyUri(uri)) {
+    safeSend(ws, JSON.stringify({
+      t: 'ERROR',
+      errorType: 'INVALID_PAYLOAD',
+      message: 'A valid Spotify track URI (spotify:track:<id>) is required.'
+    }));
+    return;
+  }
+
+  const title = msg.title ? String(msg.title).substring(0, 200) : null;
+  const artist = msg.artist ? String(msg.artist).substring(0, 200) : null;
+  const albumArt = msg.albumArt ? String(msg.albumArt).substring(0, 500) : null;
+
+  party.spotifySync = {
+    uri,
+    title,
+    artist,
+    albumArt,
+    isPlaying: false,
+    positionMs: 0,
+    updatedAtMs: Date.now()
+  };
+
+  broadcastToParty(client.party, {
+    t: 'SPOTIFY_TRACK',
+    uri,
+    title,
+    artist,
+    albumArt
+  });
+
+  console.log(`[SpotifyParty] HOST_SPOTIFY_TRACK uri=${uri} party=${client.party}`);
+}
+
+/**
+ * Handle HOST_SPOTIFY_PLAY — host pressed play.
+ * Broadcasts SPOTIFY_PLAY to all guests with position.
+ */
+function handleHostSpotifyPlay(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'spotify play');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('spotify play', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+
+  const uri = (msg.uri || (party.spotifySync && party.spotifySync.uri) || '').trim();
+  const positionMs = typeof msg.positionMs === 'number' && msg.positionMs >= 0 ? Math.floor(msg.positionMs) : 0;
+
+  if (party.spotifySync) {
+    party.spotifySync.isPlaying = true;
+    party.spotifySync.positionMs = positionMs;
+    party.spotifySync.updatedAtMs = Date.now();
+  }
+
+  broadcastToParty(client.party, {
+    t: 'SPOTIFY_PLAY',
+    uri,
+    positionMs
+  });
+
+  console.log(`[SpotifyParty] HOST_SPOTIFY_PLAY uri=${uri} positionMs=${positionMs} party=${client.party}`);
+}
+
+/**
+ * Handle HOST_SPOTIFY_PAUSE — host pressed pause.
+ * Broadcasts SPOTIFY_PAUSE to all guests.
+ */
+function handleHostSpotifyPause(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || !client.party) return;
+
+  const authCheck = validateHostAuthority(ws, clients, parties, client.party, 'spotify pause');
+  if (!authCheck.valid) {
+    safeSend(ws, JSON.stringify(createUnauthorizedError('spotify pause', authCheck.error)));
+    return;
+  }
+
+  const party = authCheck.party;
+
+  const uri = (msg.uri || (party.spotifySync && party.spotifySync.uri) || '').trim();
+  const positionMs = typeof msg.positionMs === 'number' && msg.positionMs >= 0 ? Math.floor(msg.positionMs) : 0;
+
+  if (party.spotifySync) {
+    party.spotifySync.isPlaying = false;
+    party.spotifySync.positionMs = positionMs;
+    party.spotifySync.updatedAtMs = Date.now();
+  }
+
+  broadcastToParty(client.party, {
+    t: 'SPOTIFY_PAUSE',
+    uri,
+    positionMs
+  });
+
+  console.log(`[SpotifyParty] HOST_SPOTIFY_PAUSE uri=${uri} positionMs=${positionMs} party=${client.party}`);
+}
+
+// ============================================================================
+// END SPOTIFY PARTY PLAYER
 // ============================================================================
 
 function handleHostNextTrackQueued(ws, msg) {
