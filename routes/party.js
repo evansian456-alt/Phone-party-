@@ -603,6 +603,8 @@ module.exports = function createPartyRouter(deps) {
       const djMessages = party?.djMessages || [];
       // YouTube sync state — in-memory only (transient; not persisted to Redis)
       const youtubeSync = party?.youtubeSync || null;
+      // SoundCloud sync state — in-memory only (transient; not persisted to Redis)
+      const scSync = party?.scSync || null;
 
       console.log(`[HTTP] Party state: ${code}, status: ${status}, track: ${currentTrack?.filename || currentTrack?.title || 'none'}, queue length: ${queue.length}`);
 
@@ -636,6 +638,7 @@ module.exports = function createPartyRouter(deps) {
         currentTrack: currentTrackObj,
         queue,
         youtubeSync,
+        scSync,
         // Nested party object for clients that use party.*
         party: {
           code: code,
@@ -651,6 +654,7 @@ module.exports = function createPartyRouter(deps) {
           currentTrack: currentTrackObj,
           queue,
           youtubeSync,
+          scSync,
           djMessages: djMessages
         }
       });
