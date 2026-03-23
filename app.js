@@ -7834,8 +7834,14 @@ async function handleBillingReturn() {
       
       // Success - response is set from retry loop above
       const data = await response.json();
-      const partyCode = data.partyCode;
+      const partyCode = data.partyCode || data.code;
       const hostId = data.hostId; // PHASE 7: Store hostId for queue operations
+
+      if (!partyCode) {
+        console.error("Create party succeeded but no party code was returned", data);
+        toast("Party created, but no join code was returned");
+        return;
+      }
   
       console.log("[Party] Party created via API:", partyCode, "hostId:", hostId);
       
