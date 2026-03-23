@@ -7842,11 +7842,12 @@ async function handleBillingReturn() {
       const hostId = data.hostId; // PHASE 7: Store hostId for queue operations
 
       if (!partyCode) {
-        console.error("Create party succeeded but no party code was returned", data);
-        toast("Party created, but no join code was returned");
+        console.error("No party code returned from server", data);
+        alert("Party created but no party code was returned");
         return;
       }
-  
+
+      console.log("Party code received:", partyCode);
       console.log("[Party] Party created via API:", partyCode, "hostId:", hostId);
       
       // Set party state
@@ -7880,7 +7881,7 @@ async function handleBillingReturn() {
       // auto-redirect here as that would hide the party code from the host.
       showParty();
 
-      // Briefly highlight the party code box so the host immediately notices it.
+      // Immediately update the party code display so the host sees it right away.
       const partyCodeEl = el("partyCode");
       if (partyCodeEl) {
         partyCodeEl.textContent = partyCode;
