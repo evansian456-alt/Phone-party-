@@ -27,7 +27,7 @@ module.exports = function createTracksRouter(deps) {
   // ── GET /api/uploads/status?partyCode=XXX ─────────────────────────────────
   // Returns the caller's upload entitlement state for a party.
   // Used by the frontend to render the correct upload CTA / locked state.
-  router.get("/uploads/status", authMiddleware.requireAuth, async (req, res) => {
+  router.get("/uploads/status", authMiddleware.requireAuth, apiLimiter, async (req, res) => {
     try {
       const userId    = req.user?.userId;
       const partyCode = (req.query.partyCode || '').toUpperCase().trim();
@@ -88,7 +88,7 @@ module.exports = function createTracksRouter(deps) {
 
   // ── POST /api/uploads/grant-addon ─────────────────────────────────────────
   // Grant an extra-song add-on for a party (called after billing confirms purchase).
-  router.post("/uploads/grant-addon", authMiddleware.requireAdmin, async (req, res) => {
+  router.post("/uploads/grant-addon", authMiddleware.requireAdmin, apiLimiter, async (req, res) => {
     try {
       const { partyCode, userId, extraSongs, purchaseRef } = req.body;
       if (!partyCode || !userId || !extraSongs) {
@@ -116,7 +116,7 @@ module.exports = function createTracksRouter(deps) {
 
   // ── GET /admin/uploads/stats ──────────────────────────────────────────────
   // Admin-only: upload counts and storage by user and party.
-  router.get("/admin/uploads/stats", authMiddleware.requireAdmin, async (req, res) => {
+  router.get("/admin/uploads/stats", authMiddleware.requireAdmin, apiLimiter, async (req, res) => {
     try {
       const [byUser, byParty, suspicious] = await Promise.all([
         uploadEntitlement.getUploadStatsByUser(db),
