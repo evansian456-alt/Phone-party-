@@ -1,11 +1,23 @@
 /**
  * TierPolicy - Single source of truth for tier limits.
  *
+ * Upload limits and file-size caps are imported from upload-config.js to keep
+ * a single authoritative source.  All other tier attributes (device counts,
+ * session time, feature flags) live here.
+ *
  * FREE:        maxDevices=2, maxSessionMinutes=30, no uploads, no Official App Sync
- * PARTY_PASS:  maxDevices=6, maxSessionMinutes=60, 10 uploads/session, Official App Sync
+ * PARTY_PASS:  maxDevices=6, maxSessionMinutes=60, 15 uploads/party, Official App Sync
  * PRO /
- * PRO_MONTHLY: maxDevices=6, unlimited time, 100 uploads/month, Official App Sync
+ * PRO_MONTHLY: maxDevices=6, unlimited time, premium uploads, Official App Sync
  */
+
+const {
+  PARTY_PASS_UPLOAD_LIMIT,
+  PARTY_PASS_MAX_FILE_MB,
+  MONTHLY_MAX_FILE_MB,
+  MONTHLY_FAIR_USAGE_LIMIT,
+  MONTHLY_SESSION_LIMIT,
+} = require('./upload-config');
 
 const TIER_POLICY = {
   FREE: {
@@ -18,8 +30,8 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: 60,
     uploadsAllowed: true,
-    maxUploadsPerSession: 10,
-    maxUploadMB: 15,
+    maxUploadsPerSession: PARTY_PASS_UPLOAD_LIMIT, // authoritative value from upload-config
+    maxUploadMB: PARTY_PASS_MAX_FILE_MB,
     officialAppSync: true
   },
   // PRO_MONTHLY is the legacy alias used throughout the codebase
@@ -27,9 +39,9 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: null, // unlimited
     uploadsAllowed: true,
-    maxUploadsPerMonth: 100,
-    maxUploadMB: 15,
-    maxUploadsPerSession: 50, // safety cap per session
+    maxUploadsPerMonth: MONTHLY_FAIR_USAGE_LIMIT, // fair-usage back-end guard
+    maxUploadMB: MONTHLY_MAX_FILE_MB,
+    maxUploadsPerSession: MONTHLY_SESSION_LIMIT,   // per-session safety cap
     officialAppSync: true
   },
   // PRO is a shorthand alias
@@ -37,9 +49,9 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: null, // unlimited
     uploadsAllowed: true,
-    maxUploadsPerMonth: 100,
-    maxUploadMB: 15,
-    maxUploadsPerSession: 50,
+    maxUploadsPerMonth: MONTHLY_FAIR_USAGE_LIMIT,
+    maxUploadMB: MONTHLY_MAX_FILE_MB,
+    maxUploadsPerSession: MONTHLY_SESSION_LIMIT,
     officialAppSync: true
   }
 };

@@ -29,16 +29,16 @@ module.exports = function createStreamingRouter(deps) {
           {
             id: 'spotify',
             name: 'Spotify',
-            description: 'Playback occurs in the Spotify app. The app will guide synchronization.',
+            description: 'Opens in the Spotify app or Spotify web. Guests are guided to open Spotify externally.',
             deepLinkTemplate: 'spotify:track:{id}',
             webFallback: 'https://open.spotify.com/track/{id}',
             accuracy: 'variable',
-            syncBadge: 'External (Best effort)'
+            syncBadge: 'External (Spotify app)'
           },
           {
             id: 'soundcloud',
             name: 'SoundCloud',
-            description: 'Direct streams behave similar to uploads.',
+            description: 'Plays inside the app using the SoundCloud widget. Everyone stays in the party UI.',
             deepLinkTemplate: '{url}',
             accuracy: '40–150ms',
             syncBadge: 'In-app Sync'
