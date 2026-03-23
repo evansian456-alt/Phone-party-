@@ -18,7 +18,7 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: 60,
     uploadsAllowed: true,
-    maxUploadsPerSession: 10,
+    maxUploadsPerSession: 15,
     maxUploadMB: 15,
     officialAppSync: true
   },

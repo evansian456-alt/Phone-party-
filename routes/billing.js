@@ -23,6 +23,22 @@ module.exports = function createBillingRouter(deps) {
   const STRIPE_SUCCESS_URL = (process.env.PUBLIC_BASE_URL || STRIPE_SERVICE_URL) + '/payment-success';
   const STRIPE_CANCEL_URL = (process.env.PUBLIC_BASE_URL || STRIPE_SERVICE_URL) + '/payment-cancel';
 
+  // Addon billing helpers (loaded lazily so tests can mock them)
+  const {
+    EXTRA_SONG_ADDON_ENABLED,
+    EXTRA_SONG_BUNDLE_OPTIONS,
+    MAX_ADDON_PURCHASES_PER_PARTY,
+    getBundleByKey,
+    getBundleByStripePriceId
+  } = require('../billing/addon-config');
+
+  const {
+    applyAddonEntitlement,
+    getPartyAddonUploads
+  } = require('../billing/entitlements');
+
+  const { getPolicyForTier } = require('../tier-policy');
+
   /**
    * Derive tier string from subscription status.
    * Policy: PRO when active or trialing; FREE otherwise.
@@ -211,7 +227,39 @@ module.exports = function createBillingRouter(deps) {
           );
           console.log(`[Stripe] Pro subscription activated for user ${userId}`);
         } else {
-          console.log(`[Stripe] checkout.session.completed: unrecognised priceId=${priceId}, productType=${productType}`);
+          // Check if this is an extra-song addon purchase
+          const addonBundle = getBundleByStripePriceId(priceId) ||
+            (obj.metadata?.addonType ? getBundleByKey(obj.metadata.addonType) : null);
+
+          if (addonBundle) {
+            const partyCode = obj.metadata?.partyCode;
+            const songsGranted = parseInt(obj.metadata?.songsGranted, 10) || addonBundle.songs;
+            if (!partyCode) {
+              console.error('[Stripe] Addon checkout completed but partyCode missing from metadata');
+            } else {
+              try {
+                const result = await applyAddonEntitlement({
+                  userId,
+                  partyCode,
+                  productKey: addonBundle.key,
+                  songsGranted,
+                  provider: 'stripe',
+                  providerSessionId: obj.id,
+                  idempotencyKey: obj.metadata?.idempotencyKey || null,
+                  db
+                });
+                if (result.alreadyApplied) {
+                  console.log(`[Stripe] Addon already applied for session ${obj.id} (idempotent)`);
+                } else {
+                  console.log(`[Stripe] Addon granted: ${songsGranted} extra uploads for party ${partyCode} (user ${userId})`);
+                }
+              } catch (addonErr) {
+                console.error('[Stripe] Failed to apply addon entitlement:', addonErr.message);
+              }
+            }
+          } else {
+            console.log(`[Stripe] checkout.session.completed: unrecognised priceId=${priceId}, productType=${productType}`);
+          }
         }
         break;
       }
@@ -1013,6 +1061,197 @@ module.exports = function createBillingRouter(deps) {
       await handleStripeWebhookEvent(event);
     } catch (err) {
       console.error('[Stripe] Webhook handler error:', err.message);
+    }
+  });
+
+  // ============================================================================
+  // EXTRA-SONG ADDON ENDPOINTS
+  // ============================================================================
+
+  /**
+   * GET /api/addon/options
+   * Returns available addon bundle options (for UI).
+   * No authentication required – public catalog.
+   */
+  router.get('/api/addon/options', apiLimiter, (req, res) => {
+    if (!EXTRA_SONG_ADDON_ENABLED) {
+      return res.json({ enabled: false, bundles: [] });
+    }
+    return res.json({
+      enabled: true,
+      bundles: EXTRA_SONG_BUNDLE_OPTIONS.map(b => ({
+        key: b.key,
+        songs: b.songs,
+        priceGBP: b.priceGBP,
+        label: b.label,
+        description: b.description
+      }))
+    });
+  });
+
+  /**
+   * GET /api/party/:code/upload-quota
+   * Returns the effective upload quota for a Party Pass user in the given party.
+   * Includes base Party Pass allowance + sum of active addon entitlements.
+   * Requires authentication.
+   */
+  router.get('/api/party/:code/upload-quota', apiLimiter, authMiddleware.requireAuth, async (req, res) => {
+    const partyCode = (req.params.code || '').toUpperCase().trim();
+    if (!partyCode) return res.status(400).json({ error: 'Party code is required' });
+
+    const userId = req.user.userId;
+
+    // Resolve party data to determine tier
+    let partyData;
+    try {
+      partyData = parties.get(partyCode) || await getPartyFromRedis(partyCode) || getPartyFromFallback(partyCode);
+    } catch (_) {
+      partyData = getPartyFromFallback(partyCode);
+    }
+
+    if (!partyData) return res.status(404).json({ error: 'Party not found' });
+
+    const partyTier = partyData.tier || 'FREE';
+    const policy = getPolicyForTier(partyTier);
+    const baseLimit = policy.maxUploadsPerSession || 0;
+
+    // Sum active addon entitlements for this party
+    let addonUploads = 0;
+    try {
+      addonUploads = await getPartyAddonUploads({ partyCode, db });
+    } catch (err) {
+      console.warn('[UploadQuota] Could not fetch addon uploads:', err.message);
+    }
+
+    const effectiveLimit = baseLimit + addonUploads;
+
+    return res.json({
+      partyCode,
+      tier: partyTier,
+      baseLimit,
+      addonUploads,
+      effectiveLimit,
+      uploadsAllowed: policy.uploadsAllowed
+    });
+  });
+
+  /**
+   * POST /api/addon/create-checkout-session
+   * Creates a Stripe Checkout Session for an extra-song addon purchase.
+   *
+   * Body:
+   *   bundleKey  – 'extra_songs_5' | 'extra_songs_10'
+   *   partyCode  – the party this addon is for
+   *
+   * Requires authentication.  Only Party Pass users may purchase addons.
+   */
+  router.post('/api/addon/create-checkout-session', purchaseLimiter, authMiddleware.requireAuth, async (req, res) => {
+    if (!EXTRA_SONG_ADDON_ENABLED) {
+      return res.status(403).json({ error: 'Extra-song addons are not currently available' });
+    }
+
+    if (!stripeClient) {
+      return res.status(503).json({ error: 'Billing not configured. STRIPE_SECRET_KEY is missing.' });
+    }
+
+    const { bundleKey, partyCode } = req.body;
+    const userId = String(req.user.userId);
+
+    // Validate bundle
+    if (!bundleKey) return res.status(400).json({ error: 'bundleKey is required' });
+    const bundle = getBundleByKey(bundleKey);
+    if (!bundle) return res.status(400).json({ error: `Unknown bundle: ${bundleKey}` });
+
+    // Validate party code
+    if (!partyCode) return res.status(400).json({ error: 'partyCode is required' });
+    const normalizedCode = String(partyCode).toUpperCase().trim();
+
+    // Verify party exists and is active
+    let partyData;
+    try {
+      partyData = parties.get(normalizedCode) || await getPartyFromRedis(normalizedCode) || getPartyFromFallback(normalizedCode);
+    } catch (_) {
+      partyData = getPartyFromFallback(normalizedCode);
+    }
+    if (!partyData) {
+      return res.status(404).json({ error: 'Party not found or no longer active' });
+    }
+
+    // Verify user has Party Pass (only Party Pass users can buy addon)
+    const partyTier = partyData.tier || 'FREE';
+    if (partyTier === 'FREE') {
+      return res.status(403).json({
+        error: 'Extra-song addons require an active Party Pass for this party'
+      });
+    }
+    // PRO/monthly users don't need addons (they have generous limits)
+    if (partyTier === 'PRO' || partyTier === 'PRO_MONTHLY') {
+      return res.status(403).json({
+        error: 'Monthly subscribers have unlimited uploads and do not need extra-song addons'
+      });
+    }
+
+    // Check per-party purchase cap (server-side guard)
+    if (MAX_ADDON_PURCHASES_PER_PARTY != null) {
+      try {
+        const countResult = await db.query(
+          `SELECT COUNT(*) AS cnt FROM party_song_addons
+           WHERE user_id = $1 AND party_code = $2 AND status = 'active'`,
+          [userId, normalizedCode]
+        );
+        const count = parseInt(countResult.rows[0]?.cnt || '0', 10);
+        if (count >= MAX_ADDON_PURCHASES_PER_PARTY) {
+          return res.status(429).json({
+            error: `You have reached the maximum number of addon purchases (${MAX_ADDON_PURCHASES_PER_PARTY}) for this party`
+          });
+        }
+      } catch (err) {
+        // DB may not have the table yet — allow the checkout to proceed
+        console.warn('[AddonCheckout] Could not check purchase count:', err.message);
+      }
+    }
+
+    const publicBaseUrl = (process.env.PUBLIC_BASE_URL || STRIPE_SERVICE_URL).replace(/\/$/, '');
+    const crypto = require('crypto');
+    const idempotencyKey = `addon_${userId}_${normalizedCode}_${bundleKey}_${crypto.randomBytes(8).toString('hex')}`;
+
+    try {
+      const session = await stripeClient.checkout.sessions.create({
+        mode: 'payment',
+        line_items: [{ price: bundle.stripePriceId, quantity: 1 }],
+        success_url: `${publicBaseUrl}/?addon=success&party=${normalizedCode}`,
+        cancel_url: `${publicBaseUrl}/?addon=cancel&party=${normalizedCode}`,
+        metadata: {
+          userId,
+          partyCode: normalizedCode,
+          addonType: bundleKey,
+          songsGranted: String(bundle.songs),
+          idempotencyKey
+        },
+        payment_intent_data: {
+          metadata: {
+            userId,
+            partyCode: normalizedCode,
+            addonType: bundleKey
+          }
+        }
+      });
+
+      console.log(`[AddonCheckout] Session created: ${session.id} for user=${userId} party=${normalizedCode} bundle=${bundleKey}`);
+
+      return res.json({
+        sessionId: session.id,
+        url: session.url,
+        bundle: {
+          key: bundle.key,
+          songs: bundle.songs,
+          priceGBP: bundle.priceGBP,
+          label: bundle.label
+        }
+      });
+    } catch (error) {
+      console.error('[AddonCheckout] Error creating session:', error.message);
+      return res.status(500).json({ error: 'Failed to create addon checkout session' });
     }
   });
 

@@ -410,3 +410,454 @@ describe('Heartbeat and Basket routes (smoke)', () => {
     expect(res.body.basket).toContain('party_pass');
   });
 });
+
+// =============================================================================
+// 5. billing/addon-config.js
+// =============================================================================
+
+describe('billing/addon-config.js', () => {
+  let addonConfig;
+
+  beforeAll(() => {
+    jest.resetModules();
+    addonConfig = require('./billing/addon-config');
+  });
+
+  test('exports EXTRA_SONG_ADDON_ENABLED flag', () => {
+    expect(typeof addonConfig.EXTRA_SONG_ADDON_ENABLED).toBe('boolean');
+  });
+
+  test('exports EXTRA_SONG_BUNDLE_OPTIONS with at least 2 bundles', () => {
+    expect(Array.isArray(addonConfig.EXTRA_SONG_BUNDLE_OPTIONS)).toBe(true);
+    expect(addonConfig.EXTRA_SONG_BUNDLE_OPTIONS.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('each bundle has required fields', () => {
+    for (const b of addonConfig.EXTRA_SONG_BUNDLE_OPTIONS) {
+      expect(b).toHaveProperty('key');
+      expect(b).toHaveProperty('songs');
+      expect(b).toHaveProperty('priceGBP');
+      expect(b).toHaveProperty('stripePriceId');
+      expect(b).toHaveProperty('label');
+      expect(b).toHaveProperty('description');
+      expect(typeof b.songs).toBe('number');
+      expect(b.songs).toBeGreaterThan(0);
+      expect(typeof b.priceGBP).toBe('number');
+      expect(b.priceGBP).toBeGreaterThan(0);
+    }
+  });
+
+  test('getBundleByKey returns correct bundle', () => {
+    const b5 = addonConfig.getBundleByKey('extra_songs_5');
+    expect(b5).not.toBeNull();
+    expect(b5.songs).toBe(5);
+    const b10 = addonConfig.getBundleByKey('extra_songs_10');
+    expect(b10).not.toBeNull();
+    expect(b10.songs).toBe(10);
+  });
+
+  test('getBundleByKey returns null for unknown key', () => {
+    expect(addonConfig.getBundleByKey('extra_songs_999')).toBeNull();
+  });
+
+  test('getBundleByStripePriceId returns correct bundle', () => {
+    const b5 = addonConfig.getBundleByKey('extra_songs_5');
+    const found = addonConfig.getBundleByStripePriceId(b5.stripePriceId);
+    expect(found).not.toBeNull();
+    expect(found.key).toBe('extra_songs_5');
+  });
+
+  test('getBundleByStripePriceId returns null for unknown priceId', () => {
+    expect(addonConfig.getBundleByStripePriceId('price_nonexistent')).toBeNull();
+  });
+
+  test('extra_songs_5 and extra_songs_10 are in PRODUCTS', () => {
+    jest.resetModules();
+    const { PRODUCTS } = require('./billing/products');
+    expect(PRODUCTS).toHaveProperty('extra_songs_5');
+    expect(PRODUCTS).toHaveProperty('extra_songs_10');
+    expect(PRODUCTS.extra_songs_5.type).toBe('addon');
+    expect(PRODUCTS.extra_songs_10.type).toBe('addon');
+    expect(PRODUCTS.extra_songs_5.songsGranted).toBe(5);
+    expect(PRODUCTS.extra_songs_10.songsGranted).toBe(10);
+  });
+});
+
+// =============================================================================
+// 6. billing/entitlements.js – applyAddonEntitlement (in-memory)
+// =============================================================================
+
+describe('billing/entitlements.js – applyAddonEntitlement (in-memory)', () => {
+  let mod;
+
+  beforeEach(() => {
+    jest.resetModules();
+    jest.mock('./database', () => ({
+      query: jest.fn().mockRejectedValue(new Error('no db')),
+      getOrCreateUserUpgrades: jest.fn(),
+      resolveEntitlements: jest.fn(),
+      pool: { end: jest.fn() }
+    }));
+    mod = require('./billing/entitlements');
+    mod._resetMemStore();
+  });
+
+  test('grants correct number of uploads for extra_songs_5', async () => {
+    const result = await mod.applyAddonEntitlement({
+      userId: 'user-a',
+      partyCode: 'PARTY1',
+      productKey: 'extra_songs_5',
+      songsGranted: 5,
+      provider: 'stripe',
+      providerSessionId: 'cs_test_001'
+    });
+    expect(result.applied).toBe(true);
+    expect(result.alreadyApplied).toBe(false);
+    expect(result.songsGranted).toBe(5);
+  });
+
+  test('grants correct number of uploads for extra_songs_10', async () => {
+    const result = await mod.applyAddonEntitlement({
+      userId: 'user-b',
+      partyCode: 'PARTY2',
+      productKey: 'extra_songs_10',
+      songsGranted: 10,
+      provider: 'stripe',
+      providerSessionId: 'cs_test_002'
+    });
+    expect(result.applied).toBe(true);
+    expect(result.songsGranted).toBe(10);
+  });
+
+  test('idempotency – duplicate session ID does not double-grant', async () => {
+    const opts = {
+      userId: 'user-c',
+      partyCode: 'PARTY3',
+      productKey: 'extra_songs_5',
+      songsGranted: 5,
+      provider: 'stripe',
+      providerSessionId: 'cs_idem_001'
+    };
+    const first = await mod.applyAddonEntitlement(opts);
+    const second = await mod.applyAddonEntitlement(opts);
+    expect(first.applied).toBe(true);
+    expect(second.applied).toBe(false);
+    expect(second.alreadyApplied).toBe(true);
+    // Total must still be 5
+    const total = await mod.getPartyAddonUploads({ partyCode: 'PARTY3' });
+    expect(total).toBe(5);
+  });
+
+  test('multiple distinct addon purchases stack correctly', async () => {
+    await mod.applyAddonEntitlement({
+      userId: 'user-d',
+      partyCode: 'PARTY4',
+      productKey: 'extra_songs_5',
+      songsGranted: 5,
+      provider: 'stripe',
+      providerSessionId: 'cs_stack_001'
+    });
+    await mod.applyAddonEntitlement({
+      userId: 'user-d',
+      partyCode: 'PARTY4',
+      productKey: 'extra_songs_10',
+      songsGranted: 10,
+      provider: 'stripe',
+      providerSessionId: 'cs_stack_002'
+    });
+    const total = await mod.getPartyAddonUploads({ partyCode: 'PARTY4' });
+    expect(total).toBe(15);
+  });
+
+  test('entitlement is scoped to the correct party', async () => {
+    await mod.applyAddonEntitlement({
+      userId: 'user-e',
+      partyCode: 'PARTYABC',
+      productKey: 'extra_songs_5',
+      songsGranted: 5,
+      provider: 'stripe',
+      providerSessionId: 'cs_scope_001'
+    });
+    const totalABC = await mod.getPartyAddonUploads({ partyCode: 'PARTYABC' });
+    const totalXYZ = await mod.getPartyAddonUploads({ partyCode: 'PARTYXYZ' });
+    expect(totalABC).toBe(5);
+    expect(totalXYZ).toBe(0);
+  });
+
+  test('getPartyAddonUploads returns 0 when no addons purchased', async () => {
+    const total = await mod.getPartyAddonUploads({ partyCode: 'NOADDON' });
+    expect(total).toBe(0);
+  });
+
+  test('getMemAddonEntitlements returns all grants', async () => {
+    await mod.applyAddonEntitlement({
+      userId: 'user-f',
+      partyCode: 'PARTYZ',
+      productKey: 'extra_songs_5',
+      songsGranted: 5,
+      provider: 'stripe',
+      providerSessionId: 'cs_mem_001'
+    });
+    const all = mod.getMemAddonEntitlements();
+    expect(all.length).toBeGreaterThanOrEqual(1);
+    expect(all[0].partyCode).toBe('PARTYZ');
+    expect(all[0].songsGranted).toBe(5);
+  });
+
+  test('throws if productKey is not an addon', async () => {
+    await expect(mod.applyAddonEntitlement({
+      userId: 'user-g',
+      partyCode: 'PARTYW',
+      productKey: 'party_pass',
+      songsGranted: 5,
+      provider: 'stripe',
+      providerSessionId: 'cs_bad_001'
+    })).rejects.toThrow('not an addon product');
+  });
+
+  test('throws if userId is missing', async () => {
+    await expect(mod.applyAddonEntitlement({
+      partyCode: 'PARTYW',
+      productKey: 'extra_songs_5',
+      songsGranted: 5,
+      provider: 'stripe',
+      providerSessionId: 'cs_err_001'
+    })).rejects.toThrow('userId is required');
+  });
+
+  test('throws if partyCode is missing', async () => {
+    await expect(mod.applyAddonEntitlement({
+      userId: 'user-g',
+      productKey: 'extra_songs_5',
+      songsGranted: 5,
+      provider: 'stripe',
+      providerSessionId: 'cs_err_002'
+    })).rejects.toThrow('partyCode is required');
+  });
+
+  test('throws if songsGranted is 0 or missing', async () => {
+    await expect(mod.applyAddonEntitlement({
+      userId: 'user-g',
+      partyCode: 'PARTYW',
+      productKey: 'extra_songs_5',
+      songsGranted: 0,
+      provider: 'stripe',
+      providerSessionId: 'cs_err_003'
+    })).rejects.toThrow('songsGranted must be >= 1');
+  });
+});
+
+// =============================================================================
+// 7. tier-policy.js – PARTY_PASS upload limit is 15
+// =============================================================================
+
+describe('tier-policy.js', () => {
+  let tierPolicy;
+
+  beforeAll(() => {
+    jest.resetModules();
+    tierPolicy = require('./tier-policy');
+  });
+
+  test('PARTY_PASS maxUploadsPerSession is 15', () => {
+    const policy = tierPolicy.getPolicyForTier('PARTY_PASS');
+    expect(policy.maxUploadsPerSession).toBe(15);
+  });
+
+  test('PRO maxUploadsPerSession is at least 50', () => {
+    const policy = tierPolicy.getPolicyForTier('PRO');
+    expect(policy.maxUploadsPerSession).toBeGreaterThanOrEqual(50);
+  });
+
+  test('FREE has uploadsAllowed=false', () => {
+    const policy = tierPolicy.getPolicyForTier('FREE');
+    expect(policy.uploadsAllowed).toBe(false);
+  });
+});
+
+// =============================================================================
+// 8. Addon checkout endpoint smoke tests
+// =============================================================================
+
+describe('Addon checkout endpoint (smoke)', () => {
+  let app;
+  let authMW;
+  const mockSessionCreate = jest.fn();
+
+  beforeAll(() => {
+    jest.resetModules();
+
+    // Re-mock stripe, db, etc.
+    jest.mock('./stripe-client', () => ({
+      checkout: { sessions: { create: mockSessionCreate } },
+      webhooks: { constructEvent: jest.fn() }
+    }));
+    jest.mock('./database', () => ({
+      query: jest.fn().mockResolvedValue({ rows: [] }),
+      getOrCreateUserUpgrades: jest.fn(),
+      resolveEntitlements: jest.fn(),
+      pool: { end: jest.fn() }
+    }));
+
+    authMW = require('./auth-middleware');
+
+    // Build minimal express app with just the addon endpoint inlined
+    app = express();
+    app.use(cookieParser());
+    app.use(express.json());
+
+    const stripeClient = require('./stripe-client');
+    const addonConfig = require('./billing/addon-config');
+    const { getPolicyForTier } = require('./tier-policy');
+
+    // Fake party store
+    const fakeParties = new Map();
+    fakeParties.set('PPTEST', { tier: 'PARTY_PASS', code: 'PPTEST' });
+    fakeParties.set('FREETEST', { tier: 'FREE', code: 'FREETEST' });
+    fakeParties.set('PROTEST', { tier: 'PRO', code: 'PROTEST' });
+
+    app.post(
+      '/api/addon/create-checkout-session',
+      authMW.requireAuth,
+      async (req, res) => {
+        if (!addonConfig.EXTRA_SONG_ADDON_ENABLED) {
+          return res.status(403).json({ error: 'Extra-song addons are not currently available' });
+        }
+        if (!stripeClient) {
+          return res.status(503).json({ error: 'Billing not configured' });
+        }
+        const { bundleKey, partyCode } = req.body;
+        const userId = String(req.user.userId);
+        if (!bundleKey) return res.status(400).json({ error: 'bundleKey is required' });
+        const bundle = addonConfig.getBundleByKey(bundleKey);
+        if (!bundle) return res.status(400).json({ error: `Unknown bundle: ${bundleKey}` });
+        if (!partyCode) return res.status(400).json({ error: 'partyCode is required' });
+        const normalizedCode = String(partyCode).toUpperCase().trim();
+        const partyData = fakeParties.get(normalizedCode);
+        if (!partyData) return res.status(404).json({ error: 'Party not found or no longer active' });
+        const partyTier = partyData.tier || 'FREE';
+        if (partyTier === 'FREE') {
+          return res.status(403).json({ error: 'Extra-song addons require an active Party Pass for this party' });
+        }
+        if (partyTier === 'PRO' || partyTier === 'PRO_MONTHLY') {
+          return res.status(403).json({ error: 'Monthly subscribers have unlimited uploads' });
+        }
+        try {
+          const session = await stripeClient.checkout.sessions.create({
+            mode: 'payment',
+            line_items: [{ price: bundle.stripePriceId, quantity: 1 }],
+            success_url: 'https://example.com/?addon=success',
+            cancel_url: 'https://example.com/?addon=cancel',
+            metadata: { userId, partyCode: normalizedCode, addonType: bundleKey, songsGranted: String(bundle.songs) }
+          });
+          return res.json({ sessionId: session.id, url: session.url, bundle: { key: bundle.key, songs: bundle.songs } });
+        } catch (err) {
+          return res.status(500).json({ error: 'Failed to create addon checkout session' });
+        }
+      }
+    );
+
+    // Upload quota endpoint
+    app.get('/api/party/:code/upload-quota', authMW.requireAuth, async (req, res) => {
+      const partyCode = (req.params.code || '').toUpperCase().trim();
+      const partyData = fakeParties.get(partyCode);
+      if (!partyData) return res.status(404).json({ error: 'Party not found' });
+      const partyTier = partyData.tier || 'FREE';
+      const policy = getPolicyForTier(partyTier);
+      const baseLimit = policy.maxUploadsPerSession || 0;
+      return res.json({ partyCode, tier: partyTier, baseLimit, addonUploads: 0, effectiveLimit: baseLimit, uploadsAllowed: policy.uploadsAllowed });
+    });
+  });
+
+  function makeAuthCookie(userId = 'user-1', email = 'test@example.com') {
+    const token = authMW.generateToken({ userId, email });
+    return `auth_token=${token}`;
+  }
+
+  test('valid Party Pass user can create addon checkout', async () => {
+    mockSessionCreate.mockResolvedValueOnce({ id: 'cs_test_ok', url: 'https://checkout.stripe.com/test' });
+    const res = await request(app)
+      .post('/api/addon/create-checkout-session')
+      .set('Cookie', [makeAuthCookie('pp-user')])
+      .send({ bundleKey: 'extra_songs_5', partyCode: 'PPTEST' });
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe('cs_test_ok');
+    expect(res.body.bundle.songs).toBe(5);
+  });
+
+  test('free user is blocked from addon checkout', async () => {
+    const res = await request(app)
+      .post('/api/addon/create-checkout-session')
+      .set('Cookie', [makeAuthCookie('free-user')])
+      .send({ bundleKey: 'extra_songs_5', partyCode: 'FREETEST' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/Party Pass/i);
+  });
+
+  test('PRO user is blocked from addon checkout', async () => {
+    const res = await request(app)
+      .post('/api/addon/create-checkout-session')
+      .set('Cookie', [makeAuthCookie('pro-user')])
+      .send({ bundleKey: 'extra_songs_5', partyCode: 'PROTEST' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/Monthly/i);
+  });
+
+  test('unknown party is blocked', async () => {
+    const res = await request(app)
+      .post('/api/addon/create-checkout-session')
+      .set('Cookie', [makeAuthCookie('pp-user')])
+      .send({ bundleKey: 'extra_songs_5', partyCode: 'NOPRT' });
+    expect(res.status).toBe(404);
+  });
+
+  test('unauthenticated user is blocked', async () => {
+    const res = await request(app)
+      .post('/api/addon/create-checkout-session')
+      .send({ bundleKey: 'extra_songs_5', partyCode: 'PPTEST' });
+    expect(res.status).toBe(401);
+  });
+
+  test('invalid bundleKey returns 400', async () => {
+    const res = await request(app)
+      .post('/api/addon/create-checkout-session')
+      .set('Cookie', [makeAuthCookie('pp-user')])
+      .send({ bundleKey: 'extra_songs_99999', partyCode: 'PPTEST' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/Unknown bundle/);
+  });
+
+  test('missing bundleKey returns 400', async () => {
+    const res = await request(app)
+      .post('/api/addon/create-checkout-session')
+      .set('Cookie', [makeAuthCookie('pp-user')])
+      .send({ partyCode: 'PPTEST' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/bundleKey/);
+  });
+
+  test('missing partyCode returns 400', async () => {
+    const res = await request(app)
+      .post('/api/addon/create-checkout-session')
+      .set('Cookie', [makeAuthCookie('pp-user')])
+      .send({ bundleKey: 'extra_songs_5' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/partyCode/);
+  });
+
+  test('GET /api/party/:code/upload-quota returns correct data for PARTY_PASS', async () => {
+    const res = await request(app)
+      .get('/api/party/PPTEST/upload-quota')
+      .set('Cookie', [makeAuthCookie('pp-user')]);
+    expect(res.status).toBe(200);
+    expect(res.body.tier).toBe('PARTY_PASS');
+    expect(res.body.baseLimit).toBe(15);
+    expect(res.body.uploadsAllowed).toBe(true);
+    expect(typeof res.body.effectiveLimit).toBe('number');
+  });
+
+  test('GET /api/party/:code/upload-quota requires auth', async () => {
+    const res = await request(app).get('/api/party/PPTEST/upload-quota');
+    expect(res.status).toBe(401);
+  });
+});

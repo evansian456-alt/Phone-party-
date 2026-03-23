@@ -38,6 +38,33 @@ const PRODUCTS = {
     entitlement: {
       tier: 'PRO'
     }
+  },
+  // ── Extra-song upload addons (Party Pass users only) ─────────────────────────
+  // These grant party-scoped upload allowances, NOT global/tier entitlements.
+  // Pricing and bundle sizes are also defined in billing/addon-config.js for UI use.
+  extra_songs_5: {
+    key: 'extra_songs_5',
+    type: 'addon',
+    addonType: 'extra_uploads',
+    songsGranted: 5,
+    stripe: {
+      priceId: process.env.STRIPE_PRICE_ID_EXTRA_SONGS_5 || 'price_extra_songs_5_placeholder'
+    },
+    entitlement: {
+      scope: 'party'
+    }
+  },
+  extra_songs_10: {
+    key: 'extra_songs_10',
+    type: 'addon',
+    addonType: 'extra_uploads',
+    songsGranted: 10,
+    stripe: {
+      priceId: process.env.STRIPE_PRICE_ID_EXTRA_SONGS_10 || 'price_extra_songs_10_placeholder'
+    },
+    entitlement: {
+      scope: 'party'
+    }
   }
 };
 
