@@ -1388,9 +1388,10 @@ app.get("/api/ping", (req, res) => {
   res.json({ message: "pong", timestamp: Date.now() });
 });
 
-// Debug endpoint for Redis diagnostics
+// Debug endpoint for Redis diagnostics (admin-only)
 // Provides detailed Redis connection status and configuration info (no secrets)
-app.get("/api/debug/redis", async (req, res) => {
+const _debugRedisLimiter = rateLimit({ windowMs: 60 * 1000, max: 20, standardHeaders: true, legacyHeaders: false });
+app.get("/api/debug/redis", _debugRedisLimiter, authMiddleware.requireAdmin, async (req, res) => {
   const uptimeSeconds = Math.floor((Date.now() - SERVER_START_TIME) / 1000);
   
   // Perform a ping test if Redis is available
@@ -1440,23 +1441,6 @@ app.get("/api/debug/redis", async (req, res) => {
   };
   
   res.json(debug);
-});
-
-// Debug endpoint to list all registered routes
-// This endpoint helps verify which routes are registered at runtime
-// Useful for production debugging when routes appear to be missing
-// NOTE: This endpoint is intentionally enabled for production debugging and verification
-// WARNING: Exposes application structure. Consider adding authentication in future versions
-// if this becomes a security concern
-app.get("/api/routes", (req, res) => {
-  const routes = getRegisteredRoutes();
-  
-  res.json({
-    instanceId: INSTANCE_ID,
-    version: APP_VERSION,
-    routes: routes,
-    totalRoutes: routes.length
-  });
 });
 
 // ============================================================================
@@ -4513,7 +4497,7 @@ function handleApplyPromo(ws, msg) {
 
       // Legacy hardcoded codes
       if (!PROMO_CODES.includes(promoCode)) {
-        console.log(`[Promo] Invalid promo code attempt: ${promoCode}, partyCode: ${partyCode}, clientId: ${client.id}`);
+        console.log(`[Promo] Invalid promo code attempt (redacted), partyCode: ${partyCode}, clientId: ${client.id}`);
         safeSend(ws, JSON.stringify({ t: "ERROR", message: "Invalid or expired promo code." }));
         return;
       }
