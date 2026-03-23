@@ -7838,6 +7838,7 @@ async function handleBillingReturn() {
       // Success - response is set from retry loop above
       const data = await response.json();
       const partyCode = data.partyCode || data.code;
+      console.log("Party code received:", partyCode);
       const hostId = data.hostId; // PHASE 7: Store hostId for queue operations
 
       if (!partyCode) {
