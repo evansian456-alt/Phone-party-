@@ -478,8 +478,8 @@ describe('billing/addon-config.js', () => {
     expect(PRODUCTS).toHaveProperty('extra_songs_10');
     expect(PRODUCTS.extra_songs_5.type).toBe('addon');
     expect(PRODUCTS.extra_songs_10.type).toBe('addon');
-    expect(PRODUCTS.extra_songs_5.songsGranted).toBe(5);
-    expect(PRODUCTS.extra_songs_10.songsGranted).toBe(10);
+    expect(PRODUCTS.extra_songs_5.entitlement.extraSongs).toBe(5);
+    expect(PRODUCTS.extra_songs_10.entitlement.extraSongs).toBe(10);
   });
 });
 

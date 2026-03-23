@@ -1,16 +1,20 @@
 /**
- * Event Replay System for Failed WebSocket Messages
- * 
- * Provides reliable message delivery with acknowledgment tracking and automatic retry.
- * Ensures critical messages (sync, playback control, reactions) are delivered to all clients
- * even in the presence of network issues or temporary disconnections.
- * 
- * Key Features:
+ * Event Replay System for Reliable WebSocket Message Delivery
+ *
+ * Provides reliable, idempotent message delivery with acknowledgment tracking
+ * and automatic retry. Ensures critical messages (sync, playback control,
+ * reactions) are delivered to all clients even in the presence of network
+ * issues or temporary disconnections.
+ *
+ * Key features:
  * - Message queue with timestamps and unique IDs
  * - Per-client acknowledgment tracking
  * - Configurable retry intervals and max attempts
  * - Automatic cleanup of old/acknowledged messages
  * - Support for different message priority levels
+ * - Generation and sequence number support for idempotent delivery
+ * - Stale-event rejection: events older than the current generation are dropped
+ * - Duplicate-delivery protection via processed event ID tracking
  */
 
 const { nanoid } = require('nanoid');
@@ -54,6 +58,14 @@ class EventReplayManager {
     
     // Client metadata: clientId -> { ws, partyCode, lastSeen }
     this.clients = new Map();
+
+    // Per-client generation tracking for stale-event rejection
+    // clientId -> { currentGeneration: number }
+    this._clientGenerations = new Map();
+
+    // Recently processed event IDs for duplicate detection (LRU-capped)
+    this._processedEventIds = new Set();
+    this._processedEventIdAge = new Map(); // eventId -> timestampMs
     
     // Retry timer
     this.retryTimer = null;
@@ -65,8 +77,77 @@ class EventReplayManager {
       messagesAcknowledged: 0,
       messagesRetried: 0,
       messagesFailed: 0,
-      messagesTimedOut: 0
+      messagesTimedOut: 0,
+      staleEventsDropped: 0,
+      duplicateEventsDropped: 0,
     };
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // Generation / Idempotency Helpers
+  // ──────────────────────────────────────────────────────────
+
+  /**
+   * Record the current timeline generation for a party.
+   * Any event from an older generation will be dropped automatically.
+   *
+   * @param {string} partyCode
+   * @param {number} generation
+   */
+  setPartyGeneration(partyCode, generation) {
+    if (!this._clientGenerations.has(partyCode)) {
+      this._clientGenerations.set(partyCode, { currentGeneration: generation });
+    } else {
+      const existing = this._clientGenerations.get(partyCode);
+      if (generation > existing.currentGeneration) {
+        existing.currentGeneration = generation;
+      }
+    }
+  }
+
+  /**
+   * Check whether an event should be processed or dropped.
+   * Returns 'accept', 'stale', or 'duplicate'.
+   *
+   * @param {object} event - Event with optional .eventId, .generation, .partyCode fields
+   * @returns {'accept'|'stale'|'duplicate'}
+   */
+  validateEvent(event) {
+    // Duplicate detection via eventId
+    if (event.eventId) {
+      if (this._processedEventIds.has(event.eventId)) {
+        this.stats.duplicateEventsDropped++;
+        return 'duplicate';
+      }
+      this._processedEventIds.add(event.eventId);
+      this._processedEventIdAge.set(event.eventId, Date.now());
+      // Prune old event IDs (keep last 500)
+      if (this._processedEventIds.size > 500) {
+        this._pruneProcessedEventIds();
+      }
+    }
+
+    // Stale-generation detection
+    if (typeof event.generation === 'number' && event.partyCode) {
+      const partyGen = this._clientGenerations.get(event.partyCode);
+      if (partyGen && event.generation < partyGen.currentGeneration) {
+        this.stats.staleEventsDropped++;
+        return 'stale';
+      }
+    }
+
+    return 'accept';
+  }
+
+  /** Remove the oldest processed event IDs to cap memory usage. */
+  _pruneProcessedEventIds() {
+    const cutoff = Date.now() - 60000; // keep last 60s
+    for (const [id, ts] of this._processedEventIdAge.entries()) {
+      if (ts < cutoff) {
+        this._processedEventIds.delete(id);
+        this._processedEventIdAge.delete(id);
+      }
+    }
   }
 
   /**
