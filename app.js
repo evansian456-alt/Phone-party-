@@ -12933,6 +12933,26 @@ function buildOfficialAppLink(platform, trackRef) {
 const ALLOWED_DEEP_LINK_SCHEMES = ['vnd.youtube:', 'spotify:', 'soundcloud:'];
 
 /**
+ * Load the SoundCloud in-app embedded widget player with the given track URL.
+ * The iframe src is set to the SoundCloud widget endpoint; no external app is opened.
+ *
+ * @param {string} trackUrl - Canonical SoundCloud track URL (https://soundcloud.com/…)
+ * @param {string} frameId  - ID of the <iframe> element to populate
+ */
+function loadSoundCloudInAppPlayer(trackUrl, frameId) {
+  const frame = el(frameId);
+  if (!frame) return;
+  // Build SC widget URL (public embed; no API key required for basic playback)
+  const encoded = encodeURIComponent(trackUrl);
+  frame.src = 'https://w.soundcloud.com/player/?url=' + encoded +
+    '&color=%23ff7700&auto_play=false&hide_related=true' +
+    '&show_comments=false&show_user=true&show_reposts=false&show_teaser=false';
+  // Reveal the containing section
+  const section = el(frameId === 'scInAppPlayerFrame' ? 'scInAppPlayerSection' : 'guestScInAppPlayerSection');
+  if (section) section.classList.remove('hidden');
+}
+
+/**
  * Safely navigate to a deep link, with a timed fallback to the web URL.
  * Used by both the manual button and mobile auto-launch.
  *
@@ -13022,7 +13042,7 @@ function handleOfficialAppSyncTrackSelected(msg) {
     return;
   }
 
-  // Update host-side "Open in App" branded buttons
+  // Update host-side "Open in App / Player" branded buttons
   if (state.isHost) {
     const openInAppContainer = el('openInAppButtons');
     if (openInAppContainer) {
@@ -13038,13 +13058,23 @@ function handleOfficialAppSyncTrackSelected(msg) {
         if (btn) {
           if (p === activePlatform) {
             btn.style.display = 'flex';
-            btn.onclick = function () { openInApp(links.deepLink, links.webUrl); };
+            if (p === 'soundcloud') {
+              // SoundCloud is in-app: load the embedded widget, button scrolls to it
+              btn.onclick = function () { loadSoundCloudInAppPlayer(links.webUrl, 'scInAppPlayerFrame'); };
+            } else {
+              // YouTube and Spotify: open in external/official app
+              btn.onclick = function () { openInApp(links.deepLink, links.webUrl); };
+            }
           } else {
             btn.style.display = 'none';
           }
         }
       });
       openInAppContainer.classList.remove('hidden');
+      // Auto-load SoundCloud in-app player immediately so the host sees it right away
+      if (activePlatform === 'soundcloud') {
+        loadSoundCloudInAppPlayer(links.webUrl, 'scInAppPlayerFrame');
+      }
     }
     toast(`🎵 Official App Sync: ${platform} track synced`);
     return;
@@ -13057,9 +13087,10 @@ function handleOfficialAppSyncTrackSelected(msg) {
     officialAppSyncState.platform = platform;
     officialAppSyncState.autoLaunchAttempted = false;
 
+    const activePlatform = (platform || '').toLowerCase();
     const platformLabel = platform ? platform.charAt(0).toUpperCase() + platform.slice(1) : 'App';
 
-    // Render "Open in App" panel in guest view
+    // Render panel in guest view
     const guestSyncPanel = el('guestOfficialAppSyncPanel');
     const guestSyncLabel = el('guestOfficialAppSyncLabel');
     const openBtn        = el('btnGuestOpenInApp');
@@ -13067,18 +13098,27 @@ function handleOfficialAppSyncTrackSelected(msg) {
     if (guestSyncLabel) {
       guestSyncLabel.textContent = `Host selected a ${platformLabel} track`;
     }
-    if (openBtn) {
-      openBtn.textContent = `Open in ${platformLabel}`;
-      openBtn.onclick = function () {
-        openInApp(links.deepLink, links.webUrl);
-      };
-    }
-    if (guestSyncPanel) guestSyncPanel.classList.remove('hidden');
 
-    // Mobile: attempt auto-launch
-    if (isMobileDevice()) {
-      attemptMobileAutoLaunch(links.deepLink, links.webUrl);
+    if (activePlatform === 'soundcloud') {
+      // SoundCloud is in-app: show embedded widget; hide the "Open in App" button
+      if (openBtn) openBtn.style.display = 'none';
+      loadSoundCloudInAppPlayer(links.webUrl, 'guestScInAppPlayerFrame');
+    } else {
+      // Spotify / YouTube: show "Open in App" button pointing to external app
+      if (openBtn) {
+        openBtn.style.display = '';
+        openBtn.textContent = `Open in ${platformLabel}`;
+        openBtn.onclick = function () {
+          openInApp(links.deepLink, links.webUrl);
+        };
+      }
+      // Mobile: attempt auto-launch for external apps
+      if (isMobileDevice()) {
+        attemptMobileAutoLaunch(links.deepLink, links.webUrl);
+      }
     }
+
+    if (guestSyncPanel) guestSyncPanel.classList.remove('hidden');
 
     // Fire streamingPartyTrackSelected event so Sync Coach activates for guests.
     // playbackStartMs is when playback began: serverTimestamp minus already-elapsed positionSeconds.

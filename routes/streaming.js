@@ -38,7 +38,7 @@ module.exports = function createStreamingRouter(deps) {
           {
             id: 'soundcloud',
             name: 'SoundCloud',
-            description: 'Direct streams behave similar to uploads.',
+            description: 'Plays inside the app — embedded player stays in sync with the party.',
             deepLinkTemplate: '{url}',
             accuracy: '40–150ms',
             syncBadge: 'In-app Sync'

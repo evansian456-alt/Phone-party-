@@ -774,7 +774,7 @@
           <span class="badge" style="background:linear-gradient(135deg,#a855f7,#6366f1);color:#fff;font-size:0.7rem;">PAID</span>
         </div>
         <p class="tiny muted" style="margin-bottom:0.75rem">
-          Play tracks from YouTube, Spotify, or SoundCloud — all your party guests play along in sync via the official app.
+          Play tracks from YouTube, Spotify, or SoundCloud — all your party guests play along in sync. YouTube and SoundCloud play inside the app; Spotify opens in the Spotify app.
         </p>
 
         <!-- Provider Cards -->
@@ -834,7 +834,7 @@
                 Use Provider
               </button>
             </div>
-            <p class="tiny muted" style="margin:0;">Direct streams behave similar to uploads. Widget playback may require manual resync.</p>
+            <p class="tiny muted" style="margin:0;">Plays inside the app — embedded player stays in sync with the party.</p>
           </div>
         </div>
 
@@ -862,9 +862,9 @@
           <div id="syncNowPlayingRef" class="tiny muted" style="word-break:break-all;"></div>
         </div>
 
-        <!-- Open in App Buttons (shown after a track is synced) -->
+        <!-- Open in App / Player Buttons (shown after a track is synced) -->
         <div class="hidden" id="openInAppButtons" style="margin-top:0.75rem;display:flex;flex-direction:column;gap:0.5rem;">
-          <div class="tiny muted" style="margin-bottom:0.25rem;">Open synced track in official app:</div>
+          <div class="tiny muted" style="margin-bottom:0.25rem;">Open synced track:</div>
           <button class="btn" id="btnOpenInYouTube" data-testid="party-player-youtube" style="display:none;align-items:center;gap:0.5rem;justify-content:center;">
             <img src="/public/assets/providers/youtube.svg" alt="YouTube" style="height:18px;width:auto;" />
             Open in YouTube
@@ -875,13 +875,27 @@
           </button>
           <button class="btn" id="btnOpenInSoundCloud" data-testid="party-player-soundcloud" style="display:none;align-items:center;gap:0.5rem;justify-content:center;">
             <img src="/public/assets/providers/soundcloud.svg" alt="SoundCloud" style="height:18px;width:auto;" />
-            Open in SoundCloud
+            ☁ SoundCloud Player
           </button>
+        </div>
+
+        <!-- SoundCloud in-app player (host view, shown when host syncs a SoundCloud track) -->
+        <div class="hidden" id="scInAppPlayerSection" style="margin-top:0.75rem;">
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
+            <img src="/public/assets/providers/soundcloud.svg" alt="SoundCloud" style="height:16px;width:auto;" />
+            <span class="tiny muted">SoundCloud — playing inside the app</span>
+          </div>
+          <iframe id="scInAppPlayerFrame"
+                  src=""
+                  width="100%"
+                  height="120"
+                  allow="autoplay"
+                  style="border:0;border-radius:8px;display:block;"></iframe>
         </div>
 
         <!-- Compliance Text -->
         <p class="tiny muted" style="margin-top:0.75rem;font-size:0.65rem;opacity:0.7;">
-          Playback occurs within official platform apps.<br>
+          YouTube and SoundCloud play inside the app. Spotify opens in the Spotify app.<br>
           SyncSpeaker is not affiliated with YouTube, Spotify, or SoundCloud.
         </p>
       </div>
@@ -1427,6 +1441,19 @@
       <div class="glass-card hidden" id="guestOfficialAppSyncPanel" style="text-align:center;padding:1.25rem;">
         <div style="font-size:1.05rem;font-weight:600;margin-bottom:0.5rem;" id="guestOfficialAppSyncLabel">Host selected a track</div>
         <button class="btn primary" id="btnGuestOpenInApp" style="font-size:1.1rem;padding:0.75rem 2rem;width:100%;max-width:320px;">Open in App</button>
+        <!-- SoundCloud in-app widget (guest view, shown only for SoundCloud tracks) -->
+        <div class="hidden" id="guestScInAppPlayerSection" style="margin-top:0.75rem;text-align:left;">
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
+            <img src="/public/assets/providers/soundcloud.svg" alt="SoundCloud" style="height:16px;width:auto;" />
+            <span class="tiny muted">SoundCloud — playing inside the app</span>
+          </div>
+          <iframe id="guestScInAppPlayerFrame"
+                  src=""
+                  width="100%"
+                  height="120"
+                  allow="autoplay"
+                  style="border:0;border-radius:8px;display:block;"></iframe>
+        </div>
       </div>
 
       <!-- YouTube Party Player (Guest) — shown when host starts a YouTube Party -->
@@ -1932,14 +1959,14 @@
         <div class="hidden" id="syncInfoSoundCloud">
           <div style="margin-bottom:0.75rem;padding:0.75rem;background:rgba(255,255,255,0.06);border-radius:8px;">
             <h4 style="margin:0 0 0.4rem;">&#x2601; SoundCloud</h4>
-            <p style="margin:0 0 0.4rem;font-size:0.85rem;">Direct streams behave similar to uploads.</p>
-            <p style="margin:0;font-size:0.8rem;opacity:0.8;">Widget playback may require manual resync.</p>
+            <p style="margin:0 0 0.4rem;font-size:0.85rem;">Plays inside the app — no external app required. An embedded SoundCloud player keeps everyone in sync.</p>
+            <p style="margin:0;font-size:0.8rem;"><strong>Expected accuracy: 40&ndash;150ms</strong></p>
           </div>
         </div>
       </div>
 
       <p class="tiny muted" style="font-size:0.7rem;margin-bottom:1rem;opacity:0.7;">
-        Uploaded audio provides the best synchronization. YouTube, Spotify, and SoundCloud playback depends on third-party platforms.
+        Uploaded audio provides the best synchronization. YouTube and SoundCloud play inside the app. Spotify playback occurs in the Spotify app and is subject to platform restrictions.
         Synchronization accuracy may vary. Perfect synchronization cannot be guaranteed.
       </p>
 
