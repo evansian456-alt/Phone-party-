@@ -2451,6 +2451,9 @@ function showHome() {
   state.lastHostEvent = null;
   state.visualMode = "idle";
   
+  // Clear host session when navigating away
+  try { localStorage.removeItem('syncSpeakerHostSession'); } catch (_) { /* non-fatal */ }
+
   // Cleanup audio and ObjectURL
   cleanupMusicPlayer();
   
@@ -7861,6 +7864,16 @@ async function handleBillingReturn() {
         }]
       };
       
+      // Persist host session so code can be restored after a page refresh
+      try {
+        localStorage.setItem('syncSpeakerHostSession', JSON.stringify({
+          partyCode: partyCode,
+          hostId: hostId,
+          djName: state.name,
+          createdAt: Date.now()
+        }));
+      } catch (_) { /* non-fatal */ }
+
       // Show party view — keep the host here so the join code is immediately visible.
       // The YouTube service screen is accessible later via host controls; do not
       // auto-redirect here as that would hide the party code from the host.
@@ -8214,6 +8227,9 @@ async function handleBillingReturn() {
       // Show party recap before leaving
       showPartyRecap();
       
+      // Clear host session from localStorage
+      try { localStorage.removeItem('syncSpeakerHostSession'); } catch (_) { /* non-fatal */ }
+
       // Call end-party endpoint
       try {
         if (state.code) {
@@ -8517,43 +8533,74 @@ async function handleBillingReturn() {
       toast("⚠️ Prototype mode - code won't work for joining from other devices");
       return;
     }
+    if (!state.code) {
+      toast("No party code available");
+      return;
+    }
     
     // Create shareable join link
     const baseUrl = typeof getBaseUrl === 'function' ? getBaseUrl() : window.location.origin;
-    const joinLink = `${baseUrl}${window.location.pathname}?code=${state.code || ""}`;
+    const joinLink = `${baseUrl}?code=${state.code}`;
     
-    // Try to use native share API if available (mobile devices)
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'Join Phone Party',
-          text: `Join my Phone Party! Code: ${state.code}`,
-          url: joinLink
-        });
-        toast("Shared successfully!");
-        return;
-      } catch (err) {
-        // User cancelled or share failed, fall back to clipboard
-        if (err.name !== 'AbortError') {
-          console.log('Share failed, falling back to clipboard:', err);
-        }
-      }
-    }
-    
-    // Fallback to clipboard
+    // Copy join link to clipboard
     try { 
       await navigator.clipboard.writeText(joinLink); 
       toast("Join link copied!");
     } catch { 
       // Final fallback - just copy the code
       try {
-        await navigator.clipboard.writeText(state.code || "");
-        toast("Party code copied");
+        await navigator.clipboard.writeText(state.code);
+        toast("Party code copied: " + state.code);
       } catch {
         toast("Copy failed (permission)");
       }
     }
   };
+
+  const _btnShare = el("btnShare");
+  if (_btnShare) {
+    _btnShare.onclick = async () => {
+      if (!state.code) {
+        toast("No party code available");
+        return;
+      }
+      if (typeof shareParty === 'function') {
+        shareParty(state.code);
+      } else {
+        // Fallback: copy to clipboard
+        const baseUrl = typeof getBaseUrl === 'function' ? getBaseUrl() : window.location.origin;
+        const joinLink = `${baseUrl}?code=${state.code}`;
+        try {
+          await navigator.clipboard.writeText(joinLink);
+          toast("Join link copied!");
+        } catch {
+          toast("Party code: " + state.code);
+        }
+      }
+    };
+  }
+
+  const _btnShowQR = el("btnShowQR");
+  const _modalQRCode = el("modalQRCode");
+  if (_btnShowQR && _modalQRCode) {
+    _btnShowQR.onclick = () => {
+      if (!state.code) {
+        toast("No party code available");
+        return;
+      }
+      if (typeof displayQRCode === 'function') {
+        displayQRCode(state.code, 'qrCodeContainer');
+      }
+      _modalQRCode.classList.remove("hidden");
+    };
+  }
+
+  const _btnCloseQR = el("btnCloseQR");
+  if (_btnCloseQR && _modalQRCode) {
+    _btnCloseQR.onclick = () => {
+      _modalQRCode.classList.add("hidden");
+    };
+  }
 
   el("btnPlay").onclick = () => {
     if (state.adActive) return;
@@ -9863,6 +9910,71 @@ function initializeAllFeatures() {
   
   // Check for auto-reconnect after features are initialized
   checkAutoReconnect();
+  checkHostAutoReconnect();
+}
+
+// Auto-reconnect functionality for hosts (restore party code after page refresh)
+async function checkHostAutoReconnect() {
+  try {
+    const sessionData = localStorage.getItem('syncSpeakerHostSession');
+    if (!sessionData) return;
+
+    const session = JSON.parse(sessionData);
+    const { partyCode, hostId, djName, createdAt } = session;
+
+    if (!partyCode || !createdAt) {
+      localStorage.removeItem('syncSpeakerHostSession');
+      return;
+    }
+
+    // Only attempt to restore within 4 hours (matching the server-side party TTL so we
+    // don't try to rejoin an already-expired party)
+    const SESSION_EXPIRY_MS = 4 * 60 * 60 * 1000;
+    if (Date.now() - createdAt > SESSION_EXPIRY_MS) {
+      localStorage.removeItem('syncSpeakerHostSession');
+      return;
+    }
+
+    // Verify the party still exists on the server
+    const partyCheckResponse = await fetch(API_BASE + `/api/party?code=${encodeURIComponent(partyCode)}`);
+    if (!partyCheckResponse.ok) {
+      localStorage.removeItem('syncSpeakerHostSession');
+      return;
+    }
+
+    const partyData = await partyCheckResponse.json();
+    if (!partyData.exists || partyData.status === 'ended' || partyData.status === 'expired') {
+      localStorage.removeItem('syncSpeakerHostSession');
+      return;
+    }
+
+    console.log("[Host] Found active host session, restoring party code:", partyCode);
+
+    // Restore host state
+    state.code = partyCode;
+    state.isHost = true;
+    state.hostId = hostId || null;
+    state.name = djName || state.name || 'DJ';
+    state.offlineMode = false;
+
+    // Show the party view with the restored code
+    showParty();
+
+    // Re-register as host via WebSocket
+    try {
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+        await connectWS();
+      }
+      send({ t: "JOIN", code: partyCode, name: state.name, isPro: state.isPro || false, isHost: true });
+    } catch (wsError) {
+      console.warn("[Host] WebSocket not available during restore:", wsError);
+    }
+
+    toast(`Welcome back! Party code: ${partyCode}`);
+  } catch (error) {
+    console.error("[Host] Error checking host auto-reconnect:", error);
+    localStorage.removeItem('syncSpeakerHostSession');
+  }
 }
 
 // Auto-reconnect functionality for guests
