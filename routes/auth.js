@@ -569,5 +569,156 @@ module.exports = function createAuthRouter(deps) {
     });
   });
 
+  /**
+   * POST /api/auth/request-reset
+   * Request a password reset code sent to the user's email.
+   * Always returns a success-like message to avoid leaking whether an account exists.
+   */
+  router.post("/auth/request-reset", authLimiter, async (req, res) => {
+    const crypto = require('crypto');
+    // Generate a cryptographically secure 6-digit code.
+    const generateResetCode = () => String(crypto.randomInt(100000, 1000000));
+
+    try {
+      const { email } = req.body || {};
+      if (typeof email !== 'string' || !authMiddleware.isValidEmail(email)) {
+        return res.status(400).json({ error: 'Please provide a valid email address.' });
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const RESET_CODE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+      if (deps.canUseLocalAuthFallback()) {
+        const user = deps.localFallbackUsersByEmail.get(normalizedEmail);
+        if (user) {
+          const code = generateResetCode();
+          user.resetCode = code;
+          user.resetCodeExpiry = Date.now() + RESET_CODE_TTL_MS;
+          // In local/dev mode, surface the code directly so the flow can be tested.
+          return res.json({
+            success: true,
+            message: 'If an account with that email exists, a reset code has been sent.',
+            debugCode: code
+          });
+        }
+        return res.json({
+          success: true,
+          message: 'If an account with that email exists, a reset code has been sent.'
+        });
+      }
+
+      // Production path: look up the user and store a reset code.
+      const userResult = await db.query(
+        'SELECT id FROM users WHERE email = $1',
+        [normalizedEmail]
+      );
+
+      if (userResult.rows.length > 0) {
+        const userId = userResult.rows[0].id;
+        const code = generateResetCode();
+        const expiresAt = new Date(Date.now() + RESET_CODE_TTL_MS);
+
+        await db.query(
+          `UPDATE users SET reset_password_token = $1, reset_password_expires = $2 WHERE id = $3`,
+          [code, expiresAt, userId]
+        );
+
+        // If an email service is configured, send the code here.
+        // For now, log it (dev-only) and return a neutral message.
+        const isProduction = process.env.NODE_ENV === 'production';
+        if (!isProduction) {
+          console.log(`[Auth] Password reset code for ${normalizedEmail}: ${code}`);
+          return res.json({
+            success: true,
+            message: 'If an account with that email exists, a reset code has been sent.',
+            debugCode: code
+          });
+        }
+
+        // TODO: integrate email service to deliver the code to the user's inbox.
+        console.log(`[Auth] Password reset requested for user ${userId} (email service not configured)`);
+      }
+
+      // Always return the same response whether or not the account was found.
+      res.json({
+        success: true,
+        message: 'If an account with that email exists, a reset code has been sent.'
+      });
+    } catch (error) {
+      console.error('[Auth] Request reset error:', error);
+      res.status(500).json({ error: 'Failed to process reset request.' });
+    }
+  });
+
+  /**
+   * POST /api/auth/reset-password
+   * Complete password reset using the code sent to the user.
+   */
+  router.post("/auth/reset-password", authLimiter, async (req, res) => {
+    try {
+      const { email, code, newPassword } = req.body || {};
+
+      if (typeof email !== 'string' || !authMiddleware.isValidEmail(email)) {
+        return res.status(400).json({ error: 'Please provide a valid email address.' });
+      }
+      if (typeof code !== 'string' || code.trim().length === 0) {
+        return res.status(400).json({ error: 'Reset code is required.' });
+      }
+      if (!authMiddleware.isValidPassword(newPassword)) {
+        return res.status(400).json({ error: 'New password must be at least 6 characters.' });
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const trimmedCode = code.trim();
+
+      if (deps.canUseLocalAuthFallback()) {
+        const user = deps.localFallbackUsersByEmail.get(normalizedEmail);
+        if (!user || user.resetCode !== trimmedCode || !user.resetCodeExpiry || Date.now() > user.resetCodeExpiry) {
+          return res.status(400).json({ error: 'Invalid or expired reset code.' });
+        }
+
+        const passwordHash = await authMiddleware.hashPassword(newPassword);
+        user.passwordHash = passwordHash;
+        delete user.resetCode;
+        delete user.resetCodeExpiry;
+
+        return res.json({ success: true });
+      }
+
+      const userResult = await db.query(
+        `SELECT id, reset_password_token, reset_password_expires FROM users WHERE email = $1`,
+        [normalizedEmail]
+      );
+
+      if (userResult.rows.length === 0) {
+        return res.status(400).json({ error: 'Invalid or expired reset code.' });
+      }
+
+      const user = userResult.rows[0];
+
+      if (
+        !user.reset_password_token ||
+        user.reset_password_token !== trimmedCode ||
+        !user.reset_password_expires ||
+        new Date(user.reset_password_expires) < new Date()
+      ) {
+        return res.status(400).json({ error: 'Invalid or expired reset code.' });
+      }
+
+      const passwordHash = await authMiddleware.hashPassword(newPassword);
+
+      // Update password and clear reset code atomically.
+      await db.query(
+        `UPDATE users SET password_hash = $1, reset_password_token = NULL, reset_password_expires = NULL WHERE id = $2`,
+        [passwordHash, user.id]
+      );
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('[Auth] Reset password error:', error);
+      res.status(500).json({ error: 'Failed to reset password.' });
+    }
+  });
+
   return router;
 };
