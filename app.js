@@ -7273,6 +7273,15 @@ async function confirmAuthSession() {
       setView('authHome', { fromHash: true });
       if (window._referralUI) window._referralUI.startPolling();
     }
+    // Establish WebSocket connection immediately after login/signup so party features
+    // (create, join, live updates) are ready without requiring a page refresh.
+    if (!state.ws || (state.ws.readyState !== WebSocket.OPEN && state.ws.readyState !== WebSocket.CONNECTING)) {
+      try {
+        await connectWS();
+      } catch (wsErr) {
+        console.warn('[Auth] WebSocket connection failed after login; will retry when needed.', wsErr);
+      }
+    }
     return true;
   } catch (err) {
     // Network or other error — do NOT clear auth state or send the user to landing.
