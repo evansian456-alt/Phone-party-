@@ -7838,6 +7838,7 @@ async function handleBillingReturn() {
       // Success - response is set from retry loop above
       const data = await response.json();
       const partyCode = data.partyCode || data.code;
+      console.log("Party code received:", partyCode);
       const hostId = data.hostId; // PHASE 7: Store hostId for queue operations
 
       if (!partyCode) {
@@ -7882,6 +7883,7 @@ async function handleBillingReturn() {
       // Briefly highlight the party code box so the host immediately notices it.
       const partyCodeEl = el("partyCode");
       if (partyCodeEl) {
+        partyCodeEl.textContent = partyCode;
         const boxEl = partyCodeEl.closest('.box');
         if (boxEl) {
           boxEl.classList.add("party-code-box-new");
