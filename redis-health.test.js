@@ -3,6 +3,16 @@ const request = require('supertest');
 // Mock ioredis before importing server
 jest.mock('ioredis');
 
+/**
+ * Helper: generate an admin JWT cookie for the given server module so that
+ * admin-protected endpoints (like /api/debug/redis) can be called in tests.
+ */
+function makeAdminCookie(serverModule) {
+  const authMW = require('./auth-middleware');
+  const token = authMW.generateToken({ userId: 'test-admin', email: 'admin@example.com', isAdmin: true });
+  return `auth_token=${token}`;
+}
+
 describe('Redis Health and Diagnostics', () => {
   let app;
   let redis;
@@ -66,6 +76,8 @@ describe('Redis Health and Diagnostics', () => {
   });
   
   describe('GET /api/debug/redis', () => {
+    let adminCookie;
+
     beforeEach(() => {
       // Set test environment
       process.env.NODE_ENV = 'test';
@@ -73,22 +85,28 @@ describe('Redis Health and Diagnostics', () => {
       
       const server = require('./server');
       app = server.app;
+      adminCookie = makeAdminCookie(server);
     });
     
-    it('should return Redis debug information', async () => {
+    it('should return 401 without authentication', async () => {
       const response = await request(app).get('/api/debug/redis');
+      expect(response.status).toBe(401);
+    });
+
+    it('should return Redis debug information to admin users', async () => {
+      const response = await request(app).get('/api/debug/redis').set('Cookie', adminCookie);
       expect(response.status).toBe(200);
       expect(response.body).toBeDefined();
     });
     
     it('should include instanceId and version', async () => {
-      const response = await request(app).get('/api/debug/redis');
+      const response = await request(app).get('/api/debug/redis').set('Cookie', adminCookie);
       expect(response.body.instanceId).toBeDefined();
       expect(response.body.version).toBeDefined();
     });
     
     it('should include redis details', async () => {
-      const response = await request(app).get('/api/debug/redis');
+      const response = await request(app).get('/api/debug/redis').set('Cookie', adminCookie);
       expect(response.body.redis).toBeDefined();
       expect(response.body.redis.clientCreated).toBeDefined();
       expect(response.body.redis.ready).toBeDefined();
@@ -97,19 +115,19 @@ describe('Redis Health and Diagnostics', () => {
     });
     
     it('should include TLS configuration', async () => {
-      const response = await request(app).get('/api/debug/redis');
+      const response = await request(app).get('/api/debug/redis').set('Cookie', adminCookie);
       expect(response.body.redis.usesTls).toBeDefined();
       expect(response.body.redis.rejectUnauthorized).toBeDefined();
     });
     
     it('should include ping test results', async () => {
-      const response = await request(app).get('/api/debug/redis');
+      const response = await request(app).get('/api/debug/redis').set('Cookie', adminCookie);
       expect(response.body.redis.ping).toBeDefined();
       expect(response.body.redis.ping.result).toBeDefined();
     });
     
     it('should include fallback mode status', async () => {
-      const response = await request(app).get('/api/debug/redis');
+      const response = await request(app).get('/api/debug/redis').set('Cookie', adminCookie);
       expect(response.body.fallbackMode).toBeDefined();
       expect(response.body.allowFallbackInProduction).toBeDefined();
     });
