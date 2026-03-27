@@ -8572,3 +8572,39 @@ body {
     padding: 2px 8px;
   }
 }
+
+/* SoundCloud URL row — keep input + button in a single flex line on all screen sizes */
+.sc-url-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Override the global mobile width:100% reset for the URL row elements */
+.sc-url-input,
+.sc-load-btn {
+  width: auto;
+  box-sizing: border-box;
+}
+
+.sc-url-input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.sc-load-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* SoundCloud URL input — ensure text is always clearly visible */
+#soundcloudUrlInput {
+  font-size: 16px; /* prevents iOS auto-zoom on focus */
+  color: #ffffff;
+  flex: 1 1 0;
+  min-width: 0;
+}
+#soundcloudUrlInput::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}

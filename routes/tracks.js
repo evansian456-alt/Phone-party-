@@ -3,6 +3,14 @@ const express = require('express');
 const fs = require('fs');
 const WebSocket = require('ws');
 
+const {
+  calculateUploadEntitlement,
+  recordUpload,
+  isAllowedMimeType,
+  isFileSizeAllowed,
+} = require('../upload-entitlement');
+const { ALLOWED_AUDIO_MIME_TYPES } = require('../upload-config');
+
 module.exports = function createTracksRouter(deps) {
   const {
     db, redis, authMiddleware, upload, uploadLimiter, apiLimiter,
@@ -20,13 +28,39 @@ module.exports = function createTracksRouter(deps) {
   const redisReady = deps.redisReady;
   const redisConnectionError = deps.redisConnectionError;
 
-  router.post("/tracks/presign-put", async (req, res) => {
+  // ── Helper: get upload entitlement for the authenticated request ────────────
+  async function _getEntitlement(req, partyCode) {
+    const userId = req.user?.userId || null;
+    const tier = req.user?.tier || req.user?.effectiveTier || 'FREE';
+    const isAdmin = req.user?.isAdmin || false;
+    return calculateUploadEntitlement({ userId, partyCode, tier, isAdmin, db });
+  }
+
+  // ── GET /api/upload/entitlement ─────────────────────────────────────────────
+  // Returns the caller's current upload entitlement for a party.
+  // Frontend uses this to render the upload UI state.
+  router.get('/upload/entitlement', authMiddleware.requireAuth, async (req, res) => {
+    try {
+      const partyCode = (req.query.partyCode || '').trim().toUpperCase();
+      if (!partyCode) {
+        return res.status(400).json({ error: 'partyCode query parameter is required' });
+      }
+      const entitlement = await _getEntitlement(req, partyCode);
+      return res.json({ ok: true, entitlement });
+    } catch (err) {
+      console.error('[UploadEntitlement] GET /upload/entitlement error:', err.message);
+      return res.status(500).json({ error: 'Failed to calculate upload entitlement' });
+    }
+  });
+
+  router.post("/tracks/presign-put", authMiddleware.requireAuth, async (req, res) => {
     const timestamp = new Date().toISOString();
     console.log(`[HTTP] POST /api/tracks/presign-put at ${timestamp}`);
     
     try {
-      const { filename, contentType, sizeBytes } = req.body;
-      
+      const { filename, contentType, sizeBytes, partyCode: rawPartyCode } = req.body;
+      const partyCode = (rawPartyCode || '').trim().toUpperCase();
+
       if (!filename || typeof filename !== 'string' || filename.trim() === '') {
         return res.status(400).json({ error: 'filename is required and must be a non-empty string' });
       }
@@ -34,9 +68,13 @@ module.exports = function createTracksRouter(deps) {
       if (!contentType || typeof contentType !== 'string') {
         return res.status(400).json({ error: 'contentType is required and must be a string' });
       }
-      
-      if (!contentType.startsWith('audio/')) {
-        return res.status(400).json({ error: 'contentType must start with "audio/"' });
+
+      // ── File type validation (from authoritative list) ──────────────────────
+      if (!isAllowedMimeType(contentType)) {
+        return res.status(400).json({
+          error: 'Unsupported file type',
+          allowed: ALLOWED_AUDIO_MIME_TYPES,
+        });
       }
       
       if (sizeBytes === undefined || sizeBytes === null) {
@@ -50,8 +88,32 @@ module.exports = function createTracksRouter(deps) {
       if (sizeBytes <= 0) {
         return res.status(400).json({ error: 'sizeBytes must be greater than 0' });
       }
-      
-      if (sizeBytes > TRACK_MAX_BYTES) {
+
+      // ── Entitlement check ─────────────────────────────────────────────────
+      if (partyCode) {
+        const entitlement = await _getEntitlement(req, partyCode);
+
+        if (!entitlement.allowed) {
+          const status = entitlement.tier === 'FREE' ? 403 : 429;
+          console.log(`[UploadEntitlement] Upload blocked for user=${req.user.userId} party=${partyCode} tier=${entitlement.tier} upsell=${entitlement.upsell}`);
+          return res.status(status).json({
+            error: entitlement.tier === 'FREE'
+              ? 'Uploads require a Party Pass or Monthly subscription'
+              : 'Upload limit reached for this party',
+            entitlement,
+          });
+        }
+
+        // ── File size cap by tier ───────────────────────────────────────────
+        if (!isFileSizeAllowed(sizeBytes, entitlement.maxFileSizeBytes)) {
+          const maxMB = Math.round(entitlement.maxFileSizeBytes / (1024 * 1024));
+          return res.status(400).json({
+            error: `File too large. Maximum size for your plan is ${maxMB} MB`,
+            maxFileSizeBytes: entitlement.maxFileSizeBytes,
+          });
+        }
+      } else if (sizeBytes > TRACK_MAX_BYTES) {
+        // Fallback global cap when no partyCode provided
         return res.status(400).json({ error: `sizeBytes exceeds maximum allowed size of ${TRACK_MAX_BYTES} bytes` });
       }
       
@@ -82,6 +144,16 @@ module.exports = function createTracksRouter(deps) {
       const trackUrl = getPlaybackUrl(trackId, key);
       
       console.log(`[HTTP] Presigned PUT URL generated for trackId: ${trackId}, key: ${key}`);
+
+      // Record upload usage for Party Pass users (MONTHLY has no visible counter)
+      if (partyCode && req.user?.userId) {
+        const entitlement = await _getEntitlement(req, partyCode);
+        if (entitlement.tier === 'PARTY_PASS') {
+          await recordUpload({ userId: req.user.userId, partyCode, db }).catch(err =>
+            console.warn('[UploadEntitlement] recordUpload failed:', err.message)
+          );
+        }
+      }
       
       res.json({
         ok: true,
@@ -100,7 +172,7 @@ module.exports = function createTracksRouter(deps) {
   });
 
   // POST /upload-track - Upload audio file from host (DEPRECATED: Use presign-put for production)
-  router.post("/upload-track", uploadLimiter, upload.single('audio'), async (req, res) => {
+  router.post("/upload-track", authMiddleware.requireAuth, uploadLimiter, upload.single('audio'), async (req, res) => {
     const timestamp = new Date().toISOString();
     console.log(`[HTTP] POST /api/upload-track at ${timestamp}`);
     
@@ -109,6 +181,50 @@ module.exports = function createTracksRouter(deps) {
     try {
       if (!req.file) {
         return res.status(400).json({ error: 'No audio file provided' });
+      }
+
+      const originalName = req.file.originalname;
+      const sizeBytes = req.file.size;
+      const contentType = req.file.mimetype;
+      const partyCode = (req.body?.partyCode || '').trim().toUpperCase();
+
+      // ── File type validation ─────────────────────────────────────────────
+      if (!isAllowedMimeType(contentType)) {
+        if (req.file.path) {
+          try { fs.unlinkSync(req.file.path); } catch (_) {}
+        }
+        return res.status(400).json({ error: 'Unsupported file type', allowed: ALLOWED_AUDIO_MIME_TYPES });
+      }
+
+      // ── Entitlement check ────────────────────────────────────────────────
+      if (partyCode) {
+        const entitlement = await _getEntitlement(req, partyCode);
+
+        if (!entitlement.allowed) {
+          if (req.file.path) {
+            try { fs.unlinkSync(req.file.path); } catch (_) {}
+          }
+          const status = entitlement.tier === 'FREE' ? 403 : 429;
+          console.log(`[UploadEntitlement] Upload blocked for user=${req.user.userId} party=${partyCode} tier=${entitlement.tier}`);
+          return res.status(status).json({
+            error: entitlement.tier === 'FREE'
+              ? 'Uploads require a Party Pass or Monthly subscription'
+              : 'Upload limit reached for this party',
+            entitlement,
+          });
+        }
+
+        // ── File size cap by tier ─────────────────────────────────────────
+        if (!isFileSizeAllowed(sizeBytes, entitlement.maxFileSizeBytes)) {
+          if (req.file.path) {
+            try { fs.unlinkSync(req.file.path); } catch (_) {}
+          }
+          const maxMB = Math.round(entitlement.maxFileSizeBytes / (1024 * 1024));
+          return res.status(400).json({
+            error: `File too large. Maximum size for your plan is ${maxMB} MB`,
+            maxFileSizeBytes: entitlement.maxFileSizeBytes,
+          });
+        }
       }
 
       // Check storage provider is ready
@@ -127,11 +243,6 @@ module.exports = function createTracksRouter(deps) {
       
       // Generate unique track ID
       const trackId = customAlphabet('1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ', 12)();
-      
-      // Get file info - handle both memory and disk storage
-      const originalName = req.file.originalname;
-      const sizeBytes = req.file.size;
-      const contentType = req.file.mimetype;
       
       // For disk storage, use file path; for memory storage, use buffer
       tempFilePath = req.file.path;
@@ -164,6 +275,16 @@ module.exports = function createTracksRouter(deps) {
       
       console.log(`[HTTP] Track uploaded: ${trackId}, file: ${originalName}, size: ${sizeBytes} bytes, storage: ${uploadResult.key}`);
       console.log(`[HTTP] Track will be accessible at: ${trackUrl}`);
+
+      // Record upload usage for Party Pass users
+      if (partyCode && req.user?.userId) {
+        const entitlement = await _getEntitlement(req, partyCode);
+        if (entitlement.tier === 'PARTY_PASS') {
+          await recordUpload({ userId: req.user.userId, partyCode, db }).catch(err =>
+            console.warn('[UploadEntitlement] recordUpload failed:', err.message)
+          );
+        }
+      }
       
       // For now, we can't easily get duration without audio processing library
       // We'll set it to null and let the client determine it

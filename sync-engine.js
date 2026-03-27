@@ -1,14 +1,18 @@
 /**
- * SyncSpeaker Ultimate AmpSync+ Engine
- * 
- * High-precision multi-device audio/video synchronization system
- * Features:
- * - Monotonic master clock (process.hrtime.bigint)
- * - NTP-style rolling-window clock sync with outlier rejection + EMA
- * - PLL-style drift correction (deadband + horizon + smoothing + caps)
- * - Safe hard-seek resync with cooldown protection
- * - Per-device audio-latency compensation (test mode)
- * - Rich per-client metrics for observability
+ * SyncSpeaker Authoritative Sync Engine
+ *
+ * High-precision multi-device audio/video synchronization system.
+ *
+ * Architecture:
+ *  - One authoritative server timeline per party (monotonic master clock)
+ *  - NTP-style rolling-window clock sync with outlier rejection + EMA
+ *  - PLL-style drift correction ladder: ignore → rate → seek
+ *  - Safe hard-seek resync with cooldown + oscillation protection
+ *  - Per-device audio-latency compensation (production-enabled)
+ *  - Server-authoritative scheduled events (PREPARE_PLAY / PLAY_AT / RESYNC_SNAPSHOT)
+ *  - Party-level FSM for host-authority / server-timing model
+ *  - Generation + sequence numbers to protect against stale / duplicate events
+ *  - Rich per-client metrics for observability and telemetry
  */
 
 // ============================================================
@@ -44,7 +48,11 @@ const {
   AUDIO_LATENCY_COMP_ENABLED,
   AUDIO_LATENCY_COMP_MAX_MS,
   AUDIO_LATENCY_COMP_ALPHA,
+  SyncEventType,
+  PartySyncState,
 } = require('./sync-config');
+
+const { nanoid } = require('nanoid');
 
 // ============================================================
 // Monotonic clock helpers (server-side)
@@ -452,21 +460,37 @@ class TrackInfo {
  * High-precision multi-device audio synchronization engine.
  * Manages clock synchronization, PLL drift correction, and playback coordination.
  *
+ * This engine is the single source of timing authority for a party:
+ *  - It maintains a monotonic master clock
+ *  - It tracks generation/sequence for all timeline events
+ *  - It enforces a party-level FSM (idle → preparing → playing …)
+ *  - It generates RESYNC_SNAPSHOT events for reconnect/late-join
+ *
  * @class SyncEngine
- * @property {Map<string, SyncClient>} clients - Map of client IDs to SyncClient instances
- * @property {TrackInfo|null} currentTrack - Currently playing track metadata
- * @property {Map} p2pNetwork - Legacy P2P network placeholder
- * @property {Function} masterClock - Monotonic master clock function (returns ms)
  */
 class SyncEngine {
-  /**
-   * Create a new sync engine instance
-   */
   constructor() {
     this.clients = new Map();
     this.currentTrack = null;
     this.p2pNetwork = new Map();     // legacy placeholder
     this.masterClock = buildMonotonicClock();
+
+    // ── Server-authoritative timeline ─────────────────────────
+    /** Incremented on every seek/track-change to invalidate stale events */
+    this.generation = 0;
+    /** Monotonically increasing sequence number for ordered event delivery */
+    this.sequence = 0;
+    /** Party FSM state */
+    this.partyState = PartySyncState.IDLE;
+
+    // ── Telemetry ─────────────────────────────────────────────
+    this.telemetry = {
+      partyCorrectionCounts: { none: 0, rate: 0, seek: 0 },
+      staleEventsDropped: 0,
+      duplicateEventsDropped: 0,
+      totalResyncs: 0,
+      startedAt: Date.now(),
+    };
   }
 
   // ──────────────────────────────────────────────────────────
@@ -678,6 +702,251 @@ class SyncEngine {
   }
 
   // ──────────────────────────────────────────────────────────
+  // Authoritative Timeline Event Model
+  // ──────────────────────────────────────────────────────────
+
+  /**
+   * Advance the generation counter (invalidates all stale events).
+   * Called on every seek, track change, or forced resync.
+   * @returns {number} New generation value
+   */
+  _nextGeneration() {
+    this.generation += 1;
+    this.sequence = 0;
+    return this.generation;
+  }
+
+  /**
+   * Advance the sequence counter for the current generation.
+   * @returns {number} New sequence number
+   */
+  _nextSequence() {
+    this.sequence += 1;
+    return this.sequence;
+  }
+
+  /**
+   * Build the common metadata header required on every authoritative event.
+   * @param {string} eventType - One of SyncEventType values
+   * @param {string|null} partyId - Optional party code
+   * @returns {object} Common event header fields
+   */
+  _buildEventHeader(eventType, partyId = null) {
+    return {
+      t: eventType,
+      eventId: nanoid(10),
+      partyId,
+      generation: this.generation,
+      sequence: this._nextSequence(),
+      serverTimestampMs: this.masterClock(),
+    };
+  }
+
+  /**
+   * Transition the party FSM to a new state.
+   * Logs illegal transitions without throwing so the server stays stable.
+   *
+   * Legal forward transitions:
+   *  idle → preparing → waiting_for_ready → scheduled → playing → correcting
+   *  any  → resyncing → playing
+   *  any  → degraded  → resyncing
+   *
+   * @param {string} newState - PartySyncState value
+   * @returns {boolean} Whether the transition was accepted
+   */
+  transitionPartyState(newState) {
+    const legal = new Set([
+      `${PartySyncState.IDLE}→${PartySyncState.PREPARING}`,
+      `${PartySyncState.PREPARING}→${PartySyncState.WAITING_FOR_READY}`,
+      `${PartySyncState.WAITING_FOR_READY}→${PartySyncState.SCHEDULED}`,
+      `${PartySyncState.SCHEDULED}→${PartySyncState.PLAYING}`,
+      `${PartySyncState.PLAYING}→${PartySyncState.CORRECTING}`,
+      `${PartySyncState.CORRECTING}→${PartySyncState.PLAYING}`,
+      `${PartySyncState.PLAYING}→${PartySyncState.RESYNCING}`,
+      `${PartySyncState.CORRECTING}→${PartySyncState.RESYNCING}`,
+      `${PartySyncState.RESYNCING}→${PartySyncState.PLAYING}`,
+      `${PartySyncState.PLAYING}→${PartySyncState.DEGRADED}`,
+      `${PartySyncState.DEGRADED}→${PartySyncState.RESYNCING}`,
+      // Allow reset from any state
+      `${PartySyncState.DEGRADED}→${PartySyncState.IDLE}`,
+      `${PartySyncState.RESYNCING}→${PartySyncState.IDLE}`,
+      `${PartySyncState.PLAYING}→${PartySyncState.IDLE}`,
+    ]);
+    const key = `${this.partyState}→${newState}`;
+    if (!legal.has(key)) {
+      console.warn(`[SyncEngine] Illegal FSM transition blocked: ${key}`);
+      return false;
+    }
+    this.partyState = newState;
+    return true;
+  }
+
+  /**
+   * Emit a PREPARE_PLAY event — signals clients to buffer the given track.
+   * @param {string} partyId
+   * @param {string} trackId
+   * @param {string} trackUrl
+   * @param {number} startPositionSec
+   * @returns {object} PREPARE_PLAY event object
+   */
+  buildPreparePlay(partyId, trackId, trackUrl, startPositionSec = 0) {
+    this._nextGeneration();
+    this.transitionPartyState(PartySyncState.PREPARING);
+    return {
+      ...this._buildEventHeader(SyncEventType.PREPARE_PLAY, partyId),
+      trackId,
+      trackUrl,
+      startPositionSec,
+    };
+  }
+
+  /**
+   * Emit a PLAY_AT event — schedules playback at a precise server-clock anchor.
+   * Incorporates per-client clock offset and learned latency compensation so
+   * each client can schedule playback with maximum precision.
+   *
+   * @param {string} partyId
+   * @param {string} trackId
+   * @param {number} startDelay - Lead time (ms) before playback starts
+   * @param {number} startPositionSec - Position to start from
+   * @param {object} additionalData - Extra fields (title, duration …)
+   * @returns {{ base: object, perClient: Map<string, object> }}
+   */
+  buildPlayAt(partyId, trackId, startDelay = DEFAULT_START_DELAY_MS, startPositionSec = 0, additionalData = {}) {
+    const nowMs = this.masterClock();
+    const startAtServerMs = nowMs + startDelay;
+
+    // Update currentTrack state
+    if (!this.currentTrack || this.currentTrack.trackId !== trackId) {
+      const dur = additionalData.duration || 0;
+      this.currentTrack = new TrackInfo(trackId, dur, startAtServerMs);
+      Object.assign(this.currentTrack, additionalData);
+    }
+    this.currentTrack.startPositionSec = startPositionSec;
+    this.currentTrack.startTimestamp = startAtServerMs;
+    this.currentTrack.status = 'preparing';
+
+    this.transitionPartyState(PartySyncState.SCHEDULED);
+
+    const base = {
+      ...this._buildEventHeader(SyncEventType.PLAY_AT, partyId),
+      trackId,
+      startAtServerMs,
+      startPositionSec,
+      startDelay,
+      ...additionalData,
+    };
+
+    // Per-client personalised events with clock offset + latency compensation
+    const perClient = new Map();
+    this.clients.forEach((client, clientId) => {
+      const clientStartMs = startAtServerMs - client.clockOffset - client.audioLatencyCompMs;
+      perClient.set(clientId, {
+        ...base,
+        clockOffset: client.clockOffset,
+        audioLatencyCompMs: client.audioLatencyCompMs,
+        startAtClientMs: clientStartMs,
+      });
+    });
+
+    return { base, perClient };
+  }
+
+  /**
+   * Emit a SEEK_TO event — seeks all clients and advances generation.
+   * @param {string} partyId
+   * @param {string} trackId
+   * @param {number} seekToSec
+   * @returns {{ base: object, perClient: Map<string, object> }}
+   */
+  buildSeekTo(partyId, trackId, seekToSec) {
+    this._nextGeneration();
+    const nowMs = this.masterClock();
+    const startAtServerMs = nowMs + DEFAULT_START_DELAY_MS;
+
+    if (this.currentTrack) {
+      this.currentTrack.startPositionSec = seekToSec;
+      this.currentTrack.startTimestamp = startAtServerMs;
+    }
+
+    this.transitionPartyState(PartySyncState.RESYNCING);
+    this.telemetry.totalResyncs++;
+
+    const base = {
+      ...this._buildEventHeader(SyncEventType.SEEK_TO, partyId),
+      trackId,
+      seekToSec,
+      startAtServerMs,
+    };
+
+    const perClient = new Map();
+    this.clients.forEach((client, clientId) => {
+      perClient.set(clientId, {
+        ...base,
+        clockOffset: client.clockOffset,
+        audioLatencyCompMs: client.audioLatencyCompMs,
+        startAtClientMs: startAtServerMs - client.clockOffset - client.audioLatencyCompMs,
+      });
+    });
+
+    return { base, perClient };
+  }
+
+  /**
+   * Generate a RESYNC_SNAPSHOT — full authoritative state for reconnecting
+   * or late-joining clients. Contains everything needed to start playing
+   * in sync without any additional round-trips.
+   *
+   * @param {string} partyId
+   * @param {string} clientId - Requesting client's ID (for per-client offset)
+   * @returns {object|null} RESYNC_SNAPSHOT event or null if no active track
+   */
+  generateResyncSnapshot(partyId, clientId) {
+    if (!this.currentTrack) return null;
+
+    const nowMs = this.masterClock();
+    const client = this.getClient(clientId);
+
+    const elapsedMs = nowMs - this.currentTrack.startTimestamp;
+    const currentPositionSec = (this.currentTrack.startPositionSec || 0) + elapsedMs / 1000;
+
+    const clockOffset = client ? client.clockOffset : 0;
+    const audioLatencyCompMs = client ? client.audioLatencyCompMs : 0;
+
+    return {
+      ...this._buildEventHeader(SyncEventType.RESYNC_SNAPSHOT, partyId),
+      trackId: this.currentTrack.trackId,
+      trackUrl: this.currentTrack.trackUrl || null,
+      duration: this.currentTrack.duration,
+      partyState: this.partyState,
+      serverNowMs: nowMs,
+      trackStartTimestampMs: this.currentTrack.startTimestamp,
+      currentPositionSec,
+      startPositionSec: this.currentTrack.startPositionSec || 0,
+      isPlaying: this.currentTrack.status === 'playing' || this.currentTrack.status === 'preparing',
+      clockOffset,
+      audioLatencyCompMs,
+      startAtClientMs: this.currentTrack.startTimestamp - clockOffset - audioLatencyCompMs,
+    };
+  }
+
+  /**
+   * Check whether an incoming event should be accepted or dropped.
+   * Returns 'accept', 'stale', or 'duplicate'.
+   *
+   * @param {object} event - Incoming event with generation and sequence fields
+   * @returns {'accept'|'stale'|'duplicate'}
+   */
+  validateEventGeneration(event) {
+    if (typeof event.generation !== 'number') return 'accept'; // no generation tracking
+    if (event.generation < this.generation) {
+      this.telemetry.staleEventsDropped++;
+      return 'stale';
+    }
+    return 'accept';
+  }
+
+  // ──────────────────────────────────────────────────────────
   // Statistics & metrics
   // ──────────────────────────────────────────────────────────
 
@@ -704,7 +973,7 @@ class SyncEngine {
 
   /**
    * Get enhanced per-client metrics for /api/sync/metrics endpoint.
-   * Includes party-wide drift aggregates.
+   * Includes party-wide drift aggregates and telemetry.
    *
    * @param {string|null} partyId - Optional party identifier for labeling
    * @returns {object} Enhanced metrics snapshot
@@ -723,11 +992,14 @@ class SyncEngine {
       partyId,
       serverTimeMs: this.masterClock(),
       totalClients: this.clients.size,
+      generation: this.generation,
+      partyState: this.partyState,
       party: {
         driftP50Ms: percentile(allDriftAbs, 50),
         driftP95Ms: percentile(allDriftAbs, 95),
         maxDriftMs: allDriftAbs.length ? Math.max(...allDriftAbs) : 0,
       },
+      telemetry: { ...this.telemetry },
       clients: clientMetrics,
     };
   }
