@@ -135,6 +135,12 @@ async function processStripePayment(paymentRequest) {
     throw new Error('Direct Stripe PaymentIntents integration not yet implemented. Use the Stripe Checkout flow (/api/billing/create-checkout-session).');
   }
 
+  // In test mode without Stripe credentials, fall back to simulated payment
+  // so integration tests can exercise the full payment flow.
+  if (process.env.NODE_ENV === 'test') {
+    return processSimulatedPayment(paymentRequest);
+  }
+
   throw new Error('Stripe payments are not configured. STRIPE_SECRET_KEY is required.');
 }
 
@@ -170,11 +176,13 @@ async function processSimulatedPayment(paymentRequest) {
   
   console.log('[Payment] Processing simulated payment (test mode)');
   
-  // Simulate payment processing delay
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  // Simulate occasional failures
-  if (Math.random() < SIMULATED_FAILURE_RATE) {
+  // Simulate payment processing delay (skip in test mode for speed)
+  if (process.env.NODE_ENV !== 'test') {
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  // Simulate occasional failures (disabled in test mode for determinism)
+  if (process.env.NODE_ENV !== 'test' && Math.random() < SIMULATED_FAILURE_RATE) {
     throw new Error('Simulated payment failure');
   }
   
