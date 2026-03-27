@@ -328,6 +328,10 @@ const SERVER_START_TIME = Date.now();
 // Optional fallback mode flag (for emergency use in production)
 const ALLOW_FALLBACK_IN_PRODUCTION = process.env.ALLOW_FALLBACK_IN_PRODUCTION === 'true';
 
+// Strict production mode: NODE_ENV must be 'production' AND fallback must be disabled.
+// When true, the server will refuse to start (process.exit(1)) if Redis is unavailable.
+const strictProductionMode = process.env.NODE_ENV === 'production' && !ALLOW_FALLBACK_IN_PRODUCTION;
+
 // ============================================================================
 // SECTION 8: FAIL-FAST CONFIG VALIDATION (PRODUCTION ONLY)
 // ============================================================================
@@ -404,6 +408,7 @@ console.log(`  NODE_ENV:             ${process.env.NODE_ENV || 'not set'}`);
 console.log(`  IS_PRODUCTION:        ${IS_PRODUCTION}`);
 console.log(`  RAILWAY_ENVIRONMENT:  ${process.env.RAILWAY_ENVIRONMENT || 'not set'}`);
 console.log(`  ALLOW_FALLBACK:       ${ALLOW_FALLBACK_IN_PRODUCTION}`);
+console.log(`  STRICT_PROD_MODE:     ${strictProductionMode}`);
 console.log(`  PUBLIC_BASE_URL:      ${process.env.PUBLIC_BASE_URL || 'not set (dev auto-detect)'}`);
 console.log('═══════════════════════════════════════════════════════════');
 console.log('');
@@ -1344,7 +1349,11 @@ app.get("/api/health", async (req, res) => {
   
   const health = {
     ok: isReady,
+    redisConfigured: !!redis,
     redisConnected,
+    redisReady,
+    fallbackMode: useFallbackMode,
+    strictProductionMode,
     dbConnected,
     storageMode,
     version,
@@ -3123,6 +3132,7 @@ const routeDeps = {
   DEBUG_MODE,
   IS_PRODUCTION,
   ALLOW_FALLBACK_IN_PRODUCTION,
+  strictProductionMode,
   getRedisErrorType,
   redisConfigSource,
   PROMO_CODES,
@@ -3183,10 +3193,11 @@ let server;
 let wss;
 
 async function startServer() {
-  console.log("🚀 Server booting...");
+  console.log("Starting server...");
   console.log(`   Instance ID: ${INSTANCE_ID}`);
   console.log(`   Port: ${PORT}`);
   console.log(`   Version: ${APP_VERSION}`);
+  console.log(`   Strict production mode: ${strictProductionMode}`);
   
   // Initialize database schema
   console.log("⏳ Initializing database...");
@@ -3208,19 +3219,19 @@ async function startServer() {
   
   // Wait for Redis to be ready (with timeout)
   if (redis) {
-    console.log("⏳ Waiting for Redis connection...");
+    console.log("Connecting to Redis...");
     try {
-      await waitForRedis(10000); // 10 second timeout
-      console.log("✅ Redis connected and ready");
+      await waitForRedis(15000); // 15 second timeout
+      console.log("Redis ready");
     } catch (err) {
-      console.warn(`⚠️  Redis connection timeout: ${err.message}`);
+      console.warn(`Redis connection timeout: ${err.message}`);
       
-      if (IS_PRODUCTION && !ALLOW_FALLBACK_IN_PRODUCTION) {
+      if (strictProductionMode) {
         console.error("");
         console.error("╔═══════════════════════════════════════════════════════════════╗");
-        console.error("║  ⚠️  PRODUCTION REDIS NOT READY AFTER 10s                     ║");
+        console.error("║  ❌ REFUSING TO START: Redis required in production           ║");
         console.error("╟───────────────────────────────────────────────────────────────╢");
-        console.error("║  Server will start but return 503 for party endpoints        ║");
+        console.error("║  Redis did not become ready within the startup timeout.      ║");
         console.error("║                                                               ║");
         console.error("║  LIKELY CAUSES:                                               ║");
         console.error("║  1. REDIS_URL not set or incorrect                           ║");
@@ -3234,30 +3245,40 @@ async function startServer() {
         console.error(`║  • Check /api/health for readiness status                     ║`);
         console.error(`║  • Error type: ${redisConnectionError ? getRedisErrorType(redisConnectionError).padEnd(30) : 'none'.padEnd(30)}           ║`);
         console.error("║                                                               ║");
-        console.error("║  RAILWAY STEPS:                                               ║");
-        console.error("║  1. Verify Redis plugin is active                            ║");
-        console.error("║  2. Restart Redis service                                    ║");
-        console.error("║  3. Restart this service                                     ║");
+        console.error("║  To allow startup without Redis (not recommended):           ║");
+        console.error("║  Set ALLOW_FALLBACK_IN_PRODUCTION=true                       ║");
         console.error("╚═══════════════════════════════════════════════════════════════╝");
         console.error("");
+        console.error("Refusing to start: Redis not ready in production (connection timeout)");
+        process.exit(1);
+      } else if (IS_PRODUCTION) {
+        console.warn("Redis not ready, continuing in fallback mode");
+        useFallbackMode = true;
       } else {
-        console.warn("   Server will continue in fallback mode - parties will be stored locally");
+        console.warn("Redis not ready, continuing in fallback mode");
+        useFallbackMode = true;
       }
     }
   } else {
-    console.warn("⚠️  Redis not configured - using fallback mode");
+    console.warn("⚠️  Redis not configured - no REDIS_URL set");
+    useFallbackMode = true;
     
-    if (IS_PRODUCTION && !ALLOW_FALLBACK_IN_PRODUCTION) {
+    if (strictProductionMode) {
       console.error("");
       console.error("╔═══════════════════════════════════════════════════════════════╗");
-      console.error("║  ❌ REDIS NOT CONFIGURED IN PRODUCTION                        ║");
+      console.error("║  ❌ REFUSING TO START: Redis not configured in production     ║");
       console.error("╟───────────────────────────────────────────────────────────────╢");
-      console.error("║  Server will start but return 503 for party endpoints        ║");
-      console.error("║                                                               ║");
       console.error("║  Set REDIS_URL environment variable and restart              ║");
       console.error("║  Check /api/debug/redis for diagnostics                      ║");
+      console.error("║                                                               ║");
+      console.error("║  To allow startup without Redis (not recommended):           ║");
+      console.error("║  Set ALLOW_FALLBACK_IN_PRODUCTION=true                       ║");
       console.error("╚═══════════════════════════════════════════════════════════════╝");
       console.error("");
+      console.error("Refusing to start: Redis not configured in production (REDIS_URL missing)");
+      process.exit(1);
+    } else {
+      console.warn("Starting in fallback mode - parties stored locally (single-instance)");
     }
   }
   
@@ -3272,10 +3293,11 @@ async function startServer() {
   }
   
   server = app.listen(PORT, "0.0.0.0", () => {
-    console.log(`✅ Server listening on http://0.0.0.0:${PORT}`);
+    console.log(`HTTP server listening on port ${PORT}`);
     console.log(`   Instance ID: ${INSTANCE_ID}`);
     console.log(`   Redis status: ${redis ? redis.status : 'NOT CONFIGURED'}`);
     console.log(`   Redis ready: ${redisReady ? 'YES' : 'NO'}`);
+    console.log(`   Fallback mode: ${useFallbackMode ? 'YES' : 'NO'}`);
     console.log("🎉 Server ready to accept connections");
     
     // Initialize security modules
