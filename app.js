@@ -2433,29 +2433,38 @@ function handleServer(msg) {
   }
 
   // SOUNDCLOUD PARTY PLAYER — incoming sync messages
-  if (msg.t === "SC_TRACK") {
-    // Guest receives: host loaded a new SoundCloud track
-    console.log("[SoundCloud] Guest received SC_TRACK:", msg.trackUrl);
+  if (msg.t === "SOUNDCLOUD_TRACK") {
+    // Guest receives: host loaded a SoundCloud track
+    console.log("[SoundCloudPlayer] Guest received SOUNDCLOUD_TRACK:", msg.trackUrl);
     if (!state.isHost) {
-      scGuestLoadTrack(msg.trackUrl);
+      scGuestLoadTrack(msg.trackUrl, msg.title || null, msg.artist || null, msg.artwork || null);
     }
     return;
   }
 
-  if (msg.t === "SC_PLAY") {
+  if (msg.t === "SOUNDCLOUD_PLAY") {
     // Guest receives: host pressed play
-    console.log("[SoundCloud] Guest received SC_PLAY at", msg.position, "ms");
+    console.log("[SoundCloudPlayer] Guest received SOUNDCLOUD_PLAY at", msg.currentTime);
     if (!state.isHost) {
-      scGuestPlay(msg.position || 0);
+      scGuestPlay(msg.currentTime || 0);
     }
     return;
   }
 
-  if (msg.t === "SC_PAUSE") {
+  if (msg.t === "SOUNDCLOUD_PAUSE") {
     // Guest receives: host pressed pause
-    console.log("[SoundCloud] Guest received SC_PAUSE");
+    console.log("[SoundCloudPlayer] Guest received SOUNDCLOUD_PAUSE");
     if (!state.isHost) {
       scGuestPause();
+    }
+    return;
+  }
+
+  if (msg.t === "SOUNDCLOUD_SEEK") {
+    // Guest receives: host seeked to a new position
+    console.log("[SoundCloudPlayer] Guest received SOUNDCLOUD_SEEK at", msg.currentTime);
+    if (!state.isHost) {
+      scGuestSeek(msg.currentTime || 0);
     }
     return;
   }
@@ -3370,6 +3379,9 @@ function showGuest() {
   // Initialize guest YouTube player (loads API if not already loaded)
   loadYouTubeIframeAPI();
   initYouTubeGuestPlayer();
+
+  // Load SC Widget API so it is ready when a SoundCloud track arrives
+  loadSoundCloudWidgetAPI();
 }
 
 // Check if host is already playing when guest joins mid-track
@@ -3390,6 +3402,22 @@ async function checkForMidTrackJoin(code) {
         setTimeout(function() {
           ytGuestPlay(targetTime);
         }, 1500); // Give player time to load
+      }
+    }
+
+    // Late-join SoundCloud sync: if host already has a track loaded, restore it
+    if (data.exists && data.soundcloudSync && data.soundcloudSync.trackUrl) {
+      const sc = data.soundcloudSync;
+      console.log('[Mid-Track Join] SoundCloud sync state:', sc);
+      scGuestLoadTrack(sc.trackUrl, sc.title || null, sc.artist || null, sc.artwork || null);
+      // If host was playing, seek to approximate position and play.
+      // SC Widget may require a user gesture — scGuestPlay is deferred until widget ready.
+      if (sc.isPlaying && sc.currentTime != null) {
+        var soundcloudElapsedSec = (Date.now() - (sc.updatedAtMs || Date.now())) / 1000;
+        var soundcloudTargetTime = Math.max(0, (sc.currentTime || 0) + soundcloudElapsedSec);
+        setTimeout(function() {
+          scGuestPlay(soundcloudTargetTime);
+        }, 2000); // Give SC widget more time to load than YouTube
       }
     }
     
@@ -13705,6 +13733,453 @@ function ytGuestPause() {
   }
 }
 
+// ============================================================================
+// SOUNDCLOUD PARTY PLAYER — client-side
+// Architecture mirrors the YouTube Party Player:
+//   Host: scHostLoadTrack → HOST_SOUNDCLOUD_TRACK → server → SOUNDCLOUD_TRACK → guests
+//   Host: scHostPlay     → HOST_SOUNDCLOUD_PLAY   → server → SOUNDCLOUD_PLAY  → guests
+//   Host: scHostPause    → HOST_SOUNDCLOUD_PAUSE  → server → SOUNDCLOUD_PAUSE → guests
+//   Host: scHostSeek     → HOST_SOUNDCLOUD_SEEK   → server → SOUNDCLOUD_SEEK  → guests
+//
+// Limitations vs YouTube:
+//  - SC Widget API requires user interaction before audio can play on mobile
+//    (browser autoplay policy); play() calls may be silently ignored.
+//  - seekTo() takes milliseconds; precision depends on the widget/browser.
+//  - Widget loads via iframe; initialization is async and slower than YT.
+//  - Track search is not available via Widget API; URL-only input is used.
+// ============================================================================
+
+/**
+ * State for the host-side SoundCloud Widget.
+ */
+var _scPlayer = {
+  widget: null,        // SC.Widget instance (host)
+  trackUrl: null,      // Currently loaded track URL
+  title: null,
+  artist: null,
+  artwork: null,
+  isReady: false,
+  isPlaying: false,
+  apiLoaded: false,    // Whether SC Widget API script was injected
+};
+
+/**
+ * State for the guest-side SoundCloud Widget.
+ */
+var _scGuestPlayer = {
+  widget: null,        // SC.Widget instance (guest)
+  trackUrl: null,
+  isReady: false,
+  pendingPlay: null,   // { currentTime } to apply once widget is ready
+};
+
+/**
+ * Load the SoundCloud Widget API script once.
+ */
+function loadSoundCloudWidgetAPI() {
+  if (_scPlayer.apiLoaded) return;
+  _scPlayer.apiLoaded = true;
+  var tag = document.createElement('script');
+  tag.src = 'https://w.soundcloud.com/player/api.js';
+  tag.onload = function() {
+    console.log('[SoundCloudPlayer] Widget API loaded');
+  };
+  document.head.appendChild(tag);
+}
+
+/**
+ * Build a SoundCloud embed URL from a track URL.
+ * @param {string} trackUrl - canonical SoundCloud URL or api.soundcloud.com URL
+ * @returns {string}
+ */
+function buildSCEmbedUrl(trackUrl) {
+  return 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
+    '&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&visual=false&color=%23ff5500';
+}
+
+/**
+ * Host: load a SoundCloud track, initialize widget, and broadcast to guests.
+ * @param {string} trackUrl - SoundCloud track URL
+ * @param {string|null} title
+ * @param {string|null} artist
+ * @param {string|null} artwork
+ */
+function scHostLoadTrack(trackUrl, title, artist, artwork) {
+  if (!trackUrl) return;
+
+  _scPlayer.trackUrl = trackUrl;
+  _scPlayer.title = title || null;
+  _scPlayer.artist = artist || null;
+  _scPlayer.artwork = artwork || null;
+  _scPlayer.isReady = false;
+  _scPlayer.isPlaying = false;
+
+  var iframe = document.getElementById('soundcloudPlayer');
+  var placeholder = document.getElementById('soundcloudPlayerPlaceholder');
+  var controls = document.getElementById('soundcloudPlayerControls');
+  var nowPlaying = document.getElementById('soundcloudNowPlaying');
+  var titleEl = document.getElementById('soundcloudNowPlayingTitle');
+  var artistEl = document.getElementById('soundcloudNowPlayingArtist');
+  var statusEl = document.getElementById('soundcloudPlayerStatus');
+
+  if (placeholder) placeholder.style.display = 'none';
+  if (iframe) {
+    iframe.src = buildSCEmbedUrl(trackUrl);
+    iframe.style.display = '';
+  }
+  if (controls) controls.classList.remove('hidden');
+  if (nowPlaying && title) {
+    nowPlaying.classList.remove('hidden');
+    if (titleEl) titleEl.textContent = title;
+    if (artistEl) artistEl.textContent = artist || '';
+  }
+  if (statusEl) statusEl.textContent = 'Loading…';
+
+  // Bind SC Widget API to the iframe once API is ready
+  function bindWidget() {
+    if (typeof SC === 'undefined' || typeof SC.Widget === 'undefined') {
+      // API not ready yet — retry briefly
+      setTimeout(bindWidget, 300);
+      return;
+    }
+    _scPlayer.widget = SC.Widget(iframe);
+    _scPlayer.widget.bind(SC.Widget.Events.READY, function() {
+      _scPlayer.isReady = true;
+      console.log('[SoundCloudPlayer] Host widget ready');
+      if (statusEl) statusEl.textContent = 'Ready';
+    });
+    _scPlayer.widget.bind(SC.Widget.Events.PLAY, function() {
+      _scPlayer.isPlaying = true;
+      if (statusEl) statusEl.textContent = 'Playing';
+    });
+    _scPlayer.widget.bind(SC.Widget.Events.PAUSE, function() {
+      _scPlayer.isPlaying = false;
+      if (statusEl) statusEl.textContent = 'Paused';
+    });
+    _scPlayer.widget.bind(SC.Widget.Events.ERROR, function() {
+      console.error('[SoundCloudPlayer] Widget error');
+      if (statusEl) statusEl.textContent = 'Error loading track';
+    });
+  }
+
+  loadSoundCloudWidgetAPI();
+  // Give the iframe a moment to init before binding
+  setTimeout(bindWidget, 800);
+
+  // Broadcast track to guests (host only)
+  if (state.isHost) {
+    send({
+      t: 'HOST_SOUNDCLOUD_TRACK',
+      trackUrl: trackUrl,
+      title: title || null,
+      artist: artist || null,
+      artwork: artwork || null
+    });
+    console.log('[SoundCloudPlayer] Broadcast HOST_SOUNDCLOUD_TRACK:', trackUrl);
+  }
+}
+
+/**
+ * Host: play and broadcast.
+ */
+function scHostPlay() {
+  if (!_scPlayer.trackUrl) return;
+
+  // SC Widget getCurrentPosition gives ms; convert to seconds for broadcast
+  function doPlay(currentTimeSec) {
+    if (_scPlayer.widget && _scPlayer.isReady) {
+      _scPlayer.widget.play();
+    }
+    if (state.isHost) {
+      send({
+        t: 'HOST_SOUNDCLOUD_PLAY',
+        trackUrl: _scPlayer.trackUrl,
+        currentTime: currentTimeSec
+      });
+      console.log('[SoundCloudPlayer] Broadcast HOST_SOUNDCLOUD_PLAY at', currentTimeSec);
+    }
+  }
+
+  if (_scPlayer.widget && _scPlayer.isReady) {
+    _scPlayer.widget.getPosition(function(posMs) {
+      doPlay((posMs || 0) / 1000);
+    });
+  } else {
+    doPlay(0);
+  }
+}
+
+/**
+ * Host: pause and broadcast.
+ */
+function scHostPause() {
+  if (!_scPlayer.trackUrl) return;
+
+  function doPause(currentTimeSec) {
+    if (_scPlayer.widget && _scPlayer.isReady) {
+      _scPlayer.widget.pause();
+    }
+    if (state.isHost) {
+      send({
+        t: 'HOST_SOUNDCLOUD_PAUSE',
+        trackUrl: _scPlayer.trackUrl,
+        currentTime: currentTimeSec
+      });
+      console.log('[SoundCloudPlayer] Broadcast HOST_SOUNDCLOUD_PAUSE at', currentTimeSec);
+    }
+  }
+
+  if (_scPlayer.widget && _scPlayer.isReady) {
+    _scPlayer.widget.getPosition(function(posMs) {
+      doPause((posMs || 0) / 1000);
+    });
+  } else {
+    doPause(0);
+  }
+}
+
+/**
+ * Guest: receive SOUNDCLOUD_TRACK — load the track in the guest widget.
+ * @param {string} trackUrl
+ * @param {string|null} title
+ * @param {string|null} artist
+ * @param {string|null} artwork
+ */
+function scGuestLoadTrack(trackUrl, title, artist, artwork) {
+  _scGuestPlayer.trackUrl = trackUrl;
+  _scGuestPlayer.isReady = false;
+
+  var section = document.getElementById('guestSoundCloudSection');
+  if (section) section.classList.remove('hidden');
+
+  var placeholder = document.getElementById('guestSoundCloudPlayerPlaceholder');
+  var iframe = document.getElementById('guestSoundCloudPlayer');
+  var nowPlaying = document.getElementById('guestSoundCloudNowPlaying');
+  var titleEl = document.getElementById('guestSoundCloudNowPlayingTitle');
+  var artistEl = document.getElementById('guestSoundCloudNowPlayingArtist');
+  var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
+
+  if (placeholder) placeholder.style.display = 'none';
+  if (iframe) {
+    iframe.src = buildSCEmbedUrl(trackUrl);
+    iframe.style.display = '';
+  }
+  if (nowPlaying && title) {
+    nowPlaying.style.display = '';
+    if (titleEl) titleEl.textContent = title;
+    if (artistEl) artistEl.textContent = artist || '';
+  }
+  if (statusEl) statusEl.textContent = 'Loading…';
+
+  console.log('[SoundCloudPlayer] Guest loading track:', trackUrl);
+
+  function bindGuestWidget() {
+    if (typeof SC === 'undefined' || typeof SC.Widget === 'undefined') {
+      setTimeout(bindGuestWidget, 300);
+      return;
+    }
+    _scGuestPlayer.widget = SC.Widget(iframe);
+    _scGuestPlayer.widget.bind(SC.Widget.Events.READY, function() {
+      _scGuestPlayer.isReady = true;
+      console.log('[SoundCloudPlayer] Guest widget ready');
+      if (statusEl) statusEl.textContent = 'Ready';
+      // Apply any pending play command that arrived before the widget was ready
+      if (_scGuestPlayer.pendingPlay !== null) {
+        var t = _scGuestPlayer.pendingPlay;
+        _scGuestPlayer.pendingPlay = null;
+        scGuestPlay(t);
+      }
+    });
+    _scGuestPlayer.widget.bind(SC.Widget.Events.PLAY, function() {
+      if (statusEl) statusEl.textContent = 'Playing';
+    });
+    _scGuestPlayer.widget.bind(SC.Widget.Events.PAUSE, function() {
+      if (statusEl) statusEl.textContent = 'Paused';
+    });
+    _scGuestPlayer.widget.bind(SC.Widget.Events.ERROR, function() {
+      console.error('[SoundCloudPlayer] Guest widget error');
+      if (statusEl) statusEl.textContent = 'Error loading track';
+    });
+  }
+
+  loadSoundCloudWidgetAPI();
+  setTimeout(bindGuestWidget, 800);
+}
+
+/**
+ * Guest: receive SOUNDCLOUD_PLAY — seek to host position and play.
+ * @param {number} hostTime - host playback position in seconds
+ */
+function scGuestPlay(hostTime) {
+  var seekTarget = (typeof hostTime === 'number' && hostTime >= 0) ? hostTime : 0;
+  // Add ~0.3s to compensate for typical WebSocket round-trip latency
+  seekTarget += 0.3;
+
+  if (!_scGuestPlayer.widget || !_scGuestPlayer.isReady) {
+    // Widget not ready yet — store for later
+    _scGuestPlayer.pendingPlay = hostTime;
+    console.log('[SoundCloudPlayer] Guest play deferred (widget not ready)');
+    return;
+  }
+
+  var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
+  try {
+    // SC Widget seekTo takes milliseconds
+    _scGuestPlayer.widget.seekTo(seekTarget * 1000);
+    _scGuestPlayer.widget.play();
+    if (statusEl) statusEl.textContent = 'Playing';
+    console.log('[SoundCloudPlayer] Guest synced play at', seekTarget, 's');
+  } catch (e) {
+    console.error('[SoundCloudPlayer] Guest play error:', e);
+  }
+}
+
+/**
+ * Guest: receive SOUNDCLOUD_PAUSE — pause playback.
+ */
+function scGuestPause() {
+  if (!_scGuestPlayer.widget) return;
+  var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
+  try {
+    _scGuestPlayer.widget.pause();
+    if (statusEl) statusEl.textContent = 'Paused';
+    console.log('[SoundCloudPlayer] Guest paused');
+  } catch (e) {
+    console.error('[SoundCloudPlayer] Guest pause error:', e);
+  }
+}
+
+/**
+ * Guest: receive SOUNDCLOUD_SEEK — jump to new position.
+ * @param {number} currentTime - position in seconds
+ */
+function scGuestSeek(currentTime) {
+  if (!_scGuestPlayer.widget || !_scGuestPlayer.isReady) return;
+  try {
+    _scGuestPlayer.widget.seekTo((currentTime || 0) * 1000);
+    console.log('[SoundCloudPlayer] Guest seeked to', currentTime, 's');
+  } catch (e) {
+    console.error('[SoundCloudPlayer] Guest seek error:', e);
+  }
+}
+
+/**
+ * Show the SoundCloud Party Player section in viewParty.
+ * Called from showParty() / initSoundCloudPartyControls().
+ */
+function updateSoundCloudPartySection() {
+  var section = document.getElementById('soundcloudPartySection');
+  if (!section) return;
+
+  var playerBox = document.getElementById('soundcloudPartyPlayerBox');
+  var upgradeBox = document.getElementById('soundcloudPartyUpgradeBox');
+
+  fetch(API_BASE + '/api/streaming/access')
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      section.classList.remove('hidden');
+      if (data.allowed) {
+        if (playerBox) playerBox.classList.remove('hidden');
+        if (upgradeBox) upgradeBox.classList.add('hidden');
+        loadSoundCloudWidgetAPI();
+      } else {
+        if (playerBox) playerBox.classList.add('hidden');
+        if (upgradeBox) upgradeBox.classList.remove('hidden');
+      }
+    })
+    .catch(function() {
+      // On network error, show upgrade prompt as safe fallback
+      section.classList.remove('hidden');
+      if (playerBox) playerBox.classList.add('hidden');
+      if (upgradeBox) upgradeBox.classList.remove('hidden');
+    });
+}
+
+/**
+ * Open (reveal and scroll to) the in-app SoundCloud Party Player section.
+ * Called by the SoundCloud provider card button in viewParty.
+ */
+function openSoundCloudPartySection() {
+  var section = document.getElementById('soundcloudPartySection');
+  if (section) {
+    section.classList.remove('hidden');
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  var input = document.getElementById('soundcloudTrackUrl');
+  if (input) {
+    setTimeout(function() { input.focus(); }, 400);
+  }
+}
+
+/**
+ * Wire up SoundCloud host controls in viewParty.
+ * Called once when the party view is first shown.
+ */
+function initSoundCloudPartyControls() {
+  var loadBtn = document.getElementById('btnSoundCloudLoad');
+  var urlInput = document.getElementById('soundcloudTrackUrl');
+  var playBtn = document.getElementById('btnSoundCloudPlay');
+  var pauseBtn = document.getElementById('btnSoundCloudPause');
+  var closeBtn = document.getElementById('btnCloseSoundCloudPlayer');
+  var openScBtn = document.getElementById('btnOpenSoundCloudParty');
+
+  if (loadBtn && loadBtn._scInitDone) return; // Already wired
+
+  if (openScBtn && !openScBtn._scInitDone) {
+    openScBtn._scInitDone = true;
+    openScBtn.addEventListener('click', function() {
+      var section = document.getElementById('soundcloudPartySection');
+      if (section) {
+        section.classList.remove('hidden');
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      var input = document.getElementById('soundcloudTrackUrl');
+      if (input) setTimeout(function() { input.focus(); }, 400);
+    });
+  }
+
+  if (loadBtn) {
+    loadBtn._scInitDone = true;
+    loadBtn.addEventListener('click', function() {
+      var rawUrl = urlInput ? urlInput.value.trim() : '';
+      var statusEl = document.getElementById('soundcloudLoadStatus');
+      if (!rawUrl) {
+        if (statusEl) { statusEl.textContent = 'Please paste a SoundCloud URL.'; statusEl.classList.remove('hidden'); }
+        return;
+      }
+      if (statusEl) statusEl.classList.add('hidden');
+      // Load the track — title/artist/artwork not known from URL alone;
+      // the widget will display the track metadata itself.
+      scHostLoadTrack(rawUrl, null, null, null);
+    });
+  }
+
+  if (urlInput) {
+    urlInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && loadBtn) loadBtn.click();
+    });
+  }
+
+  if (playBtn) {
+    playBtn.addEventListener('click', function() { scHostPlay(); });
+  }
+
+  if (pauseBtn) {
+    pauseBtn.addEventListener('click', function() { scHostPause(); });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener('click', function() {
+      var section = document.getElementById('soundcloudPartySection');
+      if (section) section.classList.add('hidden');
+    });
+  }
+}
+
+// ============================================================================
+// END SOUNDCLOUD PARTY PLAYER — client-side
+// ============================================================================
+
 /**
  * Show / hide the YouTube Party Player section based on streaming access.
  * Called from showParty(). Requires Party Pass or Pro — checks /api/streaming/access
@@ -14030,521 +14505,6 @@ function showYoutubeServiceView() {
 // END YOUTUBE PARTY PLAYER
 // ============================================================================
 
-
-// ============================================================================
-// SOUNDCLOUD PARTY PLAYER — Embedded Widget player with sync engine integration
-// ============================================================================
-//
-// SoundCloud Widget API differences from YouTube IFrame API:
-//   - SC.Widget().getPosition() is ASYNC (callback-based), unlike YT's synchronous
-//     getCurrentTime(). This means play/pause commands fire AFTER the position read.
-//   - Not all tracks support seeking; seekTo() is best-effort (non-seekable streams
-//     may ignore the seek entirely).
-//   - There is no SoundCloud search API exposed via the widget — users must paste
-//     a full soundcloud.com URL.
-//   - Widget init requires the iframe src to already be a valid SC embed URL;
-//     changing tracks reuses widget.load() which triggers a new READY event.
-//
-// These limitations are isolated here and do not affect YouTube functionality.
-// ============================================================================
-
-/**
- * State for the embedded SoundCloud Party Player (host).
- */
-var _scPlayer = {
-  widget: null,        // SC.Widget instance (host)
-  ready: false,        // Widget READY event has fired
-  trackUrl: null,      // Currently loaded SoundCloud track URL
-  isPlaying: false,    // Local playing flag
-  apiLoaded: false,    // Whether SC Widget API script was injected
-  initPending: false,  // Whether init is queued after API loads
-};
-
-/**
- * State for the guest-side SoundCloud Player (separate instance from host player).
- */
-var _scGuestPlayer = {
-  widget: null,        // SC.Widget instance (guest)
-  trackUrl: null,      // Currently loaded SoundCloud track URL
-  initPending: false,  // Whether init is queued after API loads
-};
-
-/**
- * Load the SoundCloud Widget API script once.
- * Calls onSoundCloudWidgetAPIReady() when the script finishes loading.
- */
-function loadSoundCloudWidgetAPI() {
-  if (_scPlayer.apiLoaded) return;
-  _scPlayer.apiLoaded = true;
-  var tag = document.createElement('script');
-  tag.src = 'https://w.soundcloud.com/player/api.js';
-  tag.onload = function() {
-    onSoundCloudWidgetAPIReady();
-  };
-  var firstScript = document.getElementsByTagName('script')[0];
-  firstScript.parentNode.insertBefore(tag, firstScript);
-}
-
-/**
- * Called when the SC Widget API script finishes loading.
- * Resolves any pending player initializations.
- */
-function onSoundCloudWidgetAPIReady() {
-  if (_scPlayer.initPending) {
-    _scPlayer.initPending = false;
-    initSoundCloudPlayer();
-  }
-  if (_scGuestPlayer.initPending) {
-    _scGuestPlayer.initPending = false;
-    initSoundCloudGuestPlayer();
-  }
-}
-
-/**
- * Build the SoundCloud Widget embed iframe src for a given track URL.
- * @param {string} trackUrl - Full SoundCloud track URL
- * @returns {string} Embed URL ready to set as iframe.src
- */
-function buildSoundCloudEmbedUrl(trackUrl) {
-  return 'https://w.soundcloud.com/player/?url=' + encodeURIComponent(trackUrl) +
-    '&auto_play=false&hide_related=true&show_comments=false' +
-    '&show_user=false&show_reposts=false&visual=true';
-}
-
-/**
- * Validate that a given string is a SoundCloud track URL.
- * @param {string} url
- * @returns {boolean}
- */
-function isValidSoundCloudUrl(url) {
-  if (!url || typeof url !== 'string') return false;
-  try {
-    var parsed = new URL(url.trim());
-    return (parsed.hostname === 'soundcloud.com' || parsed.hostname === 'www.soundcloud.com') &&
-           parsed.pathname.length > 1;
-  } catch (_) {
-    return false;
-  }
-}
-
-/**
- * Initialize the host SoundCloud Widget player.
- * The iframe must already exist in the DOM with the correct src set.
- */
-function initSoundCloudPlayer() {
-  if (!window.SC || !window.SC.Widget) {
-    // API not loaded yet — defer until loadSoundCloudWidgetAPI() callback fires
-    console.warn('[SoundCloud] SC.Widget not available — deferring host init');
-    _scPlayer.initPending = true;
-    loadSoundCloudWidgetAPI();
-    return;
-  }
-
-  var iframe = document.getElementById('soundcloudPlayer');
-  if (!iframe) return;
-
-  _scPlayer.widget = window.SC.Widget(iframe);
-
-  _scPlayer.widget.bind(window.SC.Widget.Events.READY, function() {
-    console.log('[SoundCloud] Host widget ready');
-    _scPlayer.ready = true;
-
-    // Show controls, hide placeholder
-    var controls = document.getElementById('soundcloudPlayerControls');
-    if (controls) controls.classList.remove('hidden');
-    var placeholder = document.getElementById('soundcloudPlayerPlaceholder');
-    if (placeholder) placeholder.style.display = 'none';
-    iframe.style.display = 'block';
-
-    var statusEl = document.getElementById('soundcloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Ready';
-
-    // Populate now-playing title from widget metadata
-    _scPlayer.widget.getCurrentSound(function(sound) {
-      if (sound && sound.title) {
-        var nowPlaying = document.getElementById('soundcloudNowPlaying');
-        var titleEl = document.getElementById('soundcloudNowPlayingTitle');
-        if (nowPlaying) nowPlaying.classList.remove('hidden');
-        if (titleEl) titleEl.textContent = sound.title;
-      }
-    });
-  });
-
-  _scPlayer.widget.bind(window.SC.Widget.Events.PLAY, function() {
-    _scPlayer.isPlaying = true;
-    var statusEl = document.getElementById('soundcloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Playing';
-  });
-
-  _scPlayer.widget.bind(window.SC.Widget.Events.PAUSE, function() {
-    _scPlayer.isPlaying = false;
-    var statusEl = document.getElementById('soundcloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Paused';
-  });
-
-  _scPlayer.widget.bind(window.SC.Widget.Events.FINISH, function() {
-    _scPlayer.isPlaying = false;
-    var statusEl = document.getElementById('soundcloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Finished';
-  });
-
-  _scPlayer.widget.bind(window.SC.Widget.Events.ERROR, function(e) {
-    console.error('[SoundCloud] Host widget error:', e);
-    var statusEl = document.getElementById('soundcloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Error loading track';
-  });
-}
-
-/**
- * Initialize the guest SoundCloud Widget player.
- * The iframe must already exist in the DOM with the correct src set.
- */
-function initSoundCloudGuestPlayer() {
-  if (!window.SC || !window.SC.Widget) {
-    // API not loaded yet — defer
-    console.warn('[SoundCloud] SC.Widget not available — deferring guest init');
-    _scGuestPlayer.initPending = true;
-    loadSoundCloudWidgetAPI();
-    return;
-  }
-
-  var iframe = document.getElementById('guestSoundCloudPlayer');
-  if (!iframe) return;
-
-  _scGuestPlayer.widget = window.SC.Widget(iframe);
-
-  _scGuestPlayer.widget.bind(window.SC.Widget.Events.READY, function() {
-    console.log('[SoundCloud] Guest widget ready — auto-pausing to await SC_PLAY');
-
-    // Show iframe, hide placeholder
-    var placeholder = document.getElementById('guestSoundCloudPlayerPlaceholder');
-    if (placeholder) placeholder.style.display = 'none';
-    iframe.style.display = 'block';
-
-    var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Loaded — waiting for host…';
-
-    // Auto-pause: wait for SC_PLAY sync command from host before playing
-    // 800ms gives the iframe time to buffer after load before we pause it
-    // (mirrors ytGuestLoadVideo's setTimeout pause approach which uses 1000ms)
-    setTimeout(function() {
-      if (_scGuestPlayer.widget && typeof _scGuestPlayer.widget.pause === 'function') {
-        _scGuestPlayer.widget.pause();
-      }
-    }, 800);
-
-    // Populate now-playing title from widget metadata
-    _scGuestPlayer.widget.getCurrentSound(function(sound) {
-      if (sound && sound.title) {
-        var titleEl = document.getElementById('guestSoundCloudNowPlayingTitle');
-        if (titleEl) titleEl.textContent = sound.title;
-      }
-    });
-  });
-
-  _scGuestPlayer.widget.bind(window.SC.Widget.Events.PLAY, function() {
-    var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Playing';
-  });
-
-  _scGuestPlayer.widget.bind(window.SC.Widget.Events.PAUSE, function() {
-    var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Paused';
-  });
-
-  _scGuestPlayer.widget.bind(window.SC.Widget.Events.FINISH, function() {
-    var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Finished';
-  });
-}
-
-/**
- * Load a SoundCloud track URL into the host player and broadcast to guests.
- * Called when the host pastes a URL and clicks Load.
- * @param {string} trackUrl - Full SoundCloud track URL
- */
-function scLoadTrack(trackUrl) {
-  var statusEl = document.getElementById('soundcloudLoadStatus');
-
-  if (!isValidSoundCloudUrl(trackUrl)) {
-    if (statusEl) {
-      statusEl.textContent = '⚠ Invalid SoundCloud URL. Paste a full soundcloud.com/artist/track URL.';
-      statusEl.classList.remove('hidden');
-    }
-    return;
-  }
-
-  _scPlayer.trackUrl = trackUrl;
-  _scPlayer.ready = false;
-
-  // Clear any previous error status
-  if (statusEl) statusEl.classList.add('hidden');
-
-  var embedUrl = buildSoundCloudEmbedUrl(trackUrl);
-  var iframe = document.getElementById('soundcloudPlayer');
-
-  if (_scPlayer.widget) {
-    // Widget already exists — reload with new track URL.
-    // Note: widget.load() triggers a new READY event on the existing widget instance.
-    _scPlayer.widget.load(trackUrl, {
-      auto_play: false,
-      hide_related: true,
-      show_comments: false,
-      show_user: false,
-      show_reposts: false,
-      visual: true
-    });
-    if (iframe) iframe.style.display = 'block';
-    var placeholder = document.getElementById('soundcloudPlayerPlaceholder');
-    if (placeholder) placeholder.style.display = 'none';
-  } else {
-    // First load — set iframe src then init the widget
-    if (iframe) {
-      iframe.src = embedUrl;
-      iframe.style.display = 'block';
-      var placeholder = document.getElementById('soundcloudPlayerPlaceholder');
-      if (placeholder) placeholder.style.display = 'none';
-    }
-    if (!window.SC || !window.SC.Widget) {
-      // Script not yet loaded — loadSoundCloudWidgetAPI() guards against duplicate injection
-      // using _scPlayer.apiLoaded; it will call initSoundCloudPlayer() when the script finishes
-      _scPlayer.initPending = true;
-      loadSoundCloudWidgetAPI();
-    } else {
-      initSoundCloudPlayer();
-    }
-  }
-
-  // Broadcast track to all guests
-  send({ t: 'SC_TRACK', trackUrl: trackUrl });
-}
-
-/**
- * Host: play and broadcast position to guests for sync.
- * Note: getPosition() is async in SC Widget — play fires after the callback.
- */
-function scHostPlay() {
-  if (!_scPlayer.widget || !_scPlayer.trackUrl) return;
-
-  // SC Widget getPosition is async (unlike YouTube's synchronous getCurrentTime).
-  // We read position THEN play, and broadcast the position to guests.
-  _scPlayer.widget.getPosition(function(position) {
-    _scPlayer.widget.play();
-    send({
-      t: 'SC_PLAY',
-      trackUrl: _scPlayer.trackUrl,
-      position: position || 0  // position in milliseconds
-    });
-  });
-}
-
-/**
- * Host: pause and broadcast position to guests.
- */
-function scHostPause() {
-  if (!_scPlayer.widget || !_scPlayer.trackUrl) return;
-
-  _scPlayer.widget.getPosition(function(position) {
-    _scPlayer.widget.pause();
-    send({
-      t: 'SC_PAUSE',
-      trackUrl: _scPlayer.trackUrl,
-      position: position || 0
-    });
-  });
-}
-
-/**
- * Guest: load a SoundCloud track received from the host.
- * Mirrors ytGuestLoadVideo().
- * @param {string} trackUrl - SoundCloud track URL from host
- */
-function scGuestLoadTrack(trackUrl) {
-  _scGuestPlayer.trackUrl = trackUrl;
-
-  // Show the guest SoundCloud section
-  var section = document.getElementById('guestSoundCloudSection');
-  if (section) section.classList.remove('hidden');
-
-  var embedUrl = buildSoundCloudEmbedUrl(trackUrl);
-  var iframe = document.getElementById('guestSoundCloudPlayer');
-
-  if (_scGuestPlayer.widget) {
-    // Widget already exists — reload with new track URL
-    _scGuestPlayer.widget.load(trackUrl, {
-      auto_play: false,
-      hide_related: true,
-      show_comments: false,
-      show_user: false,
-      show_reposts: false,
-      visual: true
-    });
-    if (iframe) iframe.style.display = 'block';
-    var placeholder = document.getElementById('guestSoundCloudPlayerPlaceholder');
-    if (placeholder) placeholder.style.display = 'none';
-  } else {
-    // First load — set iframe src then init the widget
-    if (iframe) {
-      iframe.src = embedUrl;
-      iframe.style.display = 'block';
-      var placeholder = document.getElementById('guestSoundCloudPlayerPlaceholder');
-      if (placeholder) placeholder.style.display = 'none';
-    }
-    if (!window.SC || !window.SC.Widget) {
-      // loadSoundCloudWidgetAPI() guards against duplicate injection via _scPlayer.apiLoaded;
-      // it will call initSoundCloudGuestPlayer() when the script finishes loading
-      _scGuestPlayer.initPending = true;
-      loadSoundCloudWidgetAPI();
-    } else {
-      initSoundCloudGuestPlayer();
-    }
-  }
-}
-
-/**
- * Guest: seek to host position and play.
- * Note: seekTo() is best-effort — non-seekable SC tracks may ignore the seek.
- * Mirrors ytGuestPlay().
- * @param {number} hostPosition - Host's playback position in milliseconds
- */
-function scGuestPlay(hostPosition) {
-  if (!_scGuestPlayer.widget) return;
-
-  // Add ~300ms to compensate for WebSocket + processing latency (mirrors YouTube guest).
-  // SC seek unit is milliseconds (unlike YouTube which uses seconds).
-  var seekTarget = (typeof hostPosition === 'number' && hostPosition >= 0) ? hostPosition + 300 : 0;
-
-  try {
-    // seekTo is best-effort: non-seekable streams may ignore it silently
-    _scGuestPlayer.widget.seekTo(seekTarget);
-    _scGuestPlayer.widget.play();
-    var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Playing';
-    console.log('[SoundCloud] Guest synced play at', seekTarget, 'ms');
-  } catch (e) {
-    console.error('[SoundCloud] Guest play error:', e);
-  }
-}
-
-/**
- * Guest: pause (received from host).
- * Mirrors ytGuestPause().
- */
-function scGuestPause() {
-  if (!_scGuestPlayer.widget) return;
-  try {
-    _scGuestPlayer.widget.pause();
-    var statusEl = document.getElementById('guestSoundCloudPlayerStatus');
-    if (statusEl) statusEl.textContent = 'Paused';
-    console.log('[SoundCloud] Guest paused');
-  } catch (e) {
-    console.error('[SoundCloud] Guest pause error:', e);
-  }
-}
-
-/**
- * Show / hide the SoundCloud Party Player section based on streaming access.
- * Called from showParty(). Mirrors updateYoutubePartySection().
- */
-function updateSoundCloudPartySection() {
-  var section = document.getElementById('soundcloudPartySection');
-  if (!section) return;
-
-  var playerBox = document.getElementById('soundcloudPartyPlayerBox');
-  var upgradeBox = document.getElementById('soundcloudPartyUpgradeBox');
-
-  fetch(API_BASE + '/api/streaming/access')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      section.classList.remove('hidden');
-      if (data.allowed) {
-        if (playerBox) playerBox.classList.remove('hidden');
-        if (upgradeBox) upgradeBox.classList.add('hidden');
-        // Widget is NOT pre-initialized here; it is created lazily when user loads a track
-      } else {
-        if (playerBox) playerBox.classList.add('hidden');
-        if (upgradeBox) upgradeBox.classList.remove('hidden');
-      }
-    })
-    .catch(function() {
-      // On network error, show upgrade prompt as safe fallback
-      section.classList.remove('hidden');
-      if (playerBox) playerBox.classList.add('hidden');
-      if (upgradeBox) upgradeBox.classList.remove('hidden');
-    });
-}
-
-/**
- * Wire up the SoundCloud Party Player controls in the host party view.
- * Called once when showParty() runs. Mirrors initYoutubePartyControls().
- */
-function initSoundCloudPartyControls() {
-  var loadBtn = document.getElementById('btnSoundCloudLoad');
-  var urlInput = document.getElementById('soundcloudUrlInput');
-  var playBtn = document.getElementById('btnSoundCloudPlay');
-  var pauseBtn = document.getElementById('btnSoundCloudPause');
-  var closeBtn = document.getElementById('btnCloseSoundCloudPlayer');
-  var openScBtn = document.getElementById('btnOpenSoundCloudParty');
-
-  if (loadBtn && loadBtn._scInitDone) return; // Already wired
-
-  // Wire "Play from SoundCloud" quick access button (scrolls to section + focuses input)
-  if (openScBtn && !openScBtn._scInitDone) {
-    openScBtn._scInitDone = true;
-    openScBtn.addEventListener('click', function() {
-      var section = document.getElementById('soundcloudPartySection');
-      if (section) {
-        section.classList.remove('hidden');
-        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-      var input = document.getElementById('soundcloudUrlInput');
-      if (input) {
-        // 400ms delay lets the smooth-scroll animation finish before focusing the input
-        setTimeout(function() { input.focus(); }, 400);
-      }
-    });
-  }
-
-  if (loadBtn) {
-    loadBtn._scInitDone = true;
-    loadBtn.addEventListener('click', function() {
-      var url = urlInput ? urlInput.value.trim() : '';
-      if (!url) return;
-      scLoadTrack(url);
-    });
-  }
-
-  if (urlInput) {
-    urlInput.addEventListener('keydown', function(e) {
-      if (e.key === 'Enter') {
-        if (loadBtn) loadBtn.click();
-      }
-    });
-  }
-
-  if (playBtn) {
-    playBtn.addEventListener('click', function() {
-      scHostPlay();
-    });
-  }
-
-  if (pauseBtn) {
-    pauseBtn.addEventListener('click', function() {
-      scHostPause();
-    });
-  }
-
-  if (closeBtn) {
-    closeBtn.addEventListener('click', function() {
-      var section = document.getElementById('soundcloudPartySection');
-      if (section) section.classList.add('hidden');
-    });
-  }
-}
-
-// ============================================================================
-// END SOUNDCLOUD PARTY PLAYER
-// ============================================================================
 
 
 
@@ -14949,13 +14909,16 @@ if (typeof module !== 'undefined' && module.exports) {
     ytGuestPause,
     updateYoutubePartySection,
     showYoutubeServiceView,
-    scLoadTrack,
+    // SoundCloud Party Player
+    scHostLoadTrack,
     scHostPlay,
     scHostPause,
     scGuestLoadTrack,
     scGuestPlay,
     scGuestPause,
+    scGuestSeek,
     updateSoundCloudPartySection,
+    openSoundCloudPartySection,
     openCopyrightReportModal,
     openCopyrightReportModalForTrack,
     closeCopyrightReportModal,
