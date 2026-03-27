@@ -213,10 +213,23 @@ async function logIn(email, password) {
       return { success: false, error: data.error || 'Login failed' };
     }
 
-    // Fetch full user data
-    const userData = await getCurrentUser();
-    if (userData) {
-      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(userData));
+    // Bootstrap a minimal session cache from the login response so that
+    // isLoggedIn() returns true immediately without an extra /api/me round-trip.
+    // confirmAuthSession() will replace this with the full /api/me payload in the background.
+    if (data.user) {
+      const minimalSession = {
+        user: {
+          id: data.user.id,
+          email: data.user.email,
+          djName: data.user.djName,
+          profileCompleted: !!data.user.profileCompleted,
+          isAdmin: !!data.user.isAdmin
+        },
+        tier: TIER.FREE,
+        effectiveTier: TIER.FREE,
+        isAdmin: !!data.user.isAdmin
+      };
+      localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(minimalSession));
       setAuthSessionState('authenticated');
     }
 
