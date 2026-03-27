@@ -61,6 +61,20 @@ describe('Redis Health and Diagnostics', () => {
       expect(response.body.redis.configSource).toBeDefined();
     });
     
+    it('should include redisConfigured, redisReady, fallbackMode, and strictProductionMode fields', async () => {
+      const response = await request(app).get('/api/health');
+      expect(response.body).toHaveProperty('redisConfigured');
+      expect(typeof response.body.redisConfigured).toBe('boolean');
+      expect(response.body).toHaveProperty('redisReady');
+      expect(typeof response.body.redisReady).toBe('boolean');
+      expect(response.body).toHaveProperty('fallbackMode');
+      expect(typeof response.body.fallbackMode).toBe('boolean');
+      expect(response.body).toHaveProperty('strictProductionMode');
+      expect(typeof response.body.strictProductionMode).toBe('boolean');
+      // In test mode, strictProductionMode must be false
+      expect(response.body.strictProductionMode).toBe(false);
+    });
+    
     it('should include uptimeSeconds', async () => {
       const response = await request(app).get('/api/health');
       expect(response.body.uptimeSeconds).toBeDefined();
