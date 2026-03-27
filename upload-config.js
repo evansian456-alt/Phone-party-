@@ -1,153 +1,175 @@
 'use strict';
 
 /**
- * Upload Configuration
+ * upload-config.js
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Single authoritative source of truth for all upload and addon configuration.
  *
- * Single source of truth for all upload-related limits and settings.
- * Values can be overridden via environment variables for operational tuning
- * without code changes.
+ * ALL upload limits, file-size caps, allowed MIME types, addon bundle definitions,
+ * and Stripe price IDs are declared here.  Every other module must import from
+ * this file — never hardcode these values inline.
  *
- * Product rules:
- *   FREE        → uploads NOT allowed (show upgrade prompt)
- *   PARTY_PASS  → up to PARTY_PASS_UPLOAD_LIMIT songs per party, PARTY_PASS_MAX_FILE_MB per file
- *   PRO_MONTHLY → "Unlimited uploads" (fair-usage safeguards applied server-side)
+ * Tiers:
+ *   FREE        – uploads not allowed
+ *   PARTY_PASS  – limited uploads per party; can buy extra-song addon bundles
+ *   PRO/MONTHLY – premium access; "unlimited uploads" messaging is fine
  */
 
-// ─── Helper ──────────────────────────────────────────────────────────────────
+// ── Per-tier upload limits ────────────────────────────────────────────────────
 
-function envInt(key, defaultVal) {
-  const raw = process.env[key];
-  if (!raw) return defaultVal;
-  const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : defaultVal;
+/** Party Pass base upload allowance per party session */
+const PARTY_PASS_UPLOAD_LIMIT = 15;
+
+/** Party Pass per-file size cap (MB and bytes) */
+const PARTY_PASS_MAX_FILE_MB = 15;
+const PARTY_PASS_MAX_FILE_BYTES = PARTY_PASS_MAX_FILE_MB * 1024 * 1024;
+
+/** Monthly (PRO) per-file size cap (MB and bytes) */
+const MONTHLY_MAX_FILE_MB = 50;
+const MONTHLY_MAX_FILE_BYTES = MONTHLY_MAX_FILE_MB * 1024 * 1024;
+
+/**
+ * Monthly fair-usage upload ceiling (per calendar month).
+ * "Unlimited uploads" can still be marketed — this is an anti-abuse back-end
+ * guard only.  Normal users will never approach it.
+ */
+const MONTHLY_FAIR_USAGE_LIMIT = 200;
+
+/**
+ * Monthly per-session safety cap.  Prevents a single runaway session from
+ * consuming the entire monthly allowance.
+ */
+const MONTHLY_SESSION_LIMIT = 100;
+
+// ── Allowed file types ────────────────────────────────────────────────────────
+
+const ALLOWED_AUDIO_MIME_TYPES = [
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/wave',
+  'audio/ogg',
+  'audio/flac',
+  'audio/mp4',
+  'audio/aac',
+  'audio/x-m4a',
+  'audio/webm',
+];
+
+const ALLOWED_AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac', '.webm'];
+
+// ── Addon bundle definitions ──────────────────────────────────────────────────
+
+/**
+ * Extra-song addon bundles available for Party Pass holders.
+ * Each bundle adds `songs` uploads to the party's allowance.
+ * Stripe price IDs fall back to placeholder strings when env vars are absent.
+ */
+const ADDON_BUNDLES = {
+  extra_songs_5: {
+    key: 'extra_songs_5',
+    label: '+5 Songs',
+    description: 'Add 5 more songs to this party',
+    songs: 5,
+    priceGBP: 0.99,
+    stripePriceId:
+      process.env.STRIPE_PRICE_EXTRA_SONGS_5 || 'price_extra_songs_5_placeholder',
+  },
+  extra_songs_10: {
+    key: 'extra_songs_10',
+    label: '+10 Songs',
+    description: 'Add 10 more songs to this party',
+    songs: 10,
+    priceGBP: 1.49,
+    stripePriceId:
+      process.env.STRIPE_PRICE_EXTRA_SONGS_10 || 'price_extra_songs_10_placeholder',
+  },
+  extra_songs_20: {
+    key: 'extra_songs_20',
+    label: '+20 Songs',
+    description: 'Add 20 more songs to this party',
+    songs: 20,
+    priceGBP: 1.99,
+    stripePriceId:
+      process.env.STRIPE_PRICE_EXTRA_SONGS_20 || 'price_extra_songs_20_placeholder',
+  },
+};
+
+/** Set of valid addon keys for fast membership tests */
+const VALID_ADDON_KEYS = new Set(Object.keys(ADDON_BUNDLES));
+
+/**
+ * Resolve an addon bundle by its Stripe price ID.
+ * Returns null if the price ID is not recognised.
+ *
+ * @param {string} stripePriceId
+ * @returns {{ key: string, songs: number, priceGBP: number }|null}
+ */
+function getAddonBundleByStripePriceId(stripePriceId) {
+  for (const bundle of Object.values(ADDON_BUNDLES)) {
+    if (bundle.stripePriceId === stripePriceId) return bundle;
+  }
+  return null;
 }
 
-// ─── Tier upload limits ───────────────────────────────────────────────────────
+/**
+ * Resolve an addon bundle by its key (e.g. 'extra_songs_5').
+ *
+ * @param {string} key
+ * @returns {{ key: string, songs: number, priceGBP: number }|null}
+ */
+function getAddonBundle(key) {
+  return ADDON_BUNDLES[key] || null;
+}
 
-/** Songs per party for Party Pass users (base allowance, before any add-ons). */
-const PARTY_PASS_UPLOAD_LIMIT = envInt('PARTY_PASS_UPLOAD_LIMIT', 15);
-
-/** Max file size in MB for Party Pass uploads. */
-const PARTY_PASS_MAX_FILE_MB = envInt('PARTY_PASS_MAX_FILE_MB', 15);
-
-/** Max file size in MB for Monthly (Pro) uploads. */
-const MONTHLY_MAX_FILE_MB = envInt('MONTHLY_MAX_FILE_MB', 50);
-
-// ─── Monthly fair-usage safeguards (hidden from product UI) ──────────────────
+// ── Anti-abuse limits ─────────────────────────────────────────────────────────
 
 /**
- * Maximum uploads a Monthly user may make within the rolling fair-usage
- * window.  Visible product message stays "Unlimited uploads".
+ * Maximum number of addon bundles a Party Pass holder may buy for a single
+ * party.  Prevents runaway purchases (e.g. buying 50 bundles of +20 = 1 000
+ * songs on one party).
  */
-const MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW = envInt(
-  'MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW',
-  200
-);
+const MAX_ADDON_BUNDLES_PER_PARTY = 5;
+
+// ── Retention / cleanup ───────────────────────────────────────────────────────
+
+/** Days before uploaded audio files are eligible for cleanup */
+const UPLOAD_RETENTION_DAYS = 7;
+
+// ── Aggregate per-party safeguard ─────────────────────────────────────────────
 
 /**
- * Rolling window (hours) for the fair-usage upload count above.
+ * Hard ceiling on total uploads per party across all entitlement sources.
+ * Base + all addons combined will never exceed this value.
  */
-const MONTHLY_FAIR_USAGE_WINDOW_HOURS = envInt('MONTHLY_FAIR_USAGE_WINDOW_HOURS', 24);
+const MAX_UPLOADS_PER_PARTY = PARTY_PASS_UPLOAD_LIMIT + MAX_ADDON_BUNDLES_PER_PARTY * 20; // 15 + 100 = 115
 
-/**
- * Aggregate storage cap (MB) that triggers a fair-usage flag.
- * This is a soft limit — the upload is still allowed but flagged for review.
- */
-const MONTHLY_FAIR_USAGE_STORAGE_MB = envInt('MONTHLY_FAIR_USAGE_STORAGE_MB', 2048);
-
-// ─── Extra-song add-on bundles (Party Pass upsell) ───────────────────────────
-
-/**
- * Available add-on bundle sizes (number of extra songs).
- * Configurable via comma-separated env var, e.g. "5,10,20".
- */
-const EXTRA_SONG_BUNDLE_SIZES = (() => {
-  const raw = process.env.EXTRA_SONG_BUNDLE_SIZES;
-  if (raw) {
-    const parsed = raw
-      .split(',')
-      .map(s => parseInt(s.trim(), 10))
-      .filter(n => Number.isFinite(n) && n > 0);
-    if (parsed.length > 0) return parsed;
-  }
-  return [5, 10];
-})();
-
-// ─── Upload retention (party-scoped lifecycle) ────────────────────────────────
-
-/**
- * How long (hours) party-scoped uploads are retained after the party ends.
- * After this period they become eligible for storage cleanup.
- */
-const PARTY_UPLOAD_RETENTION_HOURS = envInt('PARTY_UPLOAD_RETENTION_HOURS', 48);
-
-// ─── Allowed audio types ──────────────────────────────────────────────────────
-
-/** Approved audio MIME types. */
-const ALLOWED_AUDIO_MIME_TYPES = new Set([
-  'audio/mpeg',       // .mp3
-  'audio/mp3',        // alt MIME for mp3
-  'audio/wav',        // .wav
-  'audio/wave',       // alt MIME for wav
-  'audio/x-wav',      // alt MIME for wav
-  'audio/ogg',        // .ogg
-  'audio/flac',       // .flac
-  'audio/x-flac',     // alt MIME for flac
-  'audio/aac',        // .aac
-  'audio/mp4',        // .m4a
-  'audio/x-m4a',      // alt MIME for m4a
-  'audio/webm',       // .webm (audio)
-]);
-
-/** Approved file extensions (lower-cased, with dot). */
-const ALLOWED_AUDIO_EXTENSIONS = new Set([
-  '.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a', '.webm',
-]);
-
-// ─── Rate limiting for upload endpoints ──────────────────────────────────────
-
-/**
- * Max upload attempts per IP per window.
- * Used by the HTTP upload rate limiter in server.js.
- */
-const UPLOAD_RATE_LIMIT_MAX = envInt('UPLOAD_RATE_LIMIT_MAX', 10);
-
-/**
- * Rate-limit window in minutes.
- */
-const UPLOAD_RATE_LIMIT_WINDOW_MINUTES = envInt('UPLOAD_RATE_LIMIT_WINDOW_MINUTES', 15);
-
-// ─── Derived byte limits (convenience) ───────────────────────────────────────
-
-const PARTY_PASS_MAX_FILE_BYTES = PARTY_PASS_MAX_FILE_MB * 1024 * 1024;
-const MONTHLY_MAX_FILE_BYTES    = MONTHLY_MAX_FILE_MB    * 1024 * 1024;
-
-// ─── Exports ─────────────────────────────────────────────────────────────────
+// ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
-  // Tier limits
+  // Per-tier limits
   PARTY_PASS_UPLOAD_LIMIT,
   PARTY_PASS_MAX_FILE_MB,
   PARTY_PASS_MAX_FILE_BYTES,
   MONTHLY_MAX_FILE_MB,
   MONTHLY_MAX_FILE_BYTES,
+  MONTHLY_FAIR_USAGE_LIMIT,
+  MONTHLY_SESSION_LIMIT,
 
-  // Monthly fair-usage
-  MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW,
-  MONTHLY_FAIR_USAGE_WINDOW_HOURS,
-  MONTHLY_FAIR_USAGE_STORAGE_MB,
-
-  // Add-on upsell
-  EXTRA_SONG_BUNDLE_SIZES,
-
-  // Retention
-  PARTY_UPLOAD_RETENTION_HOURS,
-
-  // Validation
+  // File type validation
   ALLOWED_AUDIO_MIME_TYPES,
   ALLOWED_AUDIO_EXTENSIONS,
 
-  // Rate limiting
-  UPLOAD_RATE_LIMIT_MAX,
-  UPLOAD_RATE_LIMIT_WINDOW_MINUTES,
+  // Addon bundles
+  ADDON_BUNDLES,
+  VALID_ADDON_KEYS,
+  getAddonBundle,
+  getAddonBundleByStripePriceId,
+
+  // Anti-abuse
+  MAX_ADDON_BUNDLES_PER_PARTY,
+  MAX_UPLOADS_PER_PARTY,
+
+  // Retention
+  UPLOAD_RETENTION_DAYS,
 };

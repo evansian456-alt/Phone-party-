@@ -5,18 +5,15 @@
 
 const request = require('supertest');
 const {
-  app, waitForRedis, _setStorageProvider, _setCheckUserEntitlements, TRACK_MAX_BYTES,
+  app, waitForRedis, _setStorageProvider, TRACK_MAX_BYTES,
 } = require('./server');
 const { generateToken } = require('./auth-middleware');
 
-// Helper: make a valid auth cookie for a test user with given entitlements
+// Helper: make a valid auth cookie for a test user
 function makeAuthCookie(overrides = {}) {
   const token = generateToken({ userId: 'test-user-id', email: 'test@example.com', ...overrides });
   return `auth_token=${token}`;
 }
-
-// Default entitlements: PRO_MONTHLY (simplest — no party-code required)
-const PRO_ENTITLEMENTS = { hasPartyPass: true, hasPro: true, source: 'test' };
 
 describe('POST /api/tracks/presign-put', () => {
   const VALID_BODY = {
@@ -39,8 +36,6 @@ describe('POST /api/tracks/presign-put', () => {
 
   beforeEach(() => {
     authCookie = makeAuthCookie();
-    // Mock entitlements so all tests use PRO_MONTHLY (no DB required)
-    _setCheckUserEntitlements(async () => PRO_ENTITLEMENTS);
 
     mockProvider = {
       generatePresignedPutUrl: jest.fn().mockResolvedValue({
@@ -53,7 +48,6 @@ describe('POST /api/tracks/presign-put', () => {
 
   afterEach(() => {
     _setStorageProvider(null);
-    _setCheckUserEntitlements(null);
   });
 
   // ── auth gate ─────────────────────────────────────────────────────────────
@@ -82,7 +76,7 @@ describe('POST /api/tracks/presign-put', () => {
       .set('Cookie', authCookie)
       .send({ ...VALID_BODY, contentType: 'video/mp4' });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/not allowed|audio/i);
+    expect(res.body.error).toMatch(/not allowed|audio|unsupported/i);
   });
 
   it('returns 400 when contentType is application/octet-stream', async () => {
@@ -91,7 +85,7 @@ describe('POST /api/tracks/presign-put', () => {
       .set('Cookie', authCookie)
       .send({ ...VALID_BODY, contentType: 'application/octet-stream' });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/not allowed|audio/i);
+    expect(res.body.error).toMatch(/not allowed|audio|unsupported/i);
   });
 
   // ── sizeBytes validation ──────────────────────────────────────────────────

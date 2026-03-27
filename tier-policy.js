@@ -1,20 +1,22 @@
 /**
  * TierPolicy - Single source of truth for tier limits.
  *
- * Upload limits are sourced from upload-config.js so they remain configurable
- * via environment variables without touching this file.
+ * Upload limits and file-size caps are imported from upload-config.js to keep
+ * a single authoritative source.  All other tier attributes (device counts,
+ * session time, feature flags) live here.
  *
  * FREE:        maxDevices=2, maxSessionMinutes=30, no uploads, no Official App Sync
- * PARTY_PASS:  maxDevices=6, maxSessionMinutes=60, configurable uploads/party, Official App Sync
+ * PARTY_PASS:  maxDevices=6, maxSessionMinutes=60, 15 uploads/party, Official App Sync
  * PRO /
- * PRO_MONTHLY: maxDevices=6, unlimited time, unlimited uploads (fair-usage), Official App Sync
+ * PRO_MONTHLY: maxDevices=6, unlimited time, premium uploads, Official App Sync
  */
 
 const {
   PARTY_PASS_UPLOAD_LIMIT,
   PARTY_PASS_MAX_FILE_MB,
   MONTHLY_MAX_FILE_MB,
-  MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW,
+  MONTHLY_FAIR_USAGE_LIMIT,
+  MONTHLY_SESSION_LIMIT,
 } = require('./upload-config');
 
 const TIER_POLICY = {
@@ -28,7 +30,7 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: 60,
     uploadsAllowed: true,
-    maxUploadsPerParty: PARTY_PASS_UPLOAD_LIMIT,
+    maxUploadsPerSession: PARTY_PASS_UPLOAD_LIMIT, // authoritative value from upload-config
     maxUploadMB: PARTY_PASS_MAX_FILE_MB,
     officialAppSync: true
   },
@@ -37,9 +39,9 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: null, // unlimited
     uploadsAllowed: true,
-    maxUploadsPerMonth: null, // unlimited (fair-usage applied server-side)
-    fairUsageUploadsPerWindow: MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW,
+    maxUploadsPerMonth: MONTHLY_FAIR_USAGE_LIMIT, // fair-usage back-end guard
     maxUploadMB: MONTHLY_MAX_FILE_MB,
+    maxUploadsPerSession: MONTHLY_SESSION_LIMIT,   // per-session safety cap
     officialAppSync: true
   },
   // PRO is a shorthand alias
@@ -47,9 +49,9 @@ const TIER_POLICY = {
     maxDevices: 6,
     maxSessionMinutes: null, // unlimited
     uploadsAllowed: true,
-    maxUploadsPerMonth: null,
-    fairUsageUploadsPerWindow: MONTHLY_FAIR_USAGE_UPLOADS_PER_WINDOW,
+    maxUploadsPerMonth: MONTHLY_FAIR_USAGE_LIMIT,
     maxUploadMB: MONTHLY_MAX_FILE_MB,
+    maxUploadsPerSession: MONTHLY_SESSION_LIMIT,
     officialAppSync: true
   }
 };
