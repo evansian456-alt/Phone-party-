@@ -7243,7 +7243,7 @@ async function initAuthFlow() {
  *   routed to an authenticated view; false if the server check failed (the caller
  *   should surface an appropriate inline error without redirecting to landing).
  */
-async function confirmAuthSession() {
+async function confirmAuthSession({ skipNavigation = false } = {}) {
   const headerAuthButtons = document.getElementById('headerAuthButtons');
   try {
     const response = await fetch(API_BASE + '/api/me', { credentials: 'include' });
@@ -7265,13 +7265,15 @@ async function confirmAuthSession() {
     }
     _currentUserIsAdmin = !!(data.isAdmin || (data.user && data.user.isAdmin) || (data.user && data.user.role === 'admin'));
     if (typeof setAdminNavVisible === 'function') setAdminNavVisible(_currentUserIsAdmin);
-    if (!data.user || !data.user.profileCompleted) {
-      window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PROFILE_INCOMPLETE);
-      setView('completeProfile', { fromHash: true });
-    } else {
-      window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
-      setView('authHome', { fromHash: true });
-      if (window._referralUI) window._referralUI.startPolling();
+    if (!skipNavigation) {
+      if (!data.user || !data.user.profileCompleted) {
+        window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PROFILE_INCOMPLETE);
+        setView('completeProfile', { fromHash: true });
+      } else {
+        window.AppStateMachine && window.AppStateMachine.transitionTo(window.AppStateMachine.STATES.PARTY_HUB);
+        setView('authHome', { fromHash: true });
+        if (window._referralUI) window._referralUI.startPolling();
+      }
     }
     return true;
   } catch (err) {
@@ -7867,15 +7869,33 @@ async function handleBillingReturn() {
         }
       }
       
-      // Success - response is set from retry loop above
-      const data = await response.json();
+      // Parse response JSON safely and check HTTP status before treating as success.
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        console.warn('[CreateParty] Failed to parse response body:', parseErr);
+        data = {};
+      }
+
+      if (!response.ok) {
+        const errMsg = data.details || data.error || `Server error (${response.status})`;
+        console.error("[CreateParty] Server returned error:", response.status, data);
+        updateStatus(`Could not create party: ${errMsg}`, true);
+        btn.disabled = false;
+        btn.textContent = "Start party";
+        return;
+      }
+
       const partyCode = data.partyCode || data.code;
       console.log("Party code received:", partyCode);
       const hostId = data.hostId; // PHASE 7: Store hostId for queue operations
 
       if (!partyCode) {
         console.error("No party code returned from server", data);
-        alert("Party created but no party code was returned");
+        updateStatus("Could not create party: no party code was returned by the server", true);
+        btn.disabled = false;
+        btn.textContent = "Start party";
         return;
       }
 
@@ -10417,15 +10437,20 @@ async function handleLogin() {
         state.userTier = result.user.tier;
         saveProfile({ djName: result.user.djName, email: result.user.email, tier: result.user.tier });
       }
-      const sessionOk = await confirmAuthSession();
-      if (sessionOk) {
-        showToast('✅ Welcome back!');
+      // Navigate immediately — auth is already confirmed by the login API response.
+      // Do not block the UI on a follow-up /api/me call.
+      const headerAuthButtons = document.getElementById('headerAuthButtons');
+      if (headerAuthButtons) headerAuthButtons.style.display = '';
+      const cachedUser = typeof getCachedUser === 'function' ? getCachedUser() : null;
+      const profileCompleted = cachedUser && cachedUser.user && cachedUser.user.profileCompleted;
+      if (!profileCompleted) {
+        setView('completeProfile');
       } else {
-        // Login API succeeded but session could not be confirmed — show visible error toast.
-        // The user remains in the authenticated flow (profile saved); they are NOT bounced
-        // to the landing page. A retry or page refresh will complete session propagation.
-        showToast('⚠️ Login succeeded but session could not be verified. Please try again or clear your cookies.');
+        setView('authHome');
       }
+      showToast('✅ Welcome back!');
+      // Refresh full profile/tier data in background without blocking the user.
+      confirmAuthSession({ skipNavigation: true }).catch((err) => console.warn('[handleLogin] Background session refresh failed:', err));
     } else {
       if (errorEl) {
         errorEl.textContent = mapAuthError(result.error, result.status);
@@ -10522,27 +10547,20 @@ async function handleSignup() {
         }
       } catch (_) { /* ignore localStorage errors */ }
 
-      // Show inline success message before navigating
-      errorEl.textContent = 'Welcome to the party 🥳';
-      errorEl.classList.remove('hidden');
-      errorEl.classList.add('success');
-      // Wait ~1.5s so the user sees the success message before the view transitions
-      await new Promise((r) => setTimeout(r, 1500));
-      const sessionOk = await confirmAuthSession();
-      if (!sessionOk) {
-        // Do not advance into authenticated views unless the server confirms the
-        // session. Keep the user on auth screens and surface a clear recovery path.
-        // NOTE: unlike initAuthFlow(), confirmAuthSession() does NOT redirect to
-        // landing — the user's profile is still in localStorage so they remain in
-        // the authenticated flow and can retry.
-        if (errorEl) {
-          errorEl.textContent = 'Account created, but we could not verify your session. Please log in to continue.';
-          errorEl.classList.remove('success');
-          errorEl.classList.remove('hidden');
-        }
-        showToast('⚠️ Account created, but your session could not be verified yet. Please log in.');
-        setView('login');
+      // Navigate immediately — auth is already confirmed by the signup API response.
+      // Do not block the UI on a follow-up /api/me call.
+      const headerAuthButtons = document.getElementById('headerAuthButtons');
+      if (headerAuthButtons) headerAuthButtons.style.display = '';
+      const cachedUser = typeof getCachedUser === 'function' ? getCachedUser() : null;
+      const profileCompleted = cachedUser && cachedUser.user && cachedUser.user.profileCompleted;
+      if (!profileCompleted) {
+        setView('completeProfile');
+      } else {
+        setView('authHome');
       }
+      showToast('✅ Welcome to the party 🥳');
+      // Refresh full profile/tier data in background without blocking the user.
+      confirmAuthSession({ skipNavigation: true }).catch((err) => console.warn('[handleSignup] Background session refresh failed:', err));
     } else {
       if (result.status === 409) {
         // Duplicate email — show "Account already exists" message and a "Log In Instead" link

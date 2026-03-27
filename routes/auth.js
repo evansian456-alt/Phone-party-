@@ -195,13 +195,14 @@ module.exports = function createAuthRouter(deps) {
             id: user.id,
             email: user.email,
             djName: user.djName,
-            isAdmin: false
+            isAdmin: false,
+            profileCompleted: user.profileCompleted || false
           }
         });
       }
 
       const result = await db.query(
-        'SELECT id, email, password_hash, dj_name, is_admin FROM users WHERE email = $1',
+        'SELECT id, email, password_hash, dj_name, is_admin, profile_completed FROM users WHERE email = $1',
         [email.toLowerCase()]
       );
 
@@ -251,7 +252,8 @@ module.exports = function createAuthRouter(deps) {
           id: user.id,
           email: user.email,
           djName: user.dj_name,
-          isAdmin: user.is_admin
+          isAdmin: user.is_admin,
+          profileCompleted: user.profile_completed || false
         }
       });
     } catch (error) {
