@@ -3198,100 +3198,9 @@ async function startServer() {
   console.log(`   Port: ${PORT}`);
   console.log(`   Version: ${APP_VERSION}`);
   console.log(`   Strict production mode: ${strictProductionMode}`);
-  
-  // Initialize database schema
-  console.log("⏳ Initializing database...");
-  try {
-    const dbHealth = await db.healthCheck();
-    if (dbHealth.healthy) {
-      console.log("✅ Database connected successfully");
-      await db.initializeSchema();
-      console.log("✅ Database schema initialized");
-      dbReady = true;
-    } else {
-      console.warn(`⚠️  Database health check failed: ${dbHealth.error}`);
-      console.warn("   Authentication features will not be available");
-    }
-  } catch (err) {
-    console.warn(`⚠️  Database initialization error: ${err.message}`);
-    console.warn("   Authentication features will not be available");
-  }
-  
-  // Wait for Redis to be ready (with timeout)
-  if (redis) {
-    console.log("Connecting to Redis...");
-    try {
-      await waitForRedis(15000); // 15 second timeout
-      console.log("Redis ready");
-    } catch (err) {
-      console.warn(`Redis connection timeout: ${err.message}`);
-      
-      if (strictProductionMode) {
-        console.error("");
-        console.error("╔═══════════════════════════════════════════════════════════════╗");
-        console.error("║  ❌ REFUSING TO START: Redis required in production           ║");
-        console.error("╟───────────────────────────────────────────────────────────────╢");
-        console.error("║  Redis did not become ready within the startup timeout.      ║");
-        console.error("║                                                               ║");
-        console.error("║  LIKELY CAUSES:                                               ║");
-        console.error("║  1. REDIS_URL not set or incorrect                           ║");
-        console.error("║  2. Redis service not running on Railway                     ║");
-        console.error("║  3. Network/firewall blocking connection                     ║");
-        console.error("║  4. TLS configuration mismatch (rediss:// required?)         ║");
-        console.error("║  5. Authentication failed (wrong password)                   ║");
-        console.error("║                                                               ║");
-        console.error("║  DIAGNOSTICS:                                                 ║");
-        console.error(`║  • Check /api/debug/redis for details                         ║`);
-        console.error(`║  • Check /api/health for readiness status                     ║`);
-        console.error(`║  • Error type: ${redisConnectionError ? getRedisErrorType(redisConnectionError).padEnd(30) : 'none'.padEnd(30)}           ║`);
-        console.error("║                                                               ║");
-        console.error("║  To allow startup without Redis (not recommended):           ║");
-        console.error("║  Set ALLOW_FALLBACK_IN_PRODUCTION=true                       ║");
-        console.error("╚═══════════════════════════════════════════════════════════════╝");
-        console.error("");
-        console.error("Refusing to start: Redis not ready in production (connection timeout)");
-        process.exit(1);
-      } else if (IS_PRODUCTION) {
-        console.warn("Redis not ready, continuing in fallback mode");
-        useFallbackMode = true;
-      } else {
-        console.warn("Redis not ready, continuing in fallback mode");
-        useFallbackMode = true;
-      }
-    }
-  } else {
-    console.warn("⚠️  Redis not configured - no REDIS_URL set");
-    useFallbackMode = true;
-    
-    if (strictProductionMode) {
-      console.error("");
-      console.error("╔═══════════════════════════════════════════════════════════════╗");
-      console.error("║  ❌ REFUSING TO START: Redis not configured in production     ║");
-      console.error("╟───────────────────────────────────────────────────────────────╢");
-      console.error("║  Set REDIS_URL environment variable and restart              ║");
-      console.error("║  Check /api/debug/redis for diagnostics                      ║");
-      console.error("║                                                               ║");
-      console.error("║  To allow startup without Redis (not recommended):           ║");
-      console.error("║  Set ALLOW_FALLBACK_IN_PRODUCTION=true                       ║");
-      console.error("╚═══════════════════════════════════════════════════════════════╝");
-      console.error("");
-      console.error("Refusing to start: Redis not configured in production (REDIS_URL missing)");
-      process.exit(1);
-    } else {
-      console.warn("Starting in fallback mode - parties stored locally (single-instance)");
-    }
-  }
-  
-  // Initialize storage provider
-  console.log("⏳ Initializing storage provider...");
-  try {
-    await initializeStorage();
-    console.log("✅ Storage provider ready");
-  } catch (err) {
-    console.error(`❌ Storage initialization failed: ${err.message}`);
-    console.warn("   Continuing without storage – file upload features will be unavailable");
-  }
-  
+
+  // Start listening immediately so Cloud Run detects port 8080 without delay.
+  // Database, Redis, and storage are initialised in the background below.
   server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`HTTP server listening on port ${PORT}`);
     console.log(`   Instance ID: ${INSTANCE_ID}`);
@@ -3450,7 +3359,104 @@ async function startServer() {
       server.once('error', reject);
     });
   }
-  
+
+  // Background initialisation — runs after port is bound so Cloud Run does not
+  // time out waiting for port 8080. Redis / DB / storage readiness is tracked
+  // via the existing redisReady / dbReady flags checked throughout the app.
+  ;(async () => {
+    // Initialize database schema
+    console.log("⏳ Initializing database...");
+    try {
+      const dbHealth = await db.healthCheck();
+      if (dbHealth.healthy) {
+        console.log("✅ Database connected successfully");
+        await db.initializeSchema();
+        console.log("✅ Database schema initialized");
+        dbReady = true;
+      } else {
+        console.warn(`⚠️  Database health check failed: ${dbHealth.error}`);
+        console.warn("   Authentication features will not be available");
+      }
+    } catch (err) {
+      console.warn(`⚠️  Database initialization error: ${err.message}`);
+      console.warn("   Authentication features will not be available");
+    }
+
+    // Wait for Redis to be ready (with timeout)
+    if (redis) {
+      console.log("Connecting to Redis...");
+      try {
+        await waitForRedis(15000); // 15 second timeout
+        console.log("Redis ready");
+      } catch (err) {
+        console.warn(`Redis connection timeout: ${err.message}`);
+
+        if (strictProductionMode) {
+          console.error("");
+          console.error("╔═══════════════════════════════════════════════════════════════╗");
+          console.error("║  ❌ REFUSING TO START: Redis required in production           ║");
+          console.error("╟───────────────────────────────────────────────────────────────╢");
+          console.error("║  Redis did not become ready within the startup timeout.      ║");
+          console.error("║                                                               ║");
+          console.error("║  LIKELY CAUSES:                                               ║");
+          console.error("║  1. REDIS_URL not set or incorrect                           ║");
+          console.error("║  2. Redis service not running on Railway                     ║");
+          console.error("║  3. Network/firewall blocking connection                     ║");
+          console.error("║  4. TLS configuration mismatch (rediss:// required?)         ║");
+          console.error("║  5. Authentication failed (wrong password)                   ║");
+          console.error("║                                                               ║");
+          console.error("║  DIAGNOSTICS:                                                 ║");
+          console.error(`║  • Check /api/debug/redis for details                         ║`);
+          console.error(`║  • Check /api/health for readiness status                     ║`);
+          console.error(`║  • Error type: ${redisConnectionError ? getRedisErrorType(redisConnectionError).padEnd(30) : 'none'.padEnd(30)}           ║`);
+          console.error("║                                                               ║");
+          console.error("║  To allow startup without Redis (not recommended):           ║");
+          console.error("║  Set ALLOW_FALLBACK_IN_PRODUCTION=true                       ║");
+          console.error("╚═══════════════════════════════════════════════════════════════╝");
+          console.error("");
+          console.error("Refusing to start: Redis not ready in production (connection timeout)");
+          server.close(() => process.exit(1));
+        } else {
+          console.warn("Redis not ready, continuing in fallback mode");
+          useFallbackMode = true;
+        }
+      }
+    } else {
+      console.warn("⚠️  Redis not configured - no REDIS_URL set");
+      useFallbackMode = true;
+
+      if (strictProductionMode) {
+        console.error("");
+        console.error("╔═══════════════════════════════════════════════════════════════╗");
+        console.error("║  ❌ REFUSING TO START: Redis not configured in production     ║");
+        console.error("╟───────────────────────────────────────────────────────────────╢");
+        console.error("║  Set REDIS_URL environment variable and restart              ║");
+        console.error("║  Check /api/debug/redis for diagnostics                      ║");
+        console.error("║                                                               ║");
+        console.error("║  To allow startup without Redis (not recommended):           ║");
+        console.error("║  Set ALLOW_FALLBACK_IN_PRODUCTION=true                       ║");
+        console.error("╚═══════════════════════════════════════════════════════════════╝");
+        console.error("");
+        console.error("Refusing to start: Redis not configured in production (REDIS_URL missing)");
+        server.close(() => process.exit(1));
+      } else {
+        console.warn("Starting in fallback mode - parties stored locally (single-instance)");
+      }
+    }
+
+    // Initialize storage provider
+    console.log("⏳ Initializing storage provider...");
+    try {
+      await initializeStorage();
+      console.log("✅ Storage provider ready");
+    } catch (err) {
+      console.error(`❌ Storage initialization failed: ${err.message}`);
+      console.warn("   Continuing without storage – file upload features will be unavailable");
+    }
+  })().catch(err => {
+    console.error('[Startup] Background initialization error:', err.message, err.stack);
+  });
+
   return server;
 }
 
