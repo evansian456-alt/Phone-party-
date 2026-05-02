@@ -3415,7 +3415,7 @@ async function startServer() {
           console.error("╚═══════════════════════════════════════════════════════════════╝");
           console.error("");
           console.error("Refusing to start: Redis not ready in production (connection timeout)");
-          process.exit(1);
+          server.close(() => process.exit(1));
         } else {
           console.warn("Redis not ready, continuing in fallback mode");
           useFallbackMode = true;
@@ -3438,7 +3438,7 @@ async function startServer() {
         console.error("╚═══════════════════════════════════════════════════════════════╝");
         console.error("");
         console.error("Refusing to start: Redis not configured in production (REDIS_URL missing)");
-        process.exit(1);
+        server.close(() => process.exit(1));
       } else {
         console.warn("Starting in fallback mode - parties stored locally (single-instance)");
       }
@@ -3454,7 +3454,7 @@ async function startServer() {
       console.warn("   Continuing without storage – file upload features will be unavailable");
     }
   })().catch(err => {
-    console.error('[Startup] Background initialization error:', err.message);
+    console.error('[Startup] Background initialization error:', err.message, err.stack);
   });
 
   return server;
