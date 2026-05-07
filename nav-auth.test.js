@@ -19,10 +19,22 @@ Object.defineProperty(window, 'history', {
 });
 
 // ── Stub WebSocket (connectWS opens one at startup) ──────────────────────────
+// Simulates a real WebSocket: starts in CONNECTING state and transitions to OPEN
+// in a microtask, then fires onopen — mirroring actual browser WebSocket behavior.
 global.WebSocket = class {
-  constructor() { this.readyState = 0; }
+  constructor() {
+    this.readyState = 0; // WebSocket.CONNECTING
+    Promise.resolve().then(() => {
+      this.readyState = 1; // WebSocket.OPEN
+      if (typeof this.onopen === 'function') this.onopen();
+    });
+  }
   send() {} close() {} addEventListener() {} removeEventListener() {}
 };
+global.WebSocket.OPEN = 1;
+global.WebSocket.CONNECTING = 0;
+global.WebSocket.CLOSING = 2;
+global.WebSocket.CLOSED = 3;
 
 // ── Stub cross-file globals (live in other <script> tags in the real page) ───
 // API_BASE is defined in config.js (loaded separately in the browser) — provide
@@ -226,6 +238,7 @@ const {
   setView,
   initAuthFlow,
   confirmAuthSession,
+  state,
 } = appModule;
 
 // ── DOM helpers ───────────────────────────────────────────────────────────────
@@ -713,5 +726,46 @@ describe('confirmAuthSession() — post-login session confirmation', () => {
     setView('createJoin');
     expect(isVisible('viewHome')).toBe(true);
     expect(isVisible('viewLanding')).toBe(false);
+  });
+
+  test('establishes WebSocket connection immediately when /api/me succeeds', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({
+        user: { id: '1', djName: 'DJ Test', email: 'test@test.com', profileCompleted: true },
+        tier: 'FREE',
+        effectiveTier: 'FREE',
+        isAdmin: false,
+      }),
+    });
+    // Ensure no pre-existing connection
+    state.ws = null;
+    const result = await confirmAuthSession();
+    expect(result).toBe(true);
+    // WebSocket should have been opened immediately after session confirmation
+    expect(state.ws).not.toBeNull();
+    expect(state.ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  test('does not open a duplicate WebSocket when one is already connected', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({
+        user: { id: '1', djName: 'DJ Test', email: 'test@test.com', profileCompleted: true },
+        tier: 'FREE',
+        effectiveTier: 'FREE',
+        isAdmin: false,
+      }),
+    });
+    // Simulate an already-open WebSocket
+    const existingWs = { readyState: WebSocket.OPEN };
+    state.ws = existingWs;
+    await confirmAuthSession();
+    // The existing WebSocket object must not be replaced
+    expect(state.ws).toBe(existingWs);
   });
 });
